@@ -196,6 +196,7 @@ function newGame() {
     wind: 0, camHold: 0, camLast: 0, camFocus: null, lastShot: null, slow: 0, shake: 0, hint: true,
     nextT: 0, t: 0, reload: 0, overT: 0, banner: null, power: null, marchers: [], marchQ: [], marchT: 0, allies: [], allyQ: 0, allyT: 0, gateCD: 0, gateOpen: 0, gateHint: true, overReason: null, barrier: null, bolts: [], rings: [], glows: [], fires: [], flashA: 0, flashC: '#fff', tornados: [], holes: [], weather: 'clear', combo: 0, stormT: 0, windT: 0, boltT: 8 };
   st.P = mkArcher(0, rand(140, 175), 1, 100, true, 72);
+  try { const q = new URLSearchParams(location.search), lv = +q.get('lv'); if (lv > 1) st.level = Math.min(99, Math.floor(lv)); if (q.has('debug')) window.__sd = { get st() { return st; }, step(n, dt = 1 / 60) { for (let i = 0; i < n; i++) if (!st.shop && !st.clockOpen) update(dt); draw(); }, fire(ang, v, pk) { fire(st.P, ang, v, pk); } }; } catch (e) {}
   spawnLevel(true);
   camX = homeCam();
 }
@@ -222,7 +223,7 @@ function spawnLevel(first) {
     const e = mkArcher(xs[i], rand(60, 205), -1, hp, false, 54);
     e.name = boss ? 'BOSS' : NAMES[(lv * 3 + i) % NAMES.length];
     e.boss = boss; e.chops = []; e.kind = 'archer';
-    if (boss) { e.ship = { baseX: Math.min(xs[i], 1100), baseH: rand(110, 130), ph: rand(0, 6) }; e.h = e.ship.baseH; e.pw = 70; }
+    if (boss) { const bx = Math.min(xs[i], 1100); e.ship = { baseX: bx, ph: rand(0, 6), tx: bx, th: 120, vx: 0, vh: 0, wT: 0, leak: 0, puffT: 0, sinking: false, down: false }; e.x = bx; e.h = rand(110, 130); e.pw = 70; }
     else if (lv >= 3) {
       const r = Math.random();
       if (lv >= 5 && n >= 2 && r < .14 && !st.enemies.some(o => o.kind === 'healer')) e.kind = 'healer';
@@ -1149,6 +1150,59 @@ function drawMarcher(m) {
   }
 }
 
+/* ---------- boss airship: wanders at random, leaks when the balloon is hit, crash-lands ---------- */
+const LEAK_MAX = 6, SHIP_LANDED = 24;
+const shipXRange = E => [Math.max(st.P.x + 430, E.ship.baseX - 260), Math.max(st.P.x + 480, E.ship.baseX + 260)];
+function shipStep(E, dt) {
+  const S = E.ship;
+  if (S.down) return;
+  if (S.leak > 0) {
+    S.puffT -= dt;
+    if (S.puffT <= 0) {
+      S.puffT = Math.max(.05, .5 - S.leak * .07);
+      const f = feet(E), a = rand(0, 6.283);
+      P_(f.x + Math.cos(a) * 60, f.y - 140 + Math.sin(a) * 30, Math.cos(a) * 90, Math.sin(a) * 50 - 30, .6, rand(3, 5), 'rgba(230,220,230,.7)', 'smoke');
+    }
+  }
+  if (S.sinking) {
+    // slow fall with a gentle sway until the gondola hits the ground
+    E.h -= (12 + S.leak * 2) * dt;
+    E.x += Math.sin(st.t * 1.3 + S.ph) * 18 * dt;
+    if (E.h <= SHIP_LANDED) crashShip(E);
+    return;
+  }
+  const [lo, hi] = shipXRange(E), ceil = Math.max(80, 170 - S.leak * 15), slow = 1 - S.leak * .09;
+  S.wT -= dt;
+  if (S.wT <= 0 || (Math.abs(S.tx - E.x) < 10 && Math.abs(S.th - E.h) < 6)) {
+    S.tx = rand(lo, hi); S.th = rand(70, ceil); S.wT = rand(1.8, 4.5);
+  }
+  S.th = Math.min(S.th, ceil); S.tx = clamp(S.tx, lo, hi);
+  S.vx += clamp((S.tx - E.x) * 1.1 - S.vx * 1.5, -70, 70) * dt;
+  S.vh += clamp((S.th - E.h) * 1.1 - S.vh * 1.5, -45, 45) * dt;
+  S.vx = clamp(S.vx, -75 * slow, 75 * slow); S.vh = clamp(S.vh, -38 * slow, 38 * slow);
+  E.x += S.vx * dt; E.h += S.vh * dt + Math.sin(st.t * .9 + S.ph) * 5 * dt;
+  if (E.h > ceil + 4) E.h -= (E.h - ceil) * Math.min(1, dt * 2);
+}
+function hitBalloon(E, ar) {
+  const S = E.ship, d = ar.pk === 'boom' ? 30 : 8;
+  E.hp -= d; E.hitT = .1;
+  S.leak = Math.min(LEAK_MAX, S.leak + (ar.pk === 'boom' ? 2 : 1));
+  text(ar.x, ar.y - 10, 'BALLOON -' + d, '#ffd27a', 14, .8);
+  if (S.leak >= LEAK_MAX && !S.sinking) {
+    S.sinking = true; S.vx = 0; S.vh = 0;
+    text(feet(E).x, feet(E).y - 190, 'GOING DOWN!', '#ffd27a', 20, 1.6); sfx('whoosh');
+  } else if (!S.sinking) text(feet(E).x, feet(E).y - 190, 'LEAKING ' + S.leak + '/' + LEAK_MAX, '#e8d3ac', 13, 1);
+}
+function crashShip(E) {
+  const S = E.ship, f = feet(E);
+  S.down = true; S.sinking = false; E.h = SHIP_LANDED;
+  shake(11); sfx('boom');
+  for (let q = 0; q < 30; q++) P_(f.x + rand(-60, 90), -6, rand(-160, 160), rand(-240, -40), rand(.6, 1.1), rand(4, 8), 'rgba(200,180,150,.8)', 'smoke');
+  E.hp -= 25; E.hitT = .25;
+  text(f.x, f.y - 130, 'CRASH! -25', '#ffd27a', 22, 1.6);
+  if (E.hp <= 0) kill(E, { vx: 1, owner: st.P }, 'body');
+}
+
 /* ---------- update ---------- */
 function update(rdt) {
   const dt = rdt * (st.slow > 0 ? .3 : 1) * (st.timeScale || 1);
@@ -1164,7 +1218,7 @@ function update(rdt) {
       if (Math.random() < .5) { const f = feet(E); P_(f.x + rand(-8, 8), f.y - rand(30, 90), rand(-20, 20), rand(-90, -30), .45, rand(2.4, 4), Math.random() < .5 ? '#ff9a45' : '#ffd27a', 'flame'); }
       if (E.hp <= 0) kill(E, { vx: -1 }, 'body');
     }
-    if (E.ship && !E.dead) { E.x = E.ship.baseX + Math.sin(st.t * .35 + E.ship.ph) * 140; E.h = E.ship.baseH + Math.sin(st.t * .9) * 10; }
+    if (E.ship && !E.dead) shipStep(E, dt);
     if (E.topple) updateTopple(E, dt);
     if (E.slowT > 0) { E.slowT -= dt; if (E.slowT <= 0) { E.slowM = 1; if (!E.dead) text(feet(E).x, feet(E).y - 130, 'SPEED BACK', '#7ad7ff', 12, .8); } }
     if (E.frozen > 0) { E.frozen -= dt; continue; }
@@ -1286,11 +1340,11 @@ function update(rdt) {
       if (ar.owner.isP) {
         if (coverHit(ar)) break;
         for (const E of st.enemies) {
-          if (E.ship && !E.dead && !ar.done) {
-            const f = feet(E), bx = (ar.x - f.x) / 70, by = (ar.y - (f.y - 140)) / 38;
+          if (E.ship && !E.ship.down && !E.dead && !ar.done) {
+            const f = feet(E), bx = (ar.x - f.x) / 70, by = (ar.y - (f.y - 140)) / (38 * balloonSquash(E));
             if (bx * bx + by * by < 1) {
-              ar.done = true; const d = ar.pk === 'boom' ? 30 : 8; E.hp -= d; E.hitT = .1;
-              text(ar.x, ar.y - 10, 'BALLOON -' + d, '#ffd27a', 14, .8); impactFX(ar, ar.x, ar.y, true); sfx('hit');
+              ar.done = true;
+              hitBalloon(E, ar); impactFX(ar, ar.x, ar.y, true); sfx('hit');
               for (let q = 0; q < 8; q++) P_(ar.x, ar.y, rand(-120, 120), rand(-120, 40), .4, 2.2, '#d4322c', 'spark');
               if (E.hp <= 0) kill(E, ar, 'body');
               break;
@@ -1514,20 +1568,34 @@ function drawChops(a) {
     ctx.beginPath(); ctx.moveTo(x0 + d, y); ctx.lineTo(x0 + d + 10 * sc * c.n, y - 6 * sc); ctx.moveTo(x0 + d, y); ctx.lineTo(x0 + d + 8 * sc * c.n, y + 7 * sc); ctx.stroke();
   }
 }
+function balloonSquash(a) { return a.ship ? 1 - (a.ship.leak || 0) * .06 : 1; }
 function drawShip(a) {
-  const f = feet(a);
-  if (SX(f.x) < -150 || SX(f.x) > W + 150) return;
+  const f = feet(a), S = a.ship;
+  if (SX(f.x) < -170 || SX(f.x) > W + 170) return;
   ctx.save(); ctx.translate(SX(f.x), SY(f.y)); ctx.scale(sc, sc); ctx.rotate(a.rot * .5);
-  // balloon
-  const bg = ctx.createLinearGradient(-70, -180, 70, -100);
-  bg.addColorStop(0, '#e24a3a'); bg.addColorStop(1, '#8a1f1c');
-  ctx.fillStyle = bg; ctx.beginPath(); ctx.ellipse(0, -140, 70, 38, 0, 0, 6.283); ctx.fill();
-  ctx.strokeStyle = 'rgba(255,220,180,.35)'; ctx.lineWidth = 2;
-  for (const k of [-40, 0, 40]) { ctx.beginPath(); ctx.ellipse(k * .5, -140, Math.abs(k) * .6 + 8, 37, 0, 0, 6.283); ctx.stroke(); }
-  ctx.fillStyle = '#ffd27a'; ctx.fillRect(-70, -142, 140, 4);
-  // ropes
-  ctx.strokeStyle = '#3a2a1c'; ctx.lineWidth = 1.5;
-  for (const k of [-30, -10, 10, 30]) { ctx.beginPath(); ctx.moveTo(k * 1.3, -108); ctx.lineTo(k, 0); ctx.stroke(); }
+  if (S.down) {
+    // crashed: deflated balloon draped on the ground beside the gondola
+    ctx.fillStyle = '#8a1f1c'; ctx.beginPath(); ctx.ellipse(78, 20, 62, 7, .04, 0, 6.283); ctx.fill();
+    ctx.fillStyle = '#e24a3a'; ctx.beginPath(); ctx.ellipse(70, 17, 46, 5, .04, 0, 6.283); ctx.fill();
+    ctx.strokeStyle = '#3a2a1c'; ctx.lineWidth = 1.5;
+    for (const k of [-20, 0, 20]) { ctx.beginPath(); ctx.moveTo(k, 2); ctx.quadraticCurveTo(k + 20, -6, 30 + k * .5, 16); ctx.stroke(); }
+  } else {
+    // balloon (sags as it leaks)
+    const q = balloonSquash(a), ry = 38 * q, cy = -140 + (38 - ry) * .6;
+    const bg = ctx.createLinearGradient(-70, cy - ry, 70, cy + ry);
+    bg.addColorStop(0, '#e24a3a'); bg.addColorStop(1, '#8a1f1c');
+    ctx.fillStyle = bg; ctx.beginPath(); ctx.ellipse(0, cy, 70 - (1 - q) * 30, ry, 0, 0, 6.283); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,220,180,.35)'; ctx.lineWidth = 2;
+    for (const k of [-40, 0, 40]) { ctx.beginPath(); ctx.ellipse(k * .5 * q, cy, Math.abs(k) * .6 * q + 8, ry - 1, 0, 0, 6.283); ctx.stroke(); }
+    ctx.fillStyle = '#ffd27a'; ctx.fillRect(-70 + (1 - q) * 30, cy - 2, 140 - (1 - q) * 60, 4);
+    // patches where it has been hit
+    ctx.fillStyle = '#3a1410';
+    for (let k = 0; k < (S.leak || 0); k++) { const pa = hash(k * 5.1 + 1) * 6.283; ctx.beginPath(); ctx.arc(Math.cos(pa) * 44 * q, cy + Math.sin(pa) * ry * .6, 3.5, 0, 6.283); ctx.fill(); }
+    // ropes
+    ctx.strokeStyle = '#3a2a1c'; ctx.lineWidth = 1.5;
+    for (const k of [-30, -10, 10, 30]) { ctx.beginPath(); ctx.moveTo(k * 1.3 * q, cy + ry - 2); ctx.lineTo(k, 0); ctx.stroke(); }
+    if (S.sinking && Math.sin(st.t * 10) > 0) { ctx.font = '700 11px Silkscreen, monospace'; ctx.textAlign = 'center'; ctx.fillStyle = '#ffd27a'; ctx.fillText('▼ GOING DOWN', 0, cy - ry - 10); }
+  }
   // gondola
   ctx.fillStyle = '#7a5230'; ctx.beginPath(); ctx.moveTo(-36, 0); ctx.lineTo(36, 0); ctx.lineTo(28, 24); ctx.lineTo(-28, 24); ctx.closePath(); ctx.fill();
   ctx.strokeStyle = '#4a3018'; ctx.lineWidth = 1.5;
