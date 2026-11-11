@@ -1,0 +1,7 @@
+# only the playable pages are published
+*
+!index.html
+!solo.html
+!README.md
+!.gitignore
+!.nojekyll
