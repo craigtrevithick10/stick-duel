@@ -165,12 +165,13 @@ const POWERS = {
   blackhole:{ name: 'BLACK HOLE', short: 'VOID',   col: '#b07cff', shots: 1, ultra: true }
 };
 
-let W = 0, H = 0, DPR = 1, sc = 1, camX = 0, forcePortrait = false;
+let W = 0, H = 0, DPR = 1, sc = 1, camX = 0, camY = 0, scBase = 1, zoom = 1, forcePortrait = false;
+try { const z = +localStorage.getItem('stickZoom'); if (z >= .5 && z <= 1.8) zoom = z; } catch (e) {}
 let st = null, running = false, paused = false, last = 0, best = 0, uid = 0;
 try { best = +localStorage.getItem('stickDuelBest') || 0; } catch (e) {}
 
 const GROUND = 30;
-const SX = x => (x - camX) * sc, SY = y => H - GROUND + y * sc;
+const SX = x => (x - camX) * sc, SY = y => H - GROUND + camY + y * sc;
 const homeCam = () => st.P.x - (W / sc) * .2 - (st.helpers ? st.helpers.length * 45 : 0);
 const show = (id, on) => { $(id).hidden = !on; };
 
@@ -179,7 +180,7 @@ function resize() {
   const r = cv.getBoundingClientRect();
   W = r.width; H = r.height;
   cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
-  sc = Math.min((H - GROUND) / 345, W / 470);
+  scBase = Math.min((H - GROUND) / 345, W / 470); sc = scBase * zoom;
   if (st) camX = homeCam();
 }
 
@@ -328,7 +329,7 @@ function spawnGadgets() {
     st.gadgets.push({ id: ++uid, type: 'crate', x, y, tx: x, ty: y, pk, bob: rand(0, 6) });
   }
 }
-const topY = () => -(H - GROUND) / sc + 8;
+const topY = () => -(H - GROUND) / scBase + 8;
 const attachY = g => g.y - (g.type === 'fan' ? 30 : 33);
 const BTN_W = 20, BTN_H = 11;
 const halfH = g => ({ fan: 45, win: 50, bounce: 24, magnet: 32, bell: 30, clock: 20 })[g.type] || 40;
@@ -1536,10 +1537,10 @@ function drawBG() {
     ctx.fillRect(x, y, s2.r, s2.r);
   }
   // ground with grass tufts
-  const gy = H - GROUND;
+  const gy = H - GROUND + camY;
   const gg = ctx.createLinearGradient(0, gy, 0, H);
   gg.addColorStop(0, '#3a2a48'); gg.addColorStop(1, '#1c1424');
-  ctx.fillStyle = gg; ctx.fillRect(0, gy, W, GROUND);
+  ctx.fillStyle = gg; ctx.fillRect(0, gy, W, H - gy);
   ctx.strokeStyle = '#2a1e38'; ctx.lineWidth = 1.6;
   const gs = 9 * sc, startG = Math.floor(camX / 9);
   for (let k = startG; k < startG + W / gs + 2; k++) {
@@ -1806,7 +1807,7 @@ function drawWeakSpot(g) {
 function drawPads(g) {
   const x = SX(g.x);
   ctx.strokeStyle = 'rgba(30,20,30,.75)'; ctx.lineWidth = 1.5;
-  if (!g.falling) { ctx.beginPath(); ctx.moveTo(x, SY(topY()) - 4 * sc); ctx.lineTo(x, SY(g.y - halfH(g) - BTN_H - 2)); ctx.stroke(); drawWeakSpot(g); }
+  if (!g.falling) { ctx.beginPath(); ctx.moveTo(x, -10); ctx.lineTo(x, SY(g.y - halfH(g) - BTN_H - 2)); ctx.stroke(); drawWeakSpot(g); }
   const warn = g.hold <= 0 && g.relocT < 1.4 && Math.sin(st.t * 22) > 0;
   for (const p of padsOf(g)) {
     const bx = SX(p.x0), by = SY(p.y0);
@@ -1888,7 +1889,7 @@ function drawGadget(g) {
     drawPads(g); return;
   }
   if (g.type === 'clock') {
-    if (!g.falling) { ctx.strokeStyle = 'rgba(30,20,30,.75)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(x, SY(topY()) - 4 * sc); ctx.lineTo(x, SY(g.y - 20)); ctx.stroke(); drawWeakSpot(g); }
+    if (!g.falling) { ctx.strokeStyle = 'rgba(30,20,30,.75)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(x, -10); ctx.lineTo(x, SY(g.y - 20)); ctx.stroke(); drawWeakSpot(g); }
     const r = 18 * sc;
     ctx.fillStyle = 'rgba(255,210,122,.25)'; ctx.beginPath(); ctx.arc(x, y, r * 1.7, 0, 6.283); ctx.fill();
     ctx.fillStyle = '#3a2a1c'; ctx.beginPath(); ctx.arc(x, y, r + 3 * sc, 0, 6.283); ctx.fill();
@@ -1902,7 +1903,7 @@ function drawGadget(g) {
     return;
   }
   if (g.type === 'bell') {
-    if (!g.falling) { ctx.strokeStyle = 'rgba(30,20,30,.75)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(x, SY(topY()) - 4 * sc); ctx.lineTo(x, SY(g.y - 30)); ctx.stroke(); drawWeakSpot(g); }
+    if (!g.falling) { ctx.strokeStyle = 'rgba(30,20,30,.75)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(x, -10); ctx.lineTo(x, SY(g.y - 30)); ctx.stroke(); drawWeakSpot(g); }
     ctx.save(); ctx.translate(x, SY(g.y - 30)); ctx.rotate(Math.sin(st.t * 14) * .35 * g.swing);
     const bg2 = ctx.createLinearGradient(-22 * sc, 0, 22 * sc, 0);
     bg2.addColorStop(0, '#f6d27a'); bg2.addColorStop(1, '#a8741c');
@@ -2018,7 +2019,7 @@ function drawInset() {
   bg.addColorStop(0, '#3e3766'); bg.addColorStop(.6, '#a0587a'); bg.addColorStop(1, '#ea8a5e');
   ctx.fillStyle = bg; ctx.fillRect(x0, y0, w, h);
   ctx.beginPath(); ctx.rect(x0, y0, w, h); ctx.clip();
-  const oc = camX, os = sc;
+  const oc = camX, os = sc, oy = camY; camY = 0;
   sc = h / (P.h + 105); camX = P.x - (w / sc) * .55;
   ctx.translate(x0, y0 + h - 6 - (H - GROUND));
   ctx.fillStyle = '#2a1e34'; ctx.fillRect(0, H - GROUND, w, 40);
@@ -2031,7 +2032,7 @@ function drawInset() {
     if (Math.abs(ar.x - P.x) > 600) continue;
     ctx.save(); ctx.translate(SX(ar.x), SY(ar.y)); ctx.scale(sc, sc); ctx.rotate(Math.atan2(ar.vy, ar.vx)); drawArrowShape(34, ar.col); ctx.restore();
   }
-  camX = oc; sc = os;
+  camX = oc; sc = os; camY = oy;
   ctx.restore();
   ctx.save(); ctx.globalAlpha = st.insetA;
   const warn = incoming && Math.sin(st.t * 16) > 0;
@@ -2233,6 +2234,7 @@ function draw() {
   if (st.flashA > 0) { ctx.fillStyle = `rgba(${st.flashC},${st.flashA.toFixed(3)})`; ctx.fillRect(0, 0, W, H); }
   drawInset();
   if (running) drawHUD();
+  drawZoomNote();
 }
 function drawVortices() {
   for (const T of st.tornados) {
@@ -2416,11 +2418,66 @@ function frame(ts) {
   const portrait = running && H > W && !forcePortrait;
   if ($('rotateScreen').hidden === portrait) show('rotateScreen', portrait);
   if (running && !paused && !portrait && !(st && (st.shop || st.clockOpen))) update(dt);
+  camY += (camYTarget() - camY) * Math.min(1, dt * 6);
   draw();
   requestAnimationFrame(frame);
 }
 
 /* ---------- input ---------- */
+/* ---------- pinch with two fingers (or the mouse wheel) to zoom in and out ---------- */
+const ZMIN = .5, ZMAX = 1.8, fingers = new Map();
+let pinch = null, pinchLock = false, zoomShowT = 0;
+function setZoom(z, cx) {
+  z = clamp(z, ZMIN, ZMAX); if (Math.abs(z - zoom) < .001) return;
+  const wx = camX + cx / sc; zoom = z; sc = scBase * zoom; camX = wx - cx / sc; zoomShowT = performance.now();
+  try { localStorage.setItem('stickZoom', zoom.toFixed(2)); } catch (e) {}
+}
+const twoFingers = () => [...fingers.values()].slice(0, 2);
+// these run before the aiming handlers; while two fingers are down they swallow the touches so nothing fires
+cv.addEventListener('pointerdown', e => {
+  if (e.isPrimary) { fingers.clear(); pinch = null; pinchLock = false; }
+  fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (fingers.size >= 2) {
+    if (!pinch) { const [a, b] = twoFingers(); pinch = { d0: Math.max(20, Math.hypot(a.x - b.x, a.y - b.y)), z0: zoom }; pinchLock = true; cancelAim(); }
+    e.stopImmediatePropagation();
+  } else if (pinchLock) e.stopImmediatePropagation();
+}, true);
+cv.addEventListener('pointermove', e => {
+  if (!fingers.has(e.pointerId)) return;
+  fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pinch && fingers.size >= 2) {
+    const [a, b] = twoFingers(), r = cv.getBoundingClientRect();
+    setZoom(pinch.z0 * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d0, (a.x + b.x) / 2 - r.left);
+  }
+  if (pinchLock) e.stopImmediatePropagation();
+}, true);
+function fingerUp(e) {
+  fingers.delete(e.pointerId);
+  if (fingers.size < 2) pinch = null;
+  const locked = pinchLock;
+  if (!fingers.size) pinchLock = false;
+  if (locked) e.stopImmediatePropagation();
+}
+cv.addEventListener('pointerup', fingerUp, true);
+cv.addEventListener('pointercancel', fingerUp, true);
+cv.addEventListener('wheel', e => { e.preventDefault(); const r = cv.getBoundingClientRect(); setZoom(zoom * Math.exp(-e.deltaY * .0015), e.clientX - r.left); }, { passive: false });
+document.addEventListener('gesturestart', e => e.preventDefault());
+// zoomed in: slide the view up so your archer stays on screen (never shows below the ground)
+function camYTarget() {
+  if (!st) return 0;
+  const P = st.P, yF = P && !P.dead && P.inLevel !== false ? -(P.h + 95) : -230;
+  return Math.max(0, H * .3 - (H - GROUND + yF * sc));
+}
+function drawZoomNote() {
+  const k = 1 - (performance.now() - zoomShowT) / 900;
+  if (k <= 0) return;
+  ctx.globalAlpha = Math.min(1, k * 2); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = '700 16px Silkscreen, monospace'; ctx.fillStyle = 'rgba(20,10,30,.6)'; ctx.fillText('ZOOM ' + zoom.toFixed(1) + '×', W / 2 + 1, H * .62 + 2);
+  ctx.fillStyle = '#f6eedf'; ctx.fillText('ZOOM ' + zoom.toFixed(1) + '×', W / 2, H * .62);
+  ctx.globalAlpha = 1;
+}
+function cancelAim() { drag = null; if (st) st.P.pow = 0; }
+
 let drag = null;
 cv.addEventListener('pointerdown', e => {
   if (!running || paused || st.P.dead) return;
@@ -2455,7 +2512,7 @@ function release() {
   }
   drag = null;
 }
-cv.addEventListener('pointerup', release);
+cv.addEventListener('pointerup', e => { if (drag && e.pointerId === drag.id) release(); });
 cv.addEventListener('pointercancel', () => { drag = null; if (st) st.P.pow = 0; });
 
 /* ---------- sound ---------- */
