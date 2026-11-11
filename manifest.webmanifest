@@ -1,0 +1,17 @@
+{
+  "name": "Stick Duel",
+  "short_name": "Stick Duel",
+  "description": "Stick-figure archery: single player, co-op with friends, and versus.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "landscape",
+  "background_color": "#1f2a4a",
+  "theme_color": "#1f2a4a",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

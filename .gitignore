@@ -3,6 +3,11 @@
 !index.html
 !solo.html
 !coop.html
+!share.js
+!manifest.webmanifest
+!icon-192.png
+!icon-512.png
+!apple-touch-icon.png
 !README.md
 !.gitignore
 !.nojekyll

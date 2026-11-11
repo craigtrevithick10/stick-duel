@@ -5,8 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#1f2a4a">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-title" content="Stick Duel">
+<meta name="mobile-web-app-capable" content="yes">
 <style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);box-sizing:border-box;height:100%}body{margin:0}[hidden]{display:none!important}</style>
 <title>Stick Duel Co-op</title>
+<script src="share.js"></script>
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -61,6 +67,14 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 .roster li{font:700 13px var(--pixel);padding:6px 10px;background:rgba(246,238,223,.1);border-left:5px solid var(--c,#fff)}
 .btn.alt{background:#5d5478;color:var(--bone)}
 .btn.sm{font-size:14px;padding:10px 20px}
+#startScreen>.panel{width:min(640px,100%)}
+#roomBox{display:flex;gap:22px;align-items:center;justify-content:center;flex-wrap:wrap}
+@media (max-height:520px){
+  #startScreen .title{font-size:28px!important}
+  #startScreen .panel{gap:8px!important}
+  #startScreen .code{font-size:38px}
+  #startScreen .ss-qr svg{width:120px;height:120px}
+}
 #note{position:absolute;left:50%;top:58px;transform:translateX(-50%);font:700 13px var(--pixel);color:var(--bone);background:rgba(20,10,30,.72);padding:6px 12px;pointer-events:none;text-align:center;max-width:90%}
 .team{width:100%;border-collapse:collapse;font:700 13px var(--pixel)}
 .team th{font-size:10px;color:var(--muted);letter-spacing:.1em;font-weight:700;padding:4px}
@@ -93,13 +107,24 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
         <input id="codeIn" class="codein" maxlength="4" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABCD">
         <button class="btn" id="joinBtn" type="button">JOIN</button>
       </div>
-      <div id="roomBox" class="panel" style="gap:10px" hidden>
-        <p class="small" id="codeLbl">Tell your team this code:</p>
-        <p class="code" id="codeOut">····</p>
-        <ul class="roster" id="roster"></ul>
-        <button class="btn" id="startBtn" type="button" hidden>START</button>
+      <div id="roomBox" hidden>
+        <div class="panel" style="gap:10px;width:auto">
+          <p class="small" id="codeLbl">Tell your team this code:</p>
+          <p class="code" id="codeOut">····</p>
+          <button class="btn alt sm" id="inviteBtn" type="button">INVITE FRIENDS</button>
+          <ul class="roster" id="roster"></ul>
+          <button class="btn" id="startBtn" type="button" hidden>START</button>
+        </div>
+        <div class="panel" id="qrWrap" style="gap:6px;width:auto" hidden>
+          <div class="ss-qr" id="qrBox" hidden></div>
+          <p class="small" style="max-width:20ch">Or scan with a phone camera to join</p>
+        </div>
       </div>
       <button class="btn alt sm" id="cancelBtn" type="button" hidden>CANCEL</button>
+      <div id="shareRow" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center">
+        <button class="btn alt" id="shareBtn" type="button" style="font-size:12px;padding:9px 14px">SHARE GAME</button>
+        <button class="btn alt" id="installBtn" type="button" data-install style="font-size:12px;padding:9px 14px">ADD TO HOME SCREEN</button>
+      </div>
       <p class="small"><a href="index.html" style="color:var(--ember)">Versus</a> · <a href="solo.html" style="color:var(--ember)">Single player</a></p>
     </div>
   </div>
@@ -1857,15 +1882,17 @@ function bandCol(a) {
   if (a.helper) return (a.owner && a.owner.col) || '#3fd0c9';
   return a.col || '#3fd0c9';
 }
-function drawArrowShape(len, col) {
+// a player's arrows have a shaft in that player's colour (helpers use their owner's colour)
+const shaftCol = o => !o || !o.isP ? null : o.helper ? (o.owner && o.owner.col) || null : o.col || null;
+function drawArrowShape(len, col, shaft) {
   ctx.lineCap = 'butt';
-  ctx.strokeStyle = 'rgba(20,10,20,.55)'; ctx.lineWidth = 3.6;
+  ctx.strokeStyle = 'rgba(20,10,20,.55)'; ctx.lineWidth = shaft ? 4.4 : 3.6;
   ctx.beginPath(); ctx.moveTo(-len, 1); ctx.lineTo(0, 1); ctx.stroke();
-  ctx.strokeStyle = '#f7f7f7'; ctx.lineWidth = 2.2;
+  ctx.strokeStyle = shaft || '#f7f7f7'; ctx.lineWidth = shaft ? 3 : 2.2;
   ctx.beginPath(); ctx.moveTo(-len, 0); ctx.lineTo(0, 0); ctx.stroke();
   ctx.fillStyle = col || '#f7f7f7';
   ctx.beginPath(); ctx.moveTo(5, 0); ctx.lineTo(-4, -3.8); ctx.lineTo(-4, 3.8); ctx.fill();
-  ctx.fillStyle = '#f7f7f7';
+  ctx.fillStyle = shaft || '#f7f7f7';
   ctx.beginPath(); ctx.moveTo(-len, 0); ctx.lineTo(-len - 6, -4); ctx.lineTo(-len + 3, 0); ctx.lineTo(-len - 6, 4); ctx.fill();
 }
 function drawArcher(a) {
@@ -1950,7 +1977,7 @@ function drawArcher(a) {
   ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(gx, gy); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(px, py); ctx.stroke();
   const me = a.isP && !a.helper, loaded = !a.dead && (me ? a.reload <= 0 : a.aiAim !== null);
-  if (loaded) { ctx.save(); ctx.translate(px + dx * 36, py + dy * 36); ctx.rotate(ang); drawArrowShape(34, me && a.power ? POWERS[a.power.k].col : null); ctx.restore(); }
+  if (loaded) { ctx.save(); ctx.translate(px + dx * 36, py + dy * 36); ctx.rotate(ang); drawArrowShape(34, me && a.power ? POWERS[a.power.k].col : null, shaftCol(a)); ctx.restore(); }
   for (const s of a.stuck) { ctx.save(); ctx.translate(s.x, s.y); ctx.rotate(s.ang); drawArrowShape(24); ctx.restore(); }
   if (a.frozen > 0 && !a.dead) {
     ctx.fillStyle = 'rgba(191,233,255,.45)'; ctx.strokeStyle = 'rgba(230,248,255,.9)'; ctx.lineWidth = 2;
@@ -2206,7 +2233,7 @@ function drawInset() {
   for (const e of st.enemies) if (near(e)) drawArcher(e);
   for (const ar of st.arrows) {
     if (Math.abs(ar.x - P.x) > 600) continue;
-    ctx.save(); ctx.translate(SX(ar.x), SY(ar.y)); ctx.scale(sc, sc); ctx.rotate(Math.atan2(ar.vy, ar.vx)); drawArrowShape(34, ar.col); ctx.restore();
+    ctx.save(); ctx.translate(SX(ar.x), SY(ar.y)); ctx.scale(sc, sc); ctx.rotate(Math.atan2(ar.vy, ar.vx)); drawArrowShape(34, ar.col, shaftCol(ar.owner)); ctx.restore();
   }
   camX = oc; sc = os;
   ctx.restore();
@@ -2355,7 +2382,7 @@ function draw() {
   for (const ar of st.arrows) {
     ctx.save(); ctx.translate(SX(ar.x), SY(ar.y)); ctx.scale(sc, sc); ctx.rotate(Math.atan2(ar.vy, ar.vx));
     const tg = ctx.createLinearGradient(-36, 0, -110, 0);
-    tg.addColorStop(0, ar.col ? ar.col : 'rgba(255,255,255,.55)'); tg.addColorStop(1, 'rgba(255,255,255,0)');
+    tg.addColorStop(0, ar.col || shaftCol(ar.owner) || 'rgba(255,255,255,.55)'); tg.addColorStop(1, 'rgba(255,255,255,0)');
     ctx.strokeStyle = tg; ctx.lineWidth = 2; ctx.globalAlpha = .6; ctx.beginPath(); ctx.moveTo(-36, 0); ctx.lineTo(-110, 0); ctx.stroke(); ctx.globalAlpha = 1;
     if (ar.pk === 'fire' && Math.random() < .6) LP_(ar.x, ar.y, rand(-30, 30), rand(-60, 0), .3, 2.2, '#ff9a45');
     if (ar.magic) {
@@ -2366,7 +2393,7 @@ function draw() {
     }
     if (ar.pk === 'blackhole' && Math.random() < .5) LP_(ar.x, ar.y, rand(-20, 20), rand(-20, 20), .4, 2, '#b07cff', 'spark');
     if (ar.pk === 'tornado' && Math.random() < .5) LP_(ar.x, ar.y, rand(-40, 40), rand(-40, 40), .3, 2, '#d6e4f0', 'spark');
-    drawArrowShape(34, ar.col); ctx.restore();
+    drawArrowShape(34, ar.col, shaftCol(ar.owner)); ctx.restore();
   }
   drawVortices();
   for (const g of st.gadgets) if (g.type === 'cloud') drawCloud(g);
@@ -2861,6 +2888,21 @@ function lobbyStatus(t) { $('lobbyStatus').textContent = t; }
 function lobbyView(v) {
   show('lobbyMain', v === 'main'); show('joinBox', v === 'join'); show('roomBox', v === 'room');
   show('cancelBtn', v !== 'main');
+  if (v === 'main') { show('hostBtn', true); show('joinOpen', true); }
+  show('shareRow', v === 'main');
+  if (v === 'room' && NET.code && window.StickShare) {
+    StickShare.qr($('qrBox'), StickShare.inviteUrl(NET.code)); show('qrWrap', true);
+  } else { show('qrBox', false); show('qrWrap', false); }
+}
+// opened from an invite link (coop.html?join=CODE): code filled in, just add your name
+function joinFromLink() {
+  let code = '';
+  try { code = (new URLSearchParams(location.search).get('join') || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4); } catch (e) {}
+  if (code.length !== 4) return;
+  $('codeIn').value = code;
+  show('lobbyMain', true); show('hostBtn', false); show('joinOpen', false); show('joinBox', true); show('cancelBtn', true); show('shareRow', false);
+  lobbyStatus('You are invited to game ' + code + '. Type your name, then tap JOIN.');
+  try { history.replaceState(null, '', location.pathname); } catch (e) {}
 }
 function myName() {
   let n = ($('nameIn').value || '').toUpperCase().replace(/[^A-Z0-9 ]/g, '').trim().slice(0, 10);
@@ -2878,7 +2920,8 @@ function renderRoster() {
   const ul = $('roster'); ul.innerHTML = '';
   for (const r of NET.roster) {
     const li = document.createElement('li');
-    li.innerHTML = `<i style="background:${r.col}"></i>${r.name}${r.id === NET.myId ? ' (YOU)' : ''}${r.id === 'host' ? ' · HOST' : ''}`;
+    li.style.setProperty('--c', r.col);
+    li.textContent = r.name + (r.id === NET.myId ? ' (YOU)' : '') + (r.id === 'host' ? ' · HOST' : '');
     ul.appendChild(li);
   }
   show('startBtn', NET.role === 'host');
@@ -3210,7 +3253,11 @@ if (/[?&]debug/.test(location.search)) window.__co = {
   run(code) { return eval(code); }
 };
 
-resize(); lobbyView('main');
+$('inviteBtn').onclick = () => { if (window.StickShare && NET.code) StickShare.invite(NET.code); };
+$('shareBtn').onclick = () => window.StickShare && StickShare.shareGame();
+$('installBtn').onclick = () => window.StickShare && StickShare.install();
+
+resize(); lobbyView('main'); joinFromLink();
 requestAnimationFrame(frame);
 })();
 </script>
