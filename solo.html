@@ -253,7 +253,7 @@ const COMBOS = {
 const comboKey = (a, b) => a && b ? [a, b].sort().join('+') : null;
 const comboOf = ar => !ar ? null : comboKey(ar.pk, ar.pk2);
 const COMBO_DESC = {
-  'fire+ice': "A steam cloud: nobody inside can aim", 'boom+fire': 'Leaves a ring of fire that burns', 'fire+meteor': 'Rocks leave burning patches',
+  'fire+ice': "A steam cloud: nobody inside can aim", 'boom+fire': 'Sets the floor under the blast on fire', 'fire+meteor': 'Rocks leave burning patches',
   'meteor+storm': 'Every rock zaps the nearest enemy', 'storm+tornado': 'The twister throws lightning', 'blackhole+meteor': 'The hole eats the rocks, then one huge blast',
   'blackhole+tornado': 'The twister carries the black hole', 'blackhole+tele': 'Pulls the tagged enemy in from anywhere', 'blackhole+shrink': 'Can swallow a boss you have shrunk',
   'boom+heavy': 'A huge blast that knocks an archer off their tower', 'pierce+storm': 'Lightning down the whole flight path', 'cluster+meteor': 'Tap the screen: it bursts into 5 flaming rocks'
@@ -897,9 +897,9 @@ function splitCluster(ar) {
 function blast(x, y, owner, rider) {
   if (rider === 'heavy' && owner && owner.isP) return megaBomb(x, y, owner);
   const RB = rider ? rideOf(rider) : null;
-  if (rider === 'fire' && owner && owner.isP) {   // NAPALM: a ring of fire that keeps burning
+  if (rider === 'fire' && owner && owner.isP) {   // NAPALM: the floor under the blast catches fire
     comboText(x, y - 90, 'boom+fire');
-    for (let i = 0; i < 9; i++) { const a = i / 9 * 6.283; burnPatch(x + Math.cos(a) * 62, Math.min(-4, y + Math.sin(a) * 34), st.P, 4.5); }
+    napalmFloor(x, y, st.P);
   }
   for (let i = 0; i < 26; i++) st.parts.push({ x, y, vx: rand(-260, 260), vy: rand(-300, 80), life: rand(.3, .6), max: .6, r: rand(2, 4), col: RB ? (i % 2 ? RB[1] : RB[2]) : i % 3 ? '#ff9a45' : '#ffd27a' });
   shake(9); sfx('boom');
@@ -1094,6 +1094,50 @@ function clearLevel() {
 }
 
 /* ---------- tornado, black hole, toppling, cover ---------- */
+/* ---------- flames: fire patches on the floor and archers on fire ---------- */
+const FLAME_COLS = ['rgba(255,70,26,.9)', 'rgba(255,150,40,.92)', 'rgba(255,240,160,.95)'];
+function drawFlame(x, y, s, seed, a) {
+  const t = performance.now() / 1000;
+  ctx.save(); ctx.globalAlpha = a;
+  ctx.globalCompositeOperation = 'lighter';
+  const gl = ctx.createRadialGradient(x, y - 16 * s, 2, x, y - 16 * s, 50 * s);
+  gl.addColorStop(0, 'rgba(255,150,60,.42)'); gl.addColorStop(1, 'rgba(255,80,30,0)');
+  ctx.fillStyle = gl; ctx.beginPath(); ctx.arc(x, y - 16 * s, 50 * s, 0, 6.283); ctx.fill();
+  ctx.globalCompositeOperation = 'source-over';
+  for (let layer = 0; layer < 3; layer++) {
+    const k = [1, .7, .4][layer];
+    ctx.fillStyle = FLAME_COLS[layer];
+    for (let i = 0; i < 5; i++) {
+      const u = i / 4 - .5, ph = seed * .37 + i * 1.9 + layer * .6;
+      const h = (32 + 13 * Math.sin(t * 8.5 + ph) + 6 * Math.sin(t * 13.7 + ph * 2)) * s * k * (1 - Math.abs(u) * .85);
+      const w = 8.5 * s * k * (1.15 - Math.abs(u) * .4), bx = x + u * 36 * s * (1 - layer * .2), sway = Math.sin(t * 6 + ph) * 6 * s * k;
+      ctx.beginPath(); ctx.moveTo(bx - w, y);
+      ctx.bezierCurveTo(bx - w * 1.05, y - h * .45, bx + sway - w * .35, y - h * .72, bx + sway, y - h);
+      ctx.bezierCurveTo(bx + sway + w * .35, y - h * .72, bx + w * 1.05, y - h * .45, bx + w, y);
+      ctx.closePath(); ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+function drawFires() {
+  for (const F of st.fires) drawFlame(SX(F.x), SY(F.y), sc * (F.burnE ? 1.1 : .85), F.x, clamp(F.life / .6, 0, 1));
+  for (const a of [st.P, ...st.helpers, ...st.enemies]) {
+    if (a.dead || !(a.burn > 0)) continue;
+    const f = feet(a), k = sizeOf ? sizeOf(a) : 1;
+    drawFlame(SX(f.x), SY(f.y - 18 * k), sc * .62 * k, a.id || 1, clamp(a.burn / .5, 0, 1) * .9);
+  }
+}
+// NAPALM: the floor under the blast catches fire (the tower tops there, and the ground below)
+function napalmFloor(x, y, by) {
+  for (const e of st.enemies) {
+    if (e.ship || e.walker || e.flyer || e.hydra || e.topple || !(e.pw > 0) || !(e.h > 20)) continue;
+    const top = -e.h;
+    if (Math.abs(e.x - x) > e.pw / 2 + 80 || top < y - 140 || top > y + 170) continue;
+    for (let i = -1; i <= 1; i++) burnPatch(e.x + i * e.pw * .3, top - 2, by, 5);
+  }
+  for (let i = -3; i <= 3; i++) burnPatch(x + i * 44 + rand(-8, 8), -2, by, 5);
+  for (let q = 0; q < 20; q++) P_(x + rand(-150, 150), -rand(0, 20), rand(-40, 40), rand(-200, -60), rand(.4, .8), rand(2.5, 4.5), q % 2 ? '#ff9a45' : '#ffd27a', 'flame');
+}
 /* ---------- combo arrows (linked pairs with an effect of their own) ---------- */
 function comboText(x, y, key) { const C = COMBOS[key]; if (C) { text(x, y, '★ ' + C[0] + '!', C[1], 21, 1.6, 1); sfx('heal'); } }
 const isRail = ar => !!ar.pk2 && hasPk(ar, 'pierce') && hasPk(ar, 'storm');
@@ -1386,7 +1430,7 @@ function meteorShare(ar) {
 function spawnShower(x, dir, n = 16, k = null) {
   (st.showers = st.showers || []).push({ x, dir, n, next: .35, k, seen: new Set() });
   st.flashA = .35; st.flashC = k ? rideOf(k)[0] : '255,140,60';
-  text(x, -260, k === 'ice' ? 'ICE STORM!' : (k ? RIDE_NAME[k] + ' ' : '') + 'METEOR SHOWER!', k ? rideOf(k)[1] : '#ff7b3a', 22, 1.8); sfx('void'); shake(6);
+  text(x, -260, k === 'ice' ? 'ICE STORM!' : k === 'storm' ? 'LIGHTNING STORM!' : (k ? RIDE_NAME[k] + ' ' : '') + 'METEOR SHOWER!', k ? rideOf(k)[1] : '#ff7b3a', 22, 1.8); sfx('void'); shake(6);
 }
 function meteorHit(R) {
   const x = R.x, y = R.y;
@@ -1410,7 +1454,8 @@ function meteorHit(R) {
     }
   }
   if (R.k) for (const a of st.enemies) { if (a.dead) continue; const f = feet(a); if (Math.hypot(f.x - x, f.y - 55 - y) < 95 * rad) infuse(a, R.k, st.P, R.seen); }
-  if (R.k === 'storm') {   // THUNDER METEORS: each rock zaps the nearest enemy
+  if (R.k === 'storm') {   // THUNDER METEORS: each bolt strikes down from the sky and zaps the nearest enemy
+    st.bolts.push({ x1: x + rand(-40, 40), y1: topY() - 80, x2: x, y2: y, life: .3, col: '#fff36b' }); st.flashA = Math.max(st.flashA || 0, .18); st.flashC = '255,250,190';
     let best = null, bd = 520;
     for (const a of st.enemies) { if (a.dead) continue; const f = feet(a), d = Math.hypot(f.x - x, f.y - 55 - y); if (d < bd) { bd = d; best = a; } }
     if (best) { const f = feet(best); st.bolts.push({ x1: x, y1: y, x2: f.x, y2: f.y - 60, life: .35, col: '#fff36b' }); best.hp -= 12; best.hitT = .12; text(f.x, f.y - 104, '-12', '#fff36b', 15, .8); if (best.hp <= 0) kill(best, { vx: 1, owner: st.P }, 'body'); }
@@ -1448,8 +1493,24 @@ function updateMeteors(dt) {
   }
   st.rocks = st.rocks.filter(R => !R.done);
 }
+// THUNDER METEORS: zap rocks fall as bolts of lightning instead of rocks
+function drawZapRock(R) {
+  const sp = Math.hypot(R.vx, R.vy) || 1, ux = R.vx / sp, uy = R.vy / sp, L = 170, pts = [];
+  for (let i = 0; i <= 8; i++) { const t = i / 8, j = i && i < 8 ? rand(-12, 12) : 0; pts.push([SX(R.x - ux * L * t - uy * j), SY(R.y - uy * L * t + ux * j)]); }
+  ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  const line = (P, w, c) => { ctx.strokeStyle = c; ctx.lineWidth = w; ctx.beginPath(); P.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); ctx.stroke(); };
+  line(pts, 12 * sc, 'rgba(255,243,107,.18)'); line(pts, 5 * sc, 'rgba(255,240,90,.85)'); line(pts, 2 * sc, '#ffffff');
+  const k = 3 + Math.floor(Math.random() * 3), fork = [pts[k]];   // a little side fork
+  for (let i = 1; i <= 3; i++) fork.push([pts[k][0] + (uy * 18 + rand(-8, 8)) * i * sc, pts[k][1] + (-ux * 18 + rand(-8, 8)) * i * sc]);
+  line(fork, 3 * sc, 'rgba(255,240,90,.7)'); line(fork, 1.2 * sc, '#ffffff');
+  const x = pts[0][0], y = pts[0][1], g = ctx.createRadialGradient(x, y, 1, x, y, 22 * sc);
+  g.addColorStop(0, 'rgba(255,255,255,.95)'); g.addColorStop(.4, 'rgba(255,243,107,.5)'); g.addColorStop(1, 'rgba(255,243,107,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, 22 * sc, 0, 6.283); ctx.fill();
+  ctx.restore();
+}
 function drawMeteors() {
   for (const R of st.rocks || []) {
+    if (R.k === 'storm') { drawZapRock(R); continue; }
     const x = SX(R.x), y = SY(R.y), r = R.r * sc, sp = Math.hypot(R.vx, R.vy), ux = R.vx / sp, uy = R.vy / sp;
     const tg = ctx.createLinearGradient(x, y, x - ux * 90 * sc, y - uy * 90 * sc);
     const rc = R.k ? rideOf(R.k)[0] : null;
@@ -2963,7 +3024,7 @@ function update(rdt) {
   st.rings = st.rings.filter(r => r.life > 0);
   for (const g of st.glows) g.life -= rdt;
   st.glows = st.glows.filter(g => g.life > 0);
-  for (const f of st.fires) { f.life -= dt; if (Math.random() < .6) P_(f.x + rand(-8, 8), f.y, rand(-15, 15), rand(-120, -50), rand(.3, .55), rand(2, 3.5), Math.random() < .5 ? '#ff9a45' : '#ffd27a', 'flame'); }
+  for (const f of st.fires) { f.life -= dt; if (Math.random() < .25) P_(f.x + rand(-8, 8), f.y, rand(-15, 15), rand(-120, -50), rand(.3, .55), rand(2, 3.5), Math.random() < .5 ? '#ff9a45' : '#ffd27a', 'flame'); }
   st.fires = st.fires.filter(f => f.life > 0);
   st.flashA = Math.max(0, st.flashA - rdt * 1.6);
   st.parts = st.parts.filter(p => p.life > 0);
@@ -3795,6 +3856,7 @@ function draw() {
     if (ar.pk2 && ar.pk2 !== 'cluster') { ctx.fillStyle = POWERS[ar.pk2].col; ctx.beginPath(); ctx.arc(-20, 0, 4, 0, 6.283); ctx.fill(); }
     drawArrowShape(34, ar.col); ctx.restore();
   }
+  drawFires();
   drawVortices();
   drawMeteors();
   drawBoulders();
