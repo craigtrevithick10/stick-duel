@@ -224,6 +224,22 @@ const dmgOf = (k, k2) => k2 ? slowFree(k) * slowFree(k2) : pkMul(k);
 // the shot turns into (triple, cluster split, windows, piercing). Meteor rocks are shared out instead.
 const shotOf = ar => { const R = ar.root || ar; return R.vol || R; };
 const shotOnce = (ar, k) => { const S = shotOf(ar); S.once = S.once || {}; if (S.once[k]) return false; S.once[k] = true; return true; };
+// linked arrows: the second power rides on whatever the first one makes
+// (ice + meteor = ice chunks that freeze, fire + twister = fire twister, ice + boom = a blast that freezes everyone near it)
+const riderOf = (ar, k) => !ar ? null : ar.pk === k ? (ar.pk2 || ar.rider || null) : ar.pk2 === k ? ar.pk : null;
+const hexRgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)).join(',');
+const RIDE = {   // [glow rgb, main colour, light colour, particle kind]
+  fire: ['255,140,60', '#ff9a45', '#ffd27a', 'flame'], ice: ['170,225,255', '#9fd8ff', '#ffffff', 'shard'],
+  boom: ['255,110,80', '#ff5a4e', '#ffd27a', 'flame'], heavy: ['255,210,122', '#ffd27a', '#fff2c8', 'spark'],
+  storm: ['255,243,107', '#fff36b', '#ffffff', 'spark'], slowmo: ['122,215,255', '#7ad7ff', '#e0f6ff', 'spark'],
+  shrink: ['182,255,92', '#b6ff5c', '#eaffd0', 'spark'], tele: ['213,140,255', '#d58cff', '#f2ddff', 'spark'],
+  homing: ['255,138,216', '#ff8ad8', '#ffd0f0', 'spark'], blackhole: ['176,124,255', '#b07cff', '#ffffff', 'spark'],
+  tornado: ['214,228,240', '#d6e4f0', '#ffffff', 'spark'], meteor: ['255,123,58', '#ff7b3a', '#ffd27a', 'flame']
+};
+const rideOf = k => RIDE[k] || [hexRgb(POWERS[k].col), POWERS[k].col, '#ffffff', 'spark'];
+const RIDE_NAME = { fire: 'FIRE', ice: 'ICE', boom: 'BOMB', heavy: 'GIANT', storm: 'THUNDER', slowmo: 'SLOW', shrink: 'SHRINK', tele: 'WARP', homing: 'HUNTER',
+  blackhole: 'VOID', tornado: 'WINDY', meteor: 'BURNING', triple: 'TRIPLE', rapid: 'QUICK', pierce: 'SHARP', scope: 'SCOPED', cluster: 'CONFETTI' };
+const RIDE_ON = { fire: 1, ice: 1, slowmo: 1, shrink: 1, boom: 1, storm: 1, heavy: 1 };   // a twister hands these to the arrows it turns round
 const powShort = q => q.k2 ? POWERS[q.k].short + '+' + POWERS[q.k2].short : POWERS[q.k].short;
 const powName = q => q.k2 ? powShort(q) : POWERS[q.k].name;
 // a picture for every shop item and arrow type (shop cards and the quiver buttons)
@@ -775,16 +791,16 @@ function impactFX(ar, x, y, onBody) {
     for (let k = 0; k < 3; k++) ring(x, y, 30 + k * 22, '#7ad7ff', .5 + k * .25, 2);
     for (let i = 0; i < 14; i++) { const a = i / 14 * 6.283; P_(x, y, Math.cos(a) * 60, Math.sin(a) * 60, .9, 2, '#7ad7ff', 'spark'); }
   } else if (pk === 'tornado') {
-    if (ar.owner.isP && shotOnce(ar, 'tornado')) spawnTornado(x, Math.sign(ar.vx) || 1);
+    if (ar.owner.isP && shotOnce(ar, 'tornado')) spawnTornado(x, Math.sign(ar.vx) || 1, riderOf(ar, 'tornado'));
   } else if (pk === 'blackhole') {
-    if (ar.owner.isP && shotOnce(ar, 'blackhole')) spawnHole(x, Math.min(y, -40));
+    if (ar.owner.isP && shotOnce(ar, 'blackhole')) spawnHole(x, Math.min(y, -40), riderOf(ar, 'blackhole'));
   } else if (pk === 'meteor') {
-    if (ar.owner.isP) { const n = meteorShare(ar); if (n > 0) spawnShower(x, Math.sign(ar.vx) || 1, n); }
+    if (ar.owner.isP) { const n = meteorShare(ar); if (n > 0) spawnShower(x, Math.sign(ar.vx) || 1, n, riderOf(ar, 'meteor')); }
   } else if (pk === 'triple' || pk === 'rapid') {
     ring(x, y, 26, POWERS[pk].col, .3, 2);
     for (let i = 0; i < 10; i++) P_(x, y, rand(-150, 150), rand(-180, 40), rand(.25, .45), 2.2, POWERS[pk].col, 'spark');
   }
-  if (ar.pk2) impactFX(Object.assign({}, ar, { pk: ar.pk2, pk2: null, root: ar.root || ar }), x, y, onBody);
+  if (ar.pk2) impactFX(Object.assign({}, ar, { pk: ar.pk2, pk2: null, rider: ar.pk, root: ar.root || ar }), x, y, onBody);
 }
 // cluster arrow bursts into 5 arrows on the same path (the player taps the screen to do it)
 function splitCluster(ar) {
@@ -797,9 +813,14 @@ function splitCluster(ar) {
   for (let q = 0; q < 14; q++) P_(ar.x, ar.y, rand(-140, 140), rand(-140, 140), .35, 2.2, q % 2 ? '#ffb3f0' : col, 'spark');
   sfx('click');
 }
-function blast(x, y, owner) {
-  for (let i = 0; i < 26; i++) st.parts.push({ x, y, vx: rand(-260, 260), vy: rand(-300, 80), life: rand(.3, .6), max: .6, r: rand(2, 4), col: i % 3 ? '#ff9a45' : '#ffd27a' });
+function blast(x, y, owner, rider) {
+  const RB = rider ? rideOf(rider) : null;
+  for (let i = 0; i < 26; i++) st.parts.push({ x, y, vx: rand(-260, 260), vy: rand(-300, 80), life: rand(.3, .6), max: .6, r: rand(2, 4), col: RB ? (i % 2 ? RB[1] : RB[2]) : i % 3 ? '#ff9a45' : '#ffd27a' });
   shake(9); sfx('boom');
+  if (RB) {
+    glow(x, y, 110, 'rgba(' + RB[0] + ',', .4); ring(x, y, 90, RB[1], .45, 4);
+    if (owner && owner.isP) for (const a of st.enemies) { if (a.dead) continue; const f = feet(a); if (Math.hypot(f.x - x, f.y - 55 - y) < 85) infuse(a, rider, owner); }
+  }
   const targets = owner.isP ? st.enemies : [st.P];
   for (const a of targets) {
     if (a.dead) continue;
@@ -930,17 +951,19 @@ function onHit(ar, a, z) {
   if (hasPk(ar, 'ice') && !a.isP) { a.frozen = 3.5; a.aiAim = null; a.pow = 0; text(f.x, f.y - 132, 'FROZEN', '#bfe9ff', 14, .9); }
   if (hasPk(ar, 'fire')) for (let i = 0; i < 8; i++) st.parts.push({ x: ar.x, y: ar.y, vx: rand(-80, 80), vy: rand(-160, 0), life: .5, max: .5, r: 2.4, col: '#ff9a45' });
   if (hasPk(ar, 'storm') && !a.isP && shotOnce(ar, 'storm')) {
+    const zr = riderOf(ar, 'storm'), zc = zr ? rideOf(zr)[1] : undefined;
     for (const o of st.enemies) {
       if (o === a || o.dead) continue;
       const of = feet(o); o.hp -= 18; o.hitT = .15;
-      st.bolts.push({ x1: f.x, y1: f.y - 60, x2: of.x, y2: of.y - 60, life: .35 });
+      st.bolts.push({ x1: f.x, y1: f.y - 60, x2: of.x, y2: of.y - 60, life: .35, col: zc });
       text(of.x, of.y - 104, '-18', '#fff36b', 16, .9);
       if (o.hp <= 0) kill(o, { vx: -1 }, 'body');
+      if (zr && !o.dead) infuse(o, zr, ar.owner, null, true);
     }
     sfx('zap');
   }
   if (a.hp <= 0) kill(a, ar, z);
-  if (hasPk(ar, 'boom')) blast(ar.x, ar.y, ar.owner);
+  if (hasPk(ar, 'boom')) blast(ar.x, ar.y, ar.owner, riderOf(ar, 'boom'));
 }
 function kill(a, ar, z) {
   if (a.hydra && !a.heartDead) { a.hp = a.hpLock; return; }   // only a heart shot kills the hydra
@@ -981,14 +1004,55 @@ function clearLevel() {
 }
 
 /* ---------- tornado, black hole, toppling, cover ---------- */
-function spawnTornado(x, dir) {
-  st.tornados.push({ x, dir, life: 4.5, max: 4.5, t: 0, hitG: new Set() });
-  text(x, -120, 'TORNADO!', '#d6e4f0', 18, 1.2); sfx('whoosh');
+// the second power of a linked arrow lands on everyone a big effect (rocks, twister, black hole, blast, lightning) touches
+function infuse(a, k, by, seen, weak) {
+  if (!k || !a || a.dead || a.isP || (seen && seen.has(a))) return;
+  if (seen) seen.add(a);
+  const f = feet(a), m = weak ? .5 : 1;
+  if (by && !a.isP) a.lastBy = by;
+  if (k === 'ice') {
+    if (!(a.frozen > 0)) text(f.x, f.y - 132, 'FROZEN', '#bfe9ff', 14, .9);
+    a.frozen = Math.max(a.frozen || 0, 3 * m); a.aiAim = null; a.pow = 0;
+    for (let i = 0; i < 8; i++) P_(f.x + rand(-16, 16), f.y - rand(10, 90), rand(-40, 40), rand(-60, 10), .5, rand(2, 4), '#e8f8ff', 'shard');
+  } else if (k === 'fire') {
+    if (!(a.burn > 0)) text(f.x, f.y - 132, 'BURNING', '#ff9a45', 14, .9);
+    a.burn = Math.max(a.burn || 0, 3 * m);
+  } else if (k === 'slowmo') {
+    if (!(a.slowT > 0)) { a.slowM = .4; text(f.x, f.y - 132, 'SLOWED', '#7ad7ff', 14, .9); }
+    a.slowT = Math.max(a.slowT || 0, 4 * m);
+  } else if (k === 'shrink') {
+    a.shrink = Math.min(.5, Math.round(((a.shrink || 0) + .1) * 10) / 10); a.shrinkT = 7;
+    text(f.x, f.y - 132, 'SHRUNK', '#b6ff5c', 13, .9);
+  } else if (k === 'storm' || k === 'heavy') {
+    const d = Math.round((k === 'storm' ? 12 : 10) * m);
+    a.hp -= d; a.hitT = .12; text(f.x + rand(-10, 10), f.y - 104, '-' + d, k === 'storm' ? '#fff36b' : '#ffd27a', 15, .8);
+    if (k === 'storm') st.bolts.push({ x1: f.x + rand(-40, 40), y1: f.y - 320, x2: f.x, y2: f.y - 60, life: .3, col: '#fff36b' });
+    if (a.hp <= 0) kill(a, { vx: -1, owner: by }, 'body');
+  } else if (k === 'boom') {
+    if (by) blast(f.x, f.y - 55, by, null);
+  } else if (k === 'tele') {
+    if (by && !by.tpTag) { by.tpTag = a.id; text(f.x, f.y - 150, 'TAGGED', '#d58cff', 13, 1.2); }
+  }
 }
-function spawnHole(x, y) {
-  st.holes.push({ x, y, life: 3.6, max: 3.6, r: 0 });
-  st.flashA = .4; st.flashC = '60,20,90';
-  text(x, y - 50, 'BLACK HOLE', '#b07cff', 20, 1.4); sfx('void'); shake(8);
+// a HUNTER twister heads for the nearest archer; HUNTER rocks fall on archers
+function twisterSteer(T) {
+  if (T.k !== 'homing') return;
+  let best = null, bd = 1e9;
+  for (const E of st.enemies) { if (E.dead) continue; const d = Math.abs(feet(E).x - T.x); if (d < bd && d < 900) { bd = d; best = E; } }
+  if (best && bd > 20) T.dir = Math.sign(feet(best).x - T.x) || T.dir;
+}
+function homingSpot(x) {
+  const c = st.enemies.filter(E => !E.dead && Math.abs(feet(E).x - x) < 800);
+  return c.length ? feet(c[Math.floor(Math.random() * c.length)]).x + rand(-30, 30) : null;
+}
+function spawnTornado(x, dir, k = null) {
+  st.tornados.push({ x, dir, life: 4.5, max: 4.5, t: 0, hitG: new Set(), k, hitE: new Set(), w: k === 'heavy' ? 1.5 : 1 });
+  text(x, -120, (k ? RIDE_NAME[k] + ' ' : '') + 'TORNADO!', k ? rideOf(k)[1] : '#d6e4f0', 18, 1.2); sfx('whoosh');
+}
+function spawnHole(x, y, k = null) {
+  st.holes.push({ x, y, life: 3.6, max: 3.6, r: 0, k, hitE: new Set() });
+  st.flashA = .4; st.flashC = k ? rideOf(k)[0] : '60,20,90';
+  text(x, y - 50, (k ? RIDE_NAME[k] + ' ' : '') + 'BLACK HOLE', k ? rideOf(k)[1] : '#b07cff', 20, 1.4); sfx('void'); shake(8);
 }
 // meteor shower: rocks fall at a slant around where the arrow landed and hurt EVERYONE they hit (you too)
 // one meteor shot drops 16 rocks in all: shared between the shot's arrows (triple, cluster, windows), once per arrow
@@ -1002,27 +1066,33 @@ function meteorShare(ar) {
   S.rocks -= n;
   return n;
 }
-function spawnShower(x, dir, n = 16) {
-  (st.showers = st.showers || []).push({ x, dir, n, next: .35 });
-  st.flashA = .35; st.flashC = '255,140,60';
-  text(x, -260, 'METEOR SHOWER!', '#ff7b3a', 22, 1.8); sfx('void'); shake(6);
+function spawnShower(x, dir, n = 16, k = null) {
+  (st.showers = st.showers || []).push({ x, dir, n, next: .35, k, seen: new Set() });
+  st.flashA = .35; st.flashC = k ? rideOf(k)[0] : '255,140,60';
+  text(x, -260, k === 'ice' ? 'ICE STORM!' : (k ? RIDE_NAME[k] + ' ' : '') + 'METEOR SHOWER!', k ? rideOf(k)[1] : '#ff7b3a', 22, 1.8); sfx('void'); shake(6);
 }
 function meteorHit(R) {
   const x = R.x, y = R.y;
-  glow(x, y, 120, 'rgba(255,140,60,', .35); ring(x, y, 90, '#ffb347', .45, 5); ring(x, y, 55, '#ff5a2e', .3, 3);
-  for (let i = 0; i < 18; i++) P_(x, y, rand(-200, 200), rand(-260, -20), rand(.4, .9), rand(2.5, 5), ['#ff9a45', '#ffd27a', '#ff5a2e'][i % 3], 'flame');
+  const RK = R.k ? rideOf(R.k) : null, rad = R.k === 'boom' ? 1.4 : 1, hv = R.k === 'heavy' ? 1.5 : 1;
+  if (RK) {
+    glow(x, y, 120 * rad, 'rgba(' + RK[0] + ',', .4); ring(x, y, 90 * rad, RK[1], .45, 5); ring(x, y, 55 * rad, RK[2], .3, 3);
+    for (let i = 0; i < 16; i++) P_(x, y, rand(-220, 220), rand(-280, -20), rand(.4, .9), rand(2.5, 5), i % 2 ? RK[1] : RK[2], RK[3]);
+    if (R.k === 'fire' && y > -12) st.fires.push({ x, y: -2, life: 2 });
+  } else { glow(x, y, 120, 'rgba(255,140,60,', .35); ring(x, y, 90, '#ffb347', .45, 5); ring(x, y, 55, '#ff5a2e', .3, 3); }
+  if (!RK) for (let i = 0; i < 18; i++) P_(x, y, rand(-200, 200), rand(-260, -20), rand(.4, .9), rand(2.5, 5), ['#ff9a45', '#ffd27a', '#ff5a2e'][i % 3], 'flame');
   for (let i = 0; i < 8; i++) P_(x, y, rand(-120, 120), rand(-160, -30), rand(.6, 1.1), rand(4, 7), 'rgba(70,55,60,.8)', 'smoke');
   shake(6); sfx('boom');
   for (const a of [st.P, ...st.helpers, ...st.enemies]) {
     if (a.dead) continue;
     const f = feet(a), d = Math.hypot(f.x - x, f.y - 55 - y);
-    if (d < 95) {
-      const dmg = Math.round(34 * (1 - d / 125) * (a === st.P ? 1 - st.armour : 1));
+    if (d < 95 * rad) {
+      const dmg = Math.round(34 * hv * (1 - d / (125 * rad)) * (a === st.P ? 1 - st.armour : 1));
       a.hp -= dmg; a.hitT = .12;
       text(f.x, f.y - 104, '-' + dmg, a === st.P ? '#ff5a4e' : '#ffd27a', 18, .9);
       if (a.hp <= 0) kill(a, { vx: f.x - x || 1 }, 'body');
     }
   }
+  if (R.k) for (const a of st.enemies) { if (a.dead) continue; const f = feet(a); if (Math.hypot(f.x - x, f.y - 55 - y) < 95 * rad) infuse(a, R.k, st.P, R.seen); }
   for (const e of st.enemies) {
     if (e.dead || e.ship) continue;
     if (e.cover && Math.abs(e.x - e.pw / 2 + 4 - x) < 70 && Math.abs(-e.h - 29 - y) < 80) damageCover(e, 2);
@@ -1035,16 +1105,16 @@ function updateMeteors(dt) {
   for (const S of st.showers) {
     S.next -= dt;
     while (S.next <= 0 && S.n > 0) {
-      S.n--; S.next += rand(.07, .2);
-      const tx = S.x + rand(-240, 240), y0 = topY() - 120, slant = rand(.28, .42), sp = rand(780, 920);
+      S.n--; S.next += rand(.07, .2) * (S.k === 'rapid' ? .5 : 1);
+      const hx = S.k === 'homing' ? homingSpot(S.x) : null, tx = hx !== null ? hx : S.x + rand(-240, 240), y0 = topY() - 120, slant = rand(.28, .42), sp = rand(780, 920);
       const ang = Math.atan(slant), hgt = -y0;
-      st.rocks.push({ x: tx - S.dir * hgt * slant, y: y0, vx: S.dir * Math.sin(ang) * sp, vy: Math.cos(ang) * sp, r: rand(7, 12), spin: rand(0, 6) });
+      st.rocks.push({ x: tx - S.dir * hgt * slant, y: y0, vx: S.dir * Math.sin(ang) * sp, vy: Math.cos(ang) * sp, r: rand(7, 12) * (S.k === 'heavy' ? 1.5 : 1), spin: rand(0, 6), k: S.k, seen: S.seen });
     }
   }
   st.showers = st.showers.filter(S => S.n > 0);
   for (const R of st.rocks) {
     R.vy += G * .3 * dt; R.x += R.vx * dt; R.y += R.vy * dt; R.spin += dt * 6;
-    if (Math.random() < .8) P_(R.x, R.y, rand(-30, 30), rand(-60, 0), rand(.25, .45), rand(2, 4), Math.random() < .5 ? '#ff9a45' : '#ffd27a', 'flame');
+    if (Math.random() < .8) P_(R.x, R.y, rand(-30, 30), rand(-60, 0), rand(.25, .45), rand(2, 4), R.k ? (Math.random() < .5 ? rideOf(R.k)[1] : rideOf(R.k)[2]) : Math.random() < .5 ? '#ff9a45' : '#ffd27a', R.k ? rideOf(R.k)[3] : 'flame');
     let hit = R.y >= 0;
     for (const a of [st.P, ...st.helpers, ...st.enemies]) {
       if (hit || a.dead) break;
@@ -1060,22 +1130,28 @@ function drawMeteors() {
   for (const R of st.rocks || []) {
     const x = SX(R.x), y = SY(R.y), r = R.r * sc, sp = Math.hypot(R.vx, R.vy), ux = R.vx / sp, uy = R.vy / sp;
     const tg = ctx.createLinearGradient(x, y, x - ux * 90 * sc, y - uy * 90 * sc);
-    tg.addColorStop(0, 'rgba(255,170,80,.9)'); tg.addColorStop(1, 'rgba(255,90,40,0)');
+    const rc = R.k ? rideOf(R.k)[0] : null;
+    tg.addColorStop(0, rc ? 'rgba(' + rc + ',.9)' : 'rgba(255,170,80,.9)'); tg.addColorStop(1, rc ? 'rgba(' + rc + ',0)' : 'rgba(255,90,40,0)');
     ctx.strokeStyle = tg; ctx.lineWidth = r * 1.6; ctx.lineCap = 'round';
     ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - ux * 90 * sc, y - uy * 90 * sc); ctx.stroke();
-    ctx.fillStyle = 'rgba(255,150,60,.35)'; ctx.beginPath(); ctx.arc(x, y, r * 2, 0, 6.283); ctx.fill();
-    ctx.fillStyle = '#4a3226'; ctx.beginPath(); ctx.arc(x, y, r, 0, 6.283); ctx.fill();
-    ctx.fillStyle = '#ff9a45'; ctx.beginPath(); ctx.arc(x + Math.cos(R.spin) * r * .4, y + Math.sin(R.spin) * r * .4, r * .35, 0, 6.283); ctx.fill();
+    ctx.fillStyle = rc ? 'rgba(' + rc + ',.35)' : 'rgba(255,150,60,.35)'; ctx.beginPath(); ctx.arc(x, y, r * 2, 0, 6.283); ctx.fill();
+    if (R.k === 'ice') {   // a jagged chunk of ice
+      ctx.fillStyle = '#d4f1ff'; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.5; ctx.beginPath();
+      for (let q = 0; q < 7; q++) { const t = R.spin * .5 + q / 7 * 6.283, rr = r * (q % 2 ? .75 : 1.15); q ? ctx.lineTo(x + Math.cos(t) * rr, y + Math.sin(t) * rr) : ctx.moveTo(x + Math.cos(t) * rr, y + Math.sin(t) * rr); }
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+    } else { ctx.fillStyle = '#4a3226'; ctx.beginPath(); ctx.arc(x, y, r, 0, 6.283); ctx.fill(); }
+    ctx.fillStyle = R.k ? rideOf(R.k)[R.k === 'ice' ? 1 : 2] : '#ff9a45'; ctx.beginPath(); ctx.arc(x + Math.cos(R.spin) * r * .4, y + Math.sin(R.spin) * r * .4, r * .35, 0, 6.283); ctx.fill();
   }
 }
 function updateVortices(dt) {
   for (const T of st.tornados) {
-    T.t += dt; T.life -= dt; T.x += T.dir * 120 * dt;
+    T.t += dt; T.life -= dt; twisterSteer(T); T.x += T.dir * (T.k === 'rapid' ? 200 : 120) * dt;
     for (const E of st.enemies) {
       if (E.dead) continue;
       const f = feet(E);
-      if (Math.abs(f.x - T.x) < 42) {
-        E.hp -= 24 * dt; E.hitT = .06; E.aiAim = null;
+      if (Math.abs(f.x - T.x) < 42 * (T.w || 1)) {
+        infuse(E, T.k, st.P, T.hitE); if (E.dead) continue;
+        E.hp -= 24 * (T.k === 'heavy' ? 1.6 : 1) * dt; E.hitT = .06; E.aiAim = null;
         if (Math.random() < dt * 3) text(f.x + rand(-10, 10), f.y - 100, '-' + ri(5, 9), '#d6e4f0', 14, .6);
         if (E.hp <= 0) kill(E, { vx: T.dir * 300, owner: st.P }, 'body');
       }
@@ -1083,21 +1159,23 @@ function updateVortices(dt) {
     for (const ar of st.arrows) {
       if (ar.done || ar.ret || T.t < .15 || Math.abs(ar.x - T.x) > 46 || ar.y < -300) continue;
       ar.ret = true;
+      if (T.k && RIDE_ON[T.k] && !ar.pk && !ar.magic) { ar.pk = T.k; ar.col = POWERS[T.k].col; }
       text(ar.x, ar.y - 16, ar.owner.isP ? 'REVERSED' : 'RETURN TO SENDER', '#d6e4f0', 12, .8);
       for (let q = 0; q < 8; q++) P_(ar.x, ar.y, rand(-120, 120), rand(-120, 60), .35, 2, '#d6e4f0', 'spark');
     }
     for (const g of st.gadgets) if (!g.falling && !T.hitG.has(g) && Math.abs(g.x - T.x) < 60 && g.y > -260 && (g.type === 'fan' || g.type === 'win' || g.type === 'bounce' || g.type === 'magnet')) { T.hitG.add(g); if (!(g.hold > 0)) relocate(g); }
+    if (T.k) { const RK = rideOf(T.k); for (let q = 0; q < 3; q++) { const u = Math.random(); P_(T.x + rand(-1, 1) * (10 + u * u * 62) * (T.w || 1), -u * 285, rand(-40, 40), rand(-140, -30), .55, rand(2, 3.8), Math.random() < .5 ? RK[1] : RK[2], RK[3]); } }
     if (Math.random() < .7) P_(T.x + rand(-30, 30), -rand(0, 40), rand(-60, 60), rand(-200, -80), .7, rand(2, 3.5), Math.random() < .5 ? '#8a7a8e' : '#c8bca8', 'confetti');
   }
   st.tornados = st.tornados.filter(T => T.life > 0);
   for (const B of st.holes) {
-    B.life -= dt; B.r = Math.min(34, B.r + 80 * dt);
+    B.life -= dt; B.r = Math.min(B.k === 'heavy' ? 48 : 34, B.r + 80 * dt);
     if (B.life < .4) B.r *= .9;
     for (const E of st.enemies) {
       if (E.dead) continue;
       const f = feet(E), d = Math.hypot(f.x - B.x, f.y - 50 - B.y);
-      if (d < 110 && !E.boss) { E.hp = 0; kill(E, { vx: (B.x - f.x) * 2, owner: st.P }, 'body'); text(f.x, f.y - 120, 'SWALLOWED', '#b07cff', 16, 1.2); continue; }
-      if (d < 300) { const k = 1 - d / 300; E.hp -= 40 * k * dt; E.hitT = .05; if (E.hp <= 0) kill(E, { vx: (B.x - f.x) * 2, owner: st.P }, 'body'); }
+      if (d < (B.k === 'heavy' ? 150 : 110) && !E.boss) { E.hp = 0; kill(E, { vx: (B.x - f.x) * 2, owner: st.P }, 'body'); text(f.x, f.y - 120, 'SWALLOWED', '#b07cff', 16, 1.2); continue; }
+      if (d < 300) { infuse(E, B.k, st.P, B.hitE); if (E.dead) continue; const k = 1 - d / 300; E.hp -= 40 * k * dt; E.hitT = .05; if (E.hp <= 0) kill(E, { vx: (B.x - f.x) * 2, owner: st.P }, 'body'); }
     }
     for (const ar of st.arrows) {
       if (ar.owner.isP) continue;
@@ -1105,8 +1183,8 @@ function updateVortices(dt) {
       if (d < 26) ar.done = true;
       else if (d < 360) { const f = 3000 * (1 - d / 360); ar.vx += dx / d * f * dt; ar.vy += dy / d * f * dt; }
     }
-    for (let q = 0; q < 3; q++) { const a = rand(0, 6.283), r = rand(70, 180); P_(B.x + Math.cos(a) * r, B.y + Math.sin(a) * r, -Math.cos(a) * r * 2 + Math.sin(a) * 140, -Math.sin(a) * r * 2 - Math.cos(a) * 140, .45, rand(1.6, 2.6), Math.random() < .5 ? '#b07cff' : '#ffffff', 'spark'); }
-    if (B.life <= 0) { ring(B.x, B.y, 160, '#b07cff', .6, 5); st.flashA = .3; st.flashC = '200,160,255'; }
+    for (let q = 0; q < 3; q++) { const a = rand(0, 6.283), r = rand(70, 180); P_(B.x + Math.cos(a) * r, B.y + Math.sin(a) * r, -Math.cos(a) * r * 2 + Math.sin(a) * 140, -Math.sin(a) * r * 2 - Math.cos(a) * 140, .45, rand(1.6, 2.6), B.k ? (Math.random() < .5 ? rideOf(B.k)[1] : rideOf(B.k)[2]) : Math.random() < .5 ? '#b07cff' : '#ffffff', B.k ? rideOf(B.k)[3] : 'spark'); }
+    if (B.life <= 0) { if (B.k === 'boom') blast(B.x, B.y, st.P, null); ring(B.x, B.y, 160, B.k ? rideOf(B.k)[1] : '#b07cff', .6, 5); st.flashA = .3; st.flashC = '200,160,255'; }
   }
   st.holes = st.holes.filter(B => B.life > 0);
 }
@@ -1159,7 +1237,7 @@ function coverHit(ar) {
       ar.done = true;
       impactFX(ar, ar.x, ar.y, false);
       damageCover(e, hasPk(ar, 'boom') ? 3 : 1);
-      if (hasPk(ar, 'boom')) blast(ar.x, ar.y, ar.owner);
+      if (hasPk(ar, 'boom')) blast(ar.x, ar.y, ar.owner, riderOf(ar, 'boom'));
       if (e.cover) st.pinned.push({ x: ar.x, y: ar.y, ang: Math.atan2(ar.vy, ar.vx), col: ar.col });
       return true;
     }
@@ -1377,7 +1455,7 @@ function onMarcherHit(ar, m, z) {
     ar.done = true;
     for (let i = 0; i < 8; i++) P_(ar.x, ar.y, rand(20, 180), rand(-160, 20), .35, 2.2, '#e8e8f0', 'spark');
     text(m.x, -110 * m.s, 'BLOCKED', '#c9ccd6', 12, .7); sfx('thud');
-    if (hasPk(ar, 'boom')) blast(ar.x, ar.y, ar.owner);
+    if (hasPk(ar, 'boom')) blast(ar.x, ar.y, ar.owner, riderOf(ar, 'boom'));
     return;
   }
   const base = z === 'head' ? 48 : z === 'body' ? 26 : 15;
@@ -1391,7 +1469,7 @@ function onMarcherHit(ar, m, z) {
   if (hasPk(ar, 'ice')) m.frozen = 4;
   hurtMarcher(m, base * rand(.9, 1.15) * (ar.dmgMul || 1), ar);
   sfx(z === 'head' ? 'head' : 'hit');
-  if (hasPk(ar, 'boom')) blast(ar.x, ar.y, ar.owner);
+  if (hasPk(ar, 'boom')) blast(ar.x, ar.y, ar.owner, riderOf(ar, 'boom'));
 }
 function updateMarchers(dt) {
   st.marchT += dt;
@@ -1597,7 +1675,7 @@ function bossAttack(E, C) {
     shake(6);
   } else if (E.hydra) {
     const live = E.heads.filter(h => h.t <= 0 && h.g >= 1);
-    live.forEach((h, i) => hydraBreath(E, h, (i - (live.length - 1) / 2) * 1.6));
+    live.forEach((h, i) => hydraBreath(E, h, (i - (live.length - 1) / 2) * 1.6, T));
   } else {
     const n = more ? 5 : 3, sol = solve(E, tf.x, tf.y - 58), n0 = st.arrows.length;
     for (let i = 0; i < n; i++) {
@@ -1880,8 +1958,8 @@ function hydraStep(E, dt, charging) {
   }
 }
 // each head spits its own thing: fire bolt (lobbed), lightning (fast and flat), ice (freezes your bow)
-function hydraBreath(E, h, spread) {
-  const T = bossTarget(E);
+function hydraBreath(E, h, spread, T0) {
+  const T = T0 || bossTarget(E);
   if (!T) return;
   const g = headGeom(E, h), tf = feet(T), flat = h.el === 'zap';
   const fake = { x: g.hx, h: -g.hy - 64, dx: 0, dy: 0 }, sol = solve(fake, tf.x, tf.y - 58, flat), dir = tf.x < g.hx ? -1 : 1;
@@ -1936,59 +2014,146 @@ function heartShot(E, ar) {
   if (E.hpLock <= 0) { E.heartDead = true; kill(E, ar, 'head'); }
 }
 function drawHydra(E) {
-  const f = feet(E), fx = f.x, m = -E.f;
-  if (SX(fx) < -400 || SX(fx) > W + 400) return;
-  const skin = E.hitT > 0 ? '#8a3a32' : '#3d6b3e', dark = '#1d3a22', belly = '#8fae6a', X = x => SX(x), Y = y => SY(y);
+  const f = feet(E), fx = f.x, m = -E.f;   // m = 1 when it faces left
+  if (SX(fx) < -450 || SX(fx) > W + 450) return;
+  const hit = E.hitT > 0, skin = hit ? '#8a3a32' : '#3f7040', skinHi = hit ? '#c0584a' : '#6fa65e', dark = '#16301b', belly = '#c3c27c', bone = '#e6d9b0';
+  const X = x => SX(x), Y = y => SY(y), t = st.t;
   ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   if (E.dead) ctx.globalAlpha = .8;
-  // tail
-  const tw = Math.sin(st.t * 1.6) * 12;
-  ctx.strokeStyle = dark; ctx.lineWidth = 26 * sc; ctx.beginPath(); ctx.moveTo(X(fx + 70 * m), Y(-60)); ctx.quadraticCurveTo(X(fx + 170 * m), Y(-6), X(fx + 240 * m), Y(-40 + tw)); ctx.stroke();
-  ctx.strokeStyle = skin; ctx.lineWidth = 20 * sc; ctx.stroke();
-  // legs
-  ctx.strokeStyle = dark; ctx.lineWidth = 18 * sc;
-  for (const lx of [-60, -25, 30, 65]) { ctx.beginPath(); ctx.moveTo(X(fx + lx * m), Y(-50)); ctx.lineTo(X(fx + lx * m - 6 * m), Y(-3)); ctx.stroke(); }
-  // body, belly, back spikes
-  const b = hydraBody(E);
-  ctx.fillStyle = skin; ctx.strokeStyle = dark; ctx.lineWidth = 3 * sc;
-  ctx.beginPath(); ctx.ellipse(X(b.x), Y(b.y), b.rx * sc, b.ry * sc, 0, 0, 6.283); ctx.fill(); ctx.stroke();
-  ctx.fillStyle = belly; ctx.beginPath(); ctx.ellipse(X(b.x - 22 * m), Y(b.y + 18), 66 * sc, 26 * sc, 0, 0, 6.283); ctx.fill();
-  ctx.fillStyle = dark;
-  for (let i = 0; i < 6; i++) { const sx = fx + (55 - i * 22) * -m, top = b.y - b.ry * Math.sqrt(Math.max(0, 1 - ((sx - b.x) / b.rx) ** 2)); ctx.beginPath(); ctx.moveTo(X(sx - 8), Y(top + 4)); ctx.lineTo(X(sx), Y(top - 16)); ctx.lineTo(X(sx + 8), Y(top + 4)); ctx.fill(); }
-  // heart (glows; the only weak spot)
-  const H = hydraHeart(E), pr = (11 + 2 * Math.sin(st.t * 6)) * sc;
+  // ground shadow
+  ctx.fillStyle = 'rgba(20,10,20,.28)'; ctx.beginPath(); ctx.ellipse(X(fx + 30 * m), Y(-2), 150 * sc, 12 * sc, 0, 0, 6.283); ctx.fill();
+  // folded wings on its back (gently flexing)
+  const wf = E.dead ? 0 : Math.sin(t * 1.3) * 8;
+  for (const k of [1, 0]) {
+    const ox = k ? 26 : 0, oy = k ? -6 : 0;
+    const p0 = [fx + (5 + ox) * m, -112 + oy], p1 = [fx + (45 + ox) * m, -205 - wf + oy], p2 = [fx + (115 + ox) * m, -168 - wf * .6 + oy], p3 = [fx + (100 + ox) * m, -128 + oy], p4 = [fx + (70 + ox) * m, -140 + oy], p5 = [fx + (45 + ox) * m, -118 + oy];
+    ctx.fillStyle = k ? '#20402a' : '#2b5534'; ctx.strokeStyle = dark; ctx.lineWidth = 2 * sc;
+    ctx.beginPath(); ctx.moveTo(X(p0[0]), Y(p0[1])); ctx.lineTo(X(p1[0]), Y(p1[1])); ctx.lineTo(X(p2[0]), Y(p2[1]));
+    ctx.quadraticCurveTo(X(p3[0] + 6 * m), Y(p3[1] - 14), X(p3[0]), Y(p3[1])); ctx.quadraticCurveTo(X(p4[0]), Y(p4[1] - 8), X(p4[0]), Y(p4[1]));
+    ctx.quadraticCurveTo(X(p5[0]), Y(p5[1] - 10), X(p5[0]), Y(p5[1])); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = bone; ctx.lineWidth = 2.2 * sc;   // wing bones
+    for (const q of [p2, p3, p4]) { ctx.beginPath(); ctx.moveTo(X(p1[0]), Y(p1[1])); ctx.lineTo(X(q[0]), Y(q[1])); ctx.stroke(); }
+    ctx.beginPath(); ctx.moveTo(X(p0[0]), Y(p0[1])); ctx.lineTo(X(p1[0]), Y(p1[1])); ctx.stroke();
+  }
+  // tail: tapers to a spiked tip
+  const tw = E.dead ? 0 : Math.sin(t * 1.6) * 14, T0 = [fx + 70 * m, -58], TC = [fx + 175 * m, -4], T1 = [fx + 255 * m, -46 + tw];
+  const tp = u => { const q = 1 - u; return [q * q * T0[0] + 2 * q * u * TC[0] + u * u * T1[0], q * q * T0[1] + 2 * q * u * TC[1] + u * u * T1[1]]; };
+  for (const pass of [0, 1]) for (let i = 0; i < 10; i++) {
+    const a = tp(i / 10), b = tp((i + 1) / 10), w = (28 - i * 2.1) * sc;
+    ctx.strokeStyle = pass ? skin : dark; ctx.lineWidth = pass ? w - 5 * sc : w;
+    ctx.beginPath(); ctx.moveTo(X(a[0]), Y(a[1])); ctx.lineTo(X(b[0]), Y(b[1])); ctx.stroke();
+  }
+  { const a = tp(.92), b = T1, ang = Math.atan2(b[1] - a[1], b[0] - a[0]);
+    ctx.save(); ctx.translate(X(b[0]), Y(b[1])); ctx.rotate(ang); ctx.scale(sc, sc);
+    ctx.fillStyle = bone; ctx.strokeStyle = dark; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(-4, 0); ctx.lineTo(8, -12); ctx.lineTo(22, 0); ctx.lineTo(8, 12); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore(); }
+  // legs with claws
+  for (const [lx, back] of [[-62, 0], [-24, 1], [34, 1], [70, 0]]) {
+    const top = [fx + lx * m, -54], knee = [fx + (lx - 10) * m, -26], foot = [fx + (lx - 4) * m, -4];
+    ctx.strokeStyle = dark; ctx.lineWidth = (back ? 18 : 22) * sc;
+    ctx.beginPath(); ctx.moveTo(X(top[0]), Y(top[1])); ctx.quadraticCurveTo(X(knee[0]), Y(knee[1]), X(foot[0]), Y(foot[1])); ctx.stroke();
+    ctx.strokeStyle = back ? '#2f5a35' : skin; ctx.lineWidth = (back ? 13 : 16) * sc; ctx.stroke();
+    ctx.fillStyle = bone;
+    for (let c = 0; c < 3; c++) { const cx = foot[0] - (6 + c * 5) * m; ctx.beginPath(); ctx.moveTo(X(cx), Y(-1)); ctx.lineTo(X(cx - 7 * m), Y(1)); ctx.lineTo(X(cx), Y(-6)); ctx.fill(); }
+  }
+  // body: shaded, scaly, with a plated belly
+  const b = hydraBody(E), bx = X(b.x), by = Y(b.y), rx = b.rx * sc, ry = b.ry * sc;
+  const gr = ctx.createRadialGradient(X(b.x - 30 * m), Y(b.y - 28), 8 * sc, bx, by, rx * 1.05);
+  gr.addColorStop(0, skinHi); gr.addColorStop(.55, skin); gr.addColorStop(1, hit ? '#5a1e1a' : '#22432a');
+  ctx.fillStyle = gr; ctx.strokeStyle = dark; ctx.lineWidth = 3 * sc;
+  ctx.beginPath(); ctx.ellipse(bx, by, rx, ry, 0, 0, 6.283); ctx.fill();
+  ctx.save(); ctx.clip();
+  ctx.strokeStyle = 'rgba(10,30,15,.22)'; ctx.lineWidth = 1.2 * sc;
+  for (let r = 0, yy = b.y - b.ry; yy < b.y + b.ry; yy += 11, r++) for (let xx = b.x - b.rx + (r % 2) * 8; xx < b.x + b.rx; xx += 16) { ctx.beginPath(); ctx.arc(X(xx), Y(yy), 7 * sc, 0, Math.PI); ctx.stroke(); }
+  const bg = ctx.createLinearGradient(0, Y(b.y), 0, Y(b.y + b.ry));
+  bg.addColorStop(0, belly); bg.addColorStop(1, '#8f8f52');
+  ctx.fillStyle = bg; ctx.beginPath(); ctx.ellipse(X(b.x - 20 * m), Y(b.y + 24), 78 * sc, 30 * sc, 0, 0, 6.283); ctx.fill();
+  ctx.strokeStyle = 'rgba(60,50,20,.35)'; ctx.lineWidth = 1.4 * sc;
+  for (let i = -3; i <= 3; i++) { const px = X(b.x - 20 * m + i * 20); ctx.beginPath(); ctx.moveTo(px, Y(b.y)); ctx.quadraticCurveTo(px - 4 * sc * m, Y(b.y + 30), px, Y(b.y + 56)); ctx.stroke(); }
+  ctx.restore();
+  ctx.beginPath(); ctx.ellipse(bx, by, rx, ry, 0, 0, 6.283); ctx.stroke();
+  // spikes along the back
+  for (let i = 0; i < 7; i++) {
+    const sx = b.x + (-60 + i * 21) * -m, top = b.y - b.ry * Math.sqrt(Math.max(0, 1 - ((sx - b.x) / b.rx) ** 2)), hgt = 14 + (i % 2) * 6;
+    ctx.fillStyle = bone; ctx.strokeStyle = dark; ctx.lineWidth = 1.5 * sc;
+    ctx.beginPath(); ctx.moveTo(X(sx - 7), Y(top + 5)); ctx.lineTo(X(sx + 3 * m), Y(top - hgt)); ctx.lineTo(X(sx + 7), Y(top + 5)); ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+  // the heart, showing through a gap in its armour (the only weak spot)
+  const H = hydraHeart(E), pr = (11 + 2 * Math.sin(t * 6)) * sc, hx0 = X(H.x), hy0 = Y(H.y);
+  ctx.fillStyle = '#2a0c10'; ctx.strokeStyle = bone; ctx.lineWidth = 2 * sc;
+  ctx.beginPath(); ctx.ellipse(hx0, hy0 + 1 * sc, 19 * sc, 17 * sc, 0, 0, 6.283); ctx.fill(); ctx.stroke();
   if (!E.dead) {
-    ctx.save(); ctx.shadowColor = '#ff3a4a'; ctx.shadowBlur = 18; ctx.fillStyle = '#ff3a4a';
-    ctx.beginPath(); ctx.arc(X(H.x) - pr * .45, Y(H.y) - pr * .2, pr * .6, 0, 6.283); ctx.arc(X(H.x) + pr * .45, Y(H.y) - pr * .2, pr * .6, 0, 6.283); ctx.fill();
-    ctx.beginPath(); ctx.moveTo(X(H.x) - pr * 1.02, Y(H.y) - pr * .05); ctx.lineTo(X(H.x), Y(H.y) + pr * 1.05); ctx.lineTo(X(H.x) + pr * 1.02, Y(H.y) - pr * .05); ctx.fill();
+    ctx.save();
+    const hg = ctx.createRadialGradient(hx0, hy0, 2, hx0, hy0, 30 * sc);
+    hg.addColorStop(0, 'rgba(255,80,90,.55)'); hg.addColorStop(1, 'rgba(255,80,90,0)');
+    ctx.fillStyle = hg; ctx.beginPath(); ctx.arc(hx0, hy0, 30 * sc, 0, 6.283); ctx.fill();
+    ctx.shadowColor = '#ff3a4a'; ctx.shadowBlur = 16; ctx.fillStyle = '#ff3a4a';
+    ctx.beginPath(); ctx.arc(hx0 - pr * .45, hy0 - pr * .2, pr * .6, 0, 6.283); ctx.arc(hx0 + pr * .45, hy0 - pr * .2, pr * .6, 0, 6.283); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(hx0 - pr * 1.02, hy0 - pr * .05); ctx.lineTo(hx0, hy0 + pr * 1.05); ctx.lineTo(hx0 + pr * 1.02, hy0 - pr * .05); ctx.fill();
+    ctx.shadowBlur = 0; ctx.fillStyle = 'rgba(255,220,220,.7)'; ctx.beginPath(); ctx.arc(hx0 - pr * .5, hy0 - pr * .35, pr * .2, 0, 6.283); ctx.fill();
     ctx.restore();
   }
-  // necks, then heads (or stumps with a countdown)
+  // necks: outline, skin, a pale throat stripe and little spines
   const geo = E.heads.map(h => headGeom(E, h));
-  for (const w of [22, 16]) {
-    ctx.strokeStyle = w === 22 ? dark : skin; ctx.lineWidth = w * sc;
-    for (const g of geo) { ctx.beginPath(); ctx.moveTo(X(g.R.x), Y(g.R.y)); ctx.quadraticCurveTo(X(g.cx), Y(g.cy), X(g.hx), Y(g.hy)); ctx.stroke(); }
+  for (const pass of [0, 1, 2]) for (const g of geo) {
+    ctx.strokeStyle = pass === 0 ? dark : pass === 1 ? skin : belly; ctx.lineWidth = (pass === 0 ? 22 : pass === 1 ? 16 : 5) * sc;
+    const oy = pass === 2 ? 4 : 0;
+    ctx.beginPath(); ctx.moveTo(X(g.R.x), Y(g.R.y + oy)); ctx.quadraticCurveTo(X(g.cx), Y(g.cy + oy), X(g.hx), Y(g.hy + oy)); ctx.stroke();
   }
+  ctx.fillStyle = bone;
+  for (const g of geo) for (let s = 1; s < 6; s++) {
+    const u = s / 6, q = 1 - u, nx = q * q * g.R.x + 2 * q * u * g.cx + u * u * g.hx, ny = q * q * g.R.y + 2 * q * u * g.cy + u * u * g.hy;
+    ctx.beginPath(); ctx.moveTo(X(nx - 3), Y(ny - 7)); ctx.lineTo(X(nx + 2 * m), Y(ny - 14)); ctx.lineTo(X(nx + 4), Y(ny - 6)); ctx.fill();
+  }
+  // heads (or bleeding stumps with a countdown)
   E.heads.forEach((h, i) => {
     const g = geo[i], hx = X(g.hx), hy = Y(g.hy);
     if (h.t > 0) {
-      ctx.fillStyle = '#a8322c'; ctx.beginPath(); ctx.arc(hx, hy, 9 * sc, 0, 6.283); ctx.fill();
+      ctx.fillStyle = '#a8322c'; ctx.strokeStyle = bone; ctx.lineWidth = 2 * sc;
+      ctx.beginPath(); ctx.arc(hx, hy, 9 * sc, 0, 6.283); ctx.fill(); ctx.stroke();
+      if (Math.random() < .3) P_(g.hx, g.hy, rand(-20, 20), rand(-10, 40), .4, 2, '#c4141c');
       ctx.font = '700 ' + Math.round(22 * Math.min(1.4, sc + .3)) + 'px Silkscreen, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-      ctx.fillStyle = Math.sin(st.t * 12) > 0 ? '#ffd27a' : '#ff5a4e'; ctx.fillText(String(Math.ceil(h.t)), hx, hy - 12 * sc);
+      ctx.fillStyle = Math.sin(t * 12) > 0 ? '#ffd27a' : '#ff5a4e'; ctx.fillText(String(Math.ceil(h.t)), hx, hy - 12 * sc);
       return;
     }
-    const s = sc * (.4 + .6 * h.g), ang = Math.atan2(g.hy - g.cy, (g.hx - g.cx) * -m), col = HYDRA_EL[h.el];   // drawn facing right, mirrored when it faces left
+    const s = sc * (.4 + .6 * h.g), ang = Math.atan2(g.hy - g.cy, (g.hx - g.cx) * -m), col = HYDRA_EL[h.el];
+    const jaw = E.dead ? .35 : h.br > 0 ? .55 : .1 + .07 * Math.sin(t * 2.2 + h.ph);
     ctx.save(); ctx.translate(hx, hy); ctx.scale(m > 0 ? -s : s, s); ctx.rotate(ang * .35);
-    if (h.br > 0 && !E.dead) { ctx.shadowColor = col; ctx.shadowBlur = 20; }
-    ctx.fillStyle = skin; ctx.strokeStyle = dark; ctx.lineWidth = 2.5;
-    ctx.beginPath(); ctx.ellipse(6, 0, 22, 13, 0, 0, 6.283); ctx.fill(); ctx.stroke();    // skull + snout
-    ctx.beginPath(); ctx.ellipse(22, 4, 12, 6, .15, 0, 6.283); ctx.fill(); ctx.stroke();
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(-6, -11); ctx.lineTo(-16, -24); ctx.lineTo(0, -12); ctx.fill();      // horn in its colour
-    ctx.beginPath(); ctx.moveTo(4, -12); ctx.lineTo(-2, -26); ctx.lineTo(12, -12); ctx.fill();
-    if (E.dead) { ctx.strokeStyle = '#141414'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(6, -6); ctx.lineTo(12, 0); ctx.moveTo(12, -6); ctx.lineTo(6, 0); ctx.stroke(); }
-    else { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(9, -4, 3.4, 0, 6.283); ctx.fill(); ctx.fillStyle = '#141414'; ctx.fillRect(9, -6, 1.6, 4); }
-    if (h.br > 0 && !E.dead) { ctx.fillStyle = col; ctx.globalAlpha = .6 + .4 * Math.sin(st.t * 30); ctx.beginPath(); ctx.arc(34, 6, 6 + (.7 - h.br) * 8, 0, 6.283); ctx.fill(); ctx.globalAlpha = 1; }
+    // frill behind the jaw
+    ctx.fillStyle = '#2b5534'; ctx.strokeStyle = dark; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(-10, -6); ctx.lineTo(-26, -14); ctx.lineTo(-18, -2); ctx.lineTo(-28, 4); ctx.lineTo(-14, 6); ctx.lineTo(-22, 14); ctx.lineTo(-6, 9); ctx.closePath(); ctx.fill(); ctx.stroke();
+    // lower jaw (opens) with teeth, and a glowing mouth when it breathes
+    ctx.save(); ctx.translate(-6, 4); ctx.rotate(jaw);
+    if (jaw > .2 && !E.dead) { ctx.fillStyle = h.br > 0 ? col : '#5a1418'; ctx.globalAlpha = h.br > 0 ? .85 : 1; ctx.beginPath(); ctx.moveTo(0, -2); ctx.lineTo(34, -6); ctx.lineTo(30, 4); ctx.lineTo(0, 6); ctx.fill(); ctx.globalAlpha = 1; }
+    ctx.fillStyle = skin; ctx.strokeStyle = dark; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(-4, 0); ctx.lineTo(30, 0); ctx.quadraticCurveTo(34, 4, 28, 7); ctx.lineTo(-2, 9); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#fff6e0';
+    for (let k = 6; k <= 26; k += 5) { ctx.beginPath(); ctx.moveTo(k, 0); ctx.lineTo(k + 1.5, -4); ctx.lineTo(k + 3, 0); ctx.fill(); }
+    ctx.restore();
+    // skull and snout
+    const hg = ctx.createLinearGradient(0, -18, 0, 6);
+    hg.addColorStop(0, skinHi); hg.addColorStop(1, skin);
+    ctx.fillStyle = hg; ctx.strokeStyle = dark; ctx.lineWidth = 2.2;
+    ctx.beginPath(); ctx.moveTo(-16, -6); ctx.quadraticCurveTo(-10, -19, 6, -15); ctx.lineTo(28, -9); ctx.quadraticCurveTo(39, -7, 39, -1); ctx.lineTo(24, 4); ctx.lineTo(-8, 7); ctx.quadraticCurveTo(-17, 4, -16, -6); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#fff6e0';
+    for (let k = 4; k <= 24; k += 5) { ctx.beginPath(); ctx.moveTo(k, 4.5 - k * .03); ctx.lineTo(k + 1.5, 9); ctx.lineTo(k + 3, 4.3 - k * .03); ctx.fill(); }
+    ctx.fillStyle = dark; ctx.beginPath(); ctx.ellipse(33, -5, 2, 1.3, -.3, 0, 6.283); ctx.fill();   // nostril
+    ctx.strokeStyle = dark; ctx.lineWidth = 2.6; ctx.beginPath(); ctx.moveTo(-2, -13); ctx.quadraticCurveTo(6, -16, 13, -11); ctx.stroke();   // brow
+    // horns in the head's colour (shows what it shoots)
+    ctx.fillStyle = col; ctx.strokeStyle = dark; ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.moveTo(-8, -13); ctx.quadraticCurveTo(-20, -22, -34, -20); ctx.quadraticCurveTo(-20, -15, -12, -8); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-2, -15); ctx.quadraticCurveTo(-10, -30, -24, -33); ctx.quadraticCurveTo(-12, -24, -6, -11); ctx.closePath(); ctx.fill(); ctx.stroke();
+    // eye
+    if (E.dead) { ctx.strokeStyle = '#141414'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(5, -11); ctx.lineTo(11, -5); ctx.moveTo(11, -11); ctx.lineTo(5, -5); ctx.stroke(); }
+    else {
+      ctx.shadowColor = col; ctx.shadowBlur = 10; ctx.fillStyle = col;
+      ctx.beginPath(); ctx.ellipse(8, -8, 4.6, 2.8, -.15, 0, 6.283); ctx.fill(); ctx.shadowBlur = 0;
+      ctx.fillStyle = '#141414'; ctx.beginPath(); ctx.ellipse(8.6, -8, .9, 2.4, 0, 0, 6.283); ctx.fill();
+    }
+    if (h.br > 0 && !E.dead) {   // charging its shot: glow at the mouth
+      ctx.globalAlpha = .55 + .45 * Math.sin(t * 30); ctx.shadowColor = col; ctx.shadowBlur = 22; ctx.fillStyle = col;
+      ctx.beginPath(); ctx.arc(40, 4, 5 + (.7 - h.br) * 9, 0, 6.283); ctx.fill(); ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+    }
     ctx.restore();
   });
   ctx.restore();
@@ -2206,7 +2371,7 @@ function update(rdt) {
           if (!a.ship) st.pinned.push({ x: ar.x, y: ar.y, ang: Math.atan2(ar.vy, ar.vx), col: ar.col });
           for (let q = 0; q < 6; q++) st.parts.push({ x: ar.x, y: ar.y, vx: rand(-80, 80), vy: rand(-120, -20), life: .35, max: .35, r: 2, col: '#e8d3ac' });
           impactFX(ar, ar.x, ar.y, false);
-          if (hasPk(ar, 'boom')) { if (ar.owner.isP) chopPillar(a, ar); blast(ar.x, ar.y, ar.owner); } else sfx('thud');
+          if (hasPk(ar, 'boom')) { if (ar.owner.isP) chopPillar(a, ar); blast(ar.x, ar.y, ar.owner, riderOf(ar, 'boom')); } else sfx('thud');
           break;
         }
       }
@@ -2215,7 +2380,7 @@ function update(rdt) {
         st.pinned.push({ x: ar.x, y: -2, ang: Math.atan2(ar.vy, ar.vx), col: ar.col });
         for (let q = 0; q < 6; q++) st.parts.push({ x: ar.x, y: -2, vx: rand(-80, 80), vy: rand(-140, -30), life: .4, max: .4, r: 2, col: '#6a5470' });
         impactFX(ar, ar.x, -2, false);
-        if (hasPk(ar, 'boom')) blast(ar.x, ar.y, ar.owner); else sfx('thud');
+        if (hasPk(ar, 'boom')) blast(ar.x, ar.y, ar.owner, riderOf(ar, 'boom')); else sfx('thud');
       }
       if (ar.x < -900 || ar.x > farX() + 1200) ar.done = true;
     }
@@ -2531,7 +2696,7 @@ function trackTrails() {
     if (ar.done || !ar.owner || !ar.owner.isP || ar.owner.helper || ar.magic) continue;
     if (!ar.tid) ar.tid = ++uid;
     let T = TRAILS.get(ar.tid);
-    if (!T) { T = { pts: [], col: ar.col || '#ffffff' }; TRAILS.set(ar.tid, T); }
+    if (!T) { T = { pts: [], col: ar.col || '#ffffff', col2: ar.pk2 && POWERS[ar.pk2] ? POWERS[ar.pk2].col : null }; TRAILS.set(ar.tid, T); }
     const L = T.pts[T.pts.length - 1];
     if (!L || Math.hypot(ar.x - L.x, ar.y - L.y) > 9) T.pts.push({ x: ar.x, y: ar.y, t: now });
   }
@@ -2546,6 +2711,7 @@ function drawTrails() {
     for (let i = 1; i < T.pts.length; i++) {
       const p = T.pts[i], q = T.pts[i - 1], k = 1 - (now - p.t) / LIFE;
       ctx.globalAlpha = k * .75; ctx.lineWidth = (.8 + k * 3) * sc;
+      if (T.col2) ctx.strokeStyle = (i >> 1) % 2 ? T.col2 : T.col;
       ctx.beginPath(); ctx.moveTo(SX(q.x), SY(q.y)); ctx.lineTo(SX(p.x), SY(p.y)); ctx.stroke();
       if (i % 5 === 0) { ctx.globalAlpha = k; ctx.beginPath(); ctx.arc(SX(p.x) + (hash(i + id) - .5) * 10 * sc, SY(p.y) + (hash(i * 3 + id) - .5) * 10 * sc, 1.4 * sc, 0, 6.283); ctx.fill(); }
     }
@@ -3168,8 +3334,8 @@ function drawVortices() {
     const x = SX(T.x), a = clamp(T.life / .6, 0, 1) * clamp(T.t / .3, 0, 1);
     ctx.globalAlpha = a;
     for (let k = 0; k < 14; k++) {
-      const u = k / 13, yy = SY(-u * 290), rw = (10 + u * u * 66) * sc, off = Math.sin(T.t * 6 + u * 5) * 12 * sc * u;
-      ctx.strokeStyle = k % 2 ? 'rgba(214,228,240,.75)' : 'rgba(150,140,160,.7)'; ctx.lineWidth = 3 * sc;
+      const u = k / 13, yy = SY(-u * 290), rw = (10 + u * u * 66) * sc * (T.w || 1), off = Math.sin(T.t * 6 + u * 5) * 12 * sc * u;
+      ctx.strokeStyle = T.k ? 'rgba(' + rideOf(T.k)[0] + (k % 2 ? ',.85)' : ',.5)') : k % 2 ? 'rgba(214,228,240,.75)' : 'rgba(150,140,160,.7)'; ctx.lineWidth = 3 * sc;
       ctx.beginPath(); ctx.ellipse(x + off, yy, rw, rw * .22, 0, T.t * 8 + k, T.t * 8 + k + 4.6); ctx.stroke();
     }
     ctx.globalAlpha = 1;
@@ -3177,12 +3343,13 @@ function drawVortices() {
   for (const B of st.holes) {
     const x = SX(B.x), y = SY(B.y), r = B.r * sc, t = st.t;
     const lg = ctx.createRadialGradient(x, y, r, x, y, r * 4);
-    lg.addColorStop(0, 'rgba(176,124,255,.55)'); lg.addColorStop(1, 'rgba(176,124,255,0)');
+    const hc = B.k ? rideOf(B.k)[0] : '176,124,255';
+    lg.addColorStop(0, 'rgba(' + hc + ',.55)'); lg.addColorStop(1, 'rgba(' + hc + ',0)');
     ctx.fillStyle = lg; ctx.beginPath(); ctx.arc(x, y, r * 4, 0, 6.283); ctx.fill();
     ctx.strokeStyle = 'rgba(255,220,255,.8)'; ctx.lineWidth = 2.5;
     for (let k = 0; k < 3; k++) { ctx.beginPath(); ctx.ellipse(x, y, r * (1.6 + k * .4), r * (.45 + k * .1), -.3, t * (3 + k) , t * (3 + k) + 4.5); ctx.stroke(); }
     ctx.fillStyle = '#05010a'; ctx.beginPath(); ctx.arc(x, y, r, 0, 6.283); ctx.fill();
-    ctx.strokeStyle = '#b07cff'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y, r + 1, 0, 6.283); ctx.stroke();
+    ctx.strokeStyle = B.k ? rideOf(B.k)[1] : '#b07cff'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y, r + 1, 0, 6.283); ctx.stroke();
   }
 }
 function drawCloud(g) {
