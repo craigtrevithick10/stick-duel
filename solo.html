@@ -263,7 +263,7 @@ function mkArcher(x, h, f, hp, isP, pw) {
     aiT: 0, aiAim: null, aiShots: 0 };
 }
 const feet = a => ({ x: a.x + a.dx, y: -a.h + a.dy });
-const sizeOf = a => 1 - (a.shrink || 0);
+const sizeOf = a => (a.big || 1) * (1 - (a.shrink || 0));
 const shoulder = a => { const f = feet(a); return { x: f.x, y: f.y - 64 * sizeOf(a) }; };
 const alive = () => st.enemies.filter(e => !e.dead);
 const farX = () => Math.max(...st.enemies.map(e => e.x));
@@ -307,12 +307,12 @@ function spawnLevel(first) {
     xs[n - 1] = bx; const b = xs.pop(); xs.sort((a, c) => a - c); xs.push(b);
   }
   for (let i = 0; i < n; i++) {
-    const boss = bossLv && i === n - 1;
-    const hp = Math.round((50 + lv * 8) * (boss ? 1.8 : 1));
-    const e = mkArcher(xs[i], rand(60, 205), -1, hp, false, 54);
-    e.name = boss ? 'BOSS' : NAMES[(lv * 3 + i) % NAMES.length];
+    const boss = bossLv && i === n - 1, bt = boss ? bossTypeFor(lv) : null;
+    const hp = Math.round((50 + lv * 8) * (boss ? BOSS_INFO[bt].hp : 1));
+    const e = mkArcher(boss ? Math.min(xs[i], 1700) : xs[i], rand(60, 205), -1, hp, false, 54);
+    e.name = NAMES[(lv * 3 + i) % NAMES.length];
     e.boss = boss; e.chops = []; e.kind = 'archer';
-    if (boss) { const bx = Math.min(xs[i], 1700); e.ship = { baseX: bx, ph: rand(0, 6), tx: bx, th: 120, vx: 0, vh: 0, wT: 0, leak: 0, puffT: 0, sinking: false, down: false }; e.x = bx; e.h = rand(110, 130); e.pw = 70; }
+    if (boss) makeBoss(e, bt, lv);
     else if (lv >= 3) {
       const r = Math.random();
       if (lv >= 5 && n >= 2 && r < .14 && !st.enemies.some(o => o.kind === 'healer')) e.kind = 'healer';
@@ -327,13 +327,13 @@ function spawnLevel(first) {
   st.wind = lv >= 4 ? Math.round(rand(-1, 1) * Math.min(100, (lv - 3) * 14)) : 0;
   st.pinned = st.pinned.filter(p => p.x < 200);
   st.marchers = []; if (SOLDIERS) buildMarchQueue(); else st.marchQ = []; st.allies = []; st.allyQ = 0; st.gateCD = Math.min(st.gateCD, 3);
-  st.tornados = []; st.holes = []; st.showers = []; st.rocks = []; st.timeScale = 1;
+  st.tornados = []; st.holes = []; st.showers = []; st.rocks = []; st.boulders = []; st.timeScale = 1;
   const wr = Math.random();
   st.weather = lv < 3 || bossLv ? 'clear' : wr < .45 ? 'clear' : wr < .63 ? 'night' : wr < .82 ? 'storm' : 'fog';
   if (st.weather === 'storm') { st.wind = Math.round(rand(-120, 120)); st.windT = st.wind; st.stormT = rand(2.5, 4); }
   spawnGadgets();
   const wx = { clear: '', night: ' · NIGHT', storm: ' · STORM', fog: ' · FOG' }[st.weather];
-  st.banner = { t: bossLv ? 'BOSS LEVEL ' + lv : 'LEVEL ' + lv, sub: (n === 1 ? '1 ARCHER' : n + ' ARCHERS') + wx, life: 2.4 };
+  st.banner = { t: bossLv ? 'BOSS LEVEL ' + lv : 'LEVEL ' + lv, sub: (bossLv ? st.enemies[n - 1].name + ' · ' : '') + (n === 1 ? '1 ARCHER' : n + ' ARCHERS') + wx, life: 2.4 };
 }
 
 /* ---------- gadgets: fans, windows, health ---------- */
@@ -724,13 +724,14 @@ function fire(a, ang, v, pk, pk2) {
   const angs = has('triple') ? [ang - .06, ang, ang + .06] : [ang];
   if (has('heavy')) v *= 1.18;
   const tp = a.tpTag || null; a.tpTag = null;
-  v *= sizeOf(a);
+  v *= 1 - (a.shrink || 0);
   for (const an of angs) {
     const dx = Math.cos(an), dy = Math.sin(an);
     st.arrows.push({ x: s.x + dx * 24, y: s.y + dy * 24, sx: s.x + dx * 24, sy: s.y + dy * 24, vx: dx * v, vy: dy * v, owner: a, done: false, via: new Set(),
       pk, pk2: pk2 || null, dmgMul: dmgOf(pk, pk2), col: pk ? POWERS[pk].col : null,
       tpE: tp && an === ang ? tp : null });
   }
+  a.fireT = st.t;
   sfx('twang');
 }
 function P_(x, y, vx, vy, life, r, col, kind) { if (st.parts.length < 700) st.parts.push({ x, y, vx, vy, life, max: life, r, col, kind }); }
@@ -833,13 +834,13 @@ function zone(a, x, y) {
   if (segDist(p.x, p.y, 0, -40, -9, 0) < 4.5 || segDist(p.x, p.y, 0, -40, 9, 0) < 4.5) return 'legs';
   return null;
 }
-function inPillar(a, x, y) { const f = feet(a); if (a.ship) return Math.abs(x - f.x) < a.pw / 2 && y > f.y && y < f.y + 26; return Math.abs(x - f.x) < a.pw / 2 && y > f.y && y < 80; }
+function inPillar(a, x, y) { const f = feet(a); if (a.walker) return false; if (a.ship) return Math.abs(x - f.x) < a.pw / 2 && y > f.y && y < f.y + 26; return Math.abs(x - f.x) < a.pw / 2 && y > f.y && y < 80; }
 
 function blood(x, y, vx, vy, n) {
   for (let i = 0; i < n && st.parts.length < 450; i++)
     st.parts.push({ x, y, vx: vx * rand(.05, .25) + rand(-90, 90), vy: vy * rand(.05, .2) + rand(-160, 40), life: rand(.5, 1), max: 1, r: rand(1.4, 3) });
 }
-function text(x, y, t, col, size, life = 1) { st.texts.push({ x, y, t, col, size, life, max: life }); }
+function text(x, y, t, col, size, life = 1, pop = 0) { st.texts.push({ x, y, t, col, size, life, max: life, pop }); }
 function shake(v) { if (!reduceMotion) st.shake = Math.max(st.shake, v); }
 
 // teleport arrow: the archer it tagged is sent to wherever the shooter's next arrow lands
@@ -855,7 +856,7 @@ function teleportTo(id, x, y) {
   for (let q = 0; q < 16; q++) P_(f0.x + rand(-15, 15), f0.y - rand(0, 90), rand(-120, 120), rand(-160, 40), .5, 2.6, '#d58cff', 'spark');
   ring(f0.x, f0.y - 50, 60, '#d58cff', .5, 3);
   if (E.ship) { E.ship.baseX = E.ship.tx = x; E.x = x; }
-  else { E.x = x; E.h = clamp(-y, 30, 240); E.chops = []; E.dy = 0; E.vy = 0; E.rise = 0; }
+  else { E.x = x; E.h = E.walker ? 0 : clamp(-y, 30, 240); E.chops = []; E.dy = 0; E.vy = 0; E.rise = 0; }
   E.aiAim = null; E.pow = 0; E.aiT = Math.max(E.aiT || 0, 1.2);
   const f = feet(E);
   for (let q = 0; q < 16; q++) P_(f.x + rand(-15, 15), f.y - rand(0, 90), rand(-120, 120), rand(-160, 40), .5, 2.6, '#d58cff', 'spark');
@@ -863,19 +864,44 @@ function teleportTo(id, x, y) {
   text(f.x, f.y - 130, 'TELEPORTED!', '#d58cff', 16, 1.1);
   sfx('whoosh');
 }
+// about to land a headshot? time slows for a moment so you see it go in
+function headshotSlowmo() {
+  for (const ar of st.arrows) {
+    if (ar.done || ar.hsSeen || ar.ret || !ar.owner || !ar.owner.isP || ar.owner.helper) continue;
+    let x = ar.x, y = ar.y, vx = ar.vx, vy = ar.vy;
+    for (let i = 0; i < 28 && !ar.hsSeen; i++) {   // small steps, like the real hit test
+      const h = .0036 * (ar.tm || 1); vx += st.wind * h; vy += G * h; x += vx * h; y += vy * h;
+      for (const E of st.enemies) {
+        if (E.dead || E.topple || (ar.hit && ar.hit.has(E))) continue;
+        const z = zone(E, x, y);
+        if (z) { ar.hsSeen = true; if (z === 'head') st.slow = Math.max(st.slow, .45); break; }
+      }
+    }
+  }
+}
+// your headshot lands: flash, sparks, shake and a big sign
+function headshotFX(ar, a) {
+  const x = ar.x, y = ar.y;
+  ring(x, y, 95, '#ffffff', .4, 5); ring(x, y, 60, '#ffd27a', .35, 3); glow(x, y, 90, 'rgba(255,240,200,', .3);
+  for (let i = 0; i < 18; i++) { const an = rand(0, 6.283), sp = rand(160, 380); P_(x, y, Math.cos(an) * sp, Math.sin(an) * sp - 80, rand(.35, .6), rand(2, 3.4), i % 3 ? '#ffd27a' : '#ffffff', 'spark'); }
+  st.flashA = Math.max(st.flashA || 0, .22); st.flashC = '255,250,235';
+  shake(12);
+  const f = feet(a); text(f.x, f.y - 128, 'HEADSHOT!', '#ffd27a', 28, 1.4, 1);
+}
 function onHit(ar, a, z) {
   const base = z === 'head' ? 48 : z === 'body' ? 26 : 15;
   const dmg = Math.round(base * rand(.9, 1.15) * (ar.dmgMul || 1) * (ar.owner.isP ? st.dmgBoost : 1) * (a === st.P ? 1 - st.armour : 1));
-  a.hp -= dmg; a.hitT = .12;
+  a.hp -= dmg; a.hitT = .12; a.flinchT = st.t;
+  if (a.bc) stopCharge(a, ar.owner);
   const p = toLocal(a, ar.x, ar.y);
   a.stuck.push({ x: p.x, y: p.y, ang: Math.atan2(ar.vy, ar.vx) - a.rot });
   if (a.stuck.length > 14) a.stuck.shift();
   if (hasPk(ar, 'pierce') && !a.isP) { (ar.hit = ar.hit || new Set()).add(a); } else ar.done = true;
   blood(ar.x, ar.y, ar.vx, ar.vy, z === 'head' ? 22 : 12);
   const f = feet(a);
-  if (z === 'head') { a.headRed = 1; text(f.x, f.y - 120, 'HEADSHOT', '#ff5a4e', 22, 1.2); if (!a.isP) st.heads++; }
+  if (z === 'head') { a.headRed = 1; if (a.isP || !ar.owner || !ar.owner.isP) text(f.x, f.y - 120, 'HEADSHOT', '#ff5a4e', 22, 1.2); if (!a.isP) st.heads++; }
   text(f.x + rand(-14, 14), f.y - 100, '-' + dmg, a.isP ? '#ff5a4e' : '#f6eedf', 18, .9);
-  shake(z === 'head' ? 8 : 4);
+  if (z === 'head' && !a.isP && ar.owner && ar.owner.isP) headshotFX(ar, a); else shake(z === 'head' ? 8 : 4);
   sfx(z === 'head' ? 'head' : 'hit');
   if (!a.isP) st.gp += Math.round(dmg * .5);
   if (!a.isP && ar.vol) ar.vol.hits++;
@@ -889,7 +915,7 @@ function onHit(ar, a, z) {
   }
   if (hasPk(ar, 'shrink') && !a.isP) {
     a.shrink = Math.min(.5, Math.round(((a.shrink || 0) + .1) * 10) / 10); a.shrinkT = 7;
-    text(f.x, f.y - 132, 'SHRUNK · POWER ' + Math.round(sizeOf(a) * 100) + '%', '#b6ff5c', 14, 1.1);
+    text(f.x, f.y - 132, 'SHRUNK · POWER ' + Math.round((1 - a.shrink) * 100) + '%', '#b6ff5c', 14, 1.1);
     for (let k = 0; k < 10; k++) P_(f.x + rand(-20, 20), f.y - rand(10, 90), rand(-40, 40), rand(-60, 20), .5, 2.2, '#b6ff5c', 'spark');
     ring(f.x, f.y - 50, 55, '#b6ff5c', .5, 2.5);
   }
@@ -947,6 +973,7 @@ function clearLevel() {
   for (let i = 0; i < 24; i++) st.parts.push({ x: feet(st.P).x + rand(-20, 20), y: feet(st.P).y - rand(0, 90), vx: rand(-30, 30), vy: rand(-140, -40), life: .9, max: .9, r: 2.4, col: '#7dff9a' });
   sfx('heal');
   for (const ar2 of st.arrows) if (ar2.owner !== st.P) ar2.done = true;
+  st.boulders = [];
 }
 
 /* ---------- tornado, black hole, toppling, cover ---------- */
@@ -1081,7 +1108,7 @@ function updateVortices(dt) {
 }
 const ri = (a, b) => Math.floor(rand(a, b + 1));
 function chopPillar(e, ar) {
-  if (e.isP || e.ship || e.dead || e.rise > 0) return;
+  if (e.isP || e.ship || e.walker || e.dead || e.rise > 0) return;
   const y = ar.y;
   let c = e.chops.find(c => Math.abs(c.y - y) < 30);
   if (c) { c.n++; c.y = (c.y + y) / 2; } else e.chops.push(c = { y, n: 1 });
@@ -1471,6 +1498,7 @@ function shipStep(E, dt) {
 function hitBalloon(E, ar) {
   const S = E.ship, d = hasPk(ar, 'boom') ? 30 : 8;
   E.hp -= d; E.hitT = .1;
+  if (E.bc) stopCharge(E, ar.owner);
   S.leak = Math.min(LEAK_MAX, S.leak + (hasPk(ar, 'boom') ? 2 : 1));
   text(ar.x, ar.y - 10, 'BALLOON -' + d, '#ffd27a', 14, .8);
   if (S.leak >= LEAK_MAX && !S.sinking) {
@@ -1486,6 +1514,312 @@ function crashShip(E) {
   E.hp -= 25; E.hitT = .25;
   text(f.x, f.y - 130, 'CRASH! -25', '#ffd27a', 22, 1.6);
   if (E.hp <= 0) kill(E, { vx: 1, owner: st.P }, 'body');
+}
+
+/* ---------- bosses: SKY CAPTAIN (airship), STONE GIANT (walks, throws boulders, clubs you), WIZARD KING (jumps tower to tower) ---------- */
+// each boss has a special move it charges up (hit it to stop it) and gets angry at half health (faster, calls 2 guards)
+const BOSSES = ['ship', 'giant', 'wizard'];
+const BOSS_INFO = {
+  ship: { name: 'SKY CAPTAIN', hp: 1.8, move: 'ARROW RAIN', col: '#ff5a4e' },
+  giant: { name: 'STONE GIANT', hp: 3, move: 'BOULDER STORM', col: '#ffd27a' },
+  wizard: { name: 'WIZARD KING', hp: 1.6, move: 'FIREBALL BURST', col: '#ff9a45' }
+};
+const bossTypeFor = lv => BOSSES[(Math.floor(lv / 5) - 1) % BOSSES.length];
+function makeBoss(e, bt, lv) {
+  const round = Math.floor((Math.floor(lv / 5) - 1) / BOSSES.length);
+  e.btype = bt; e.name = BOSS_INFO[bt].name + (round ? ' ' + ['II', 'III', 'IV', 'V'][Math.min(3, round - 1)] : '');
+  e.bossT = rand(6, 9); e.rage = false; e.bc = null;
+  if (bt === 'ship') { e.ship = { baseX: e.x, ph: rand(0, 6), tx: e.x, th: 120, vx: 0, vh: 0, wT: 0, leak: 0, puffT: 0, sinking: false, down: false }; e.h = rand(110, 130); e.pw = 70; }
+  else if (bt === 'giant') { e.walker = true; e.big = 1.9; e.h = 0; e.pw = 40; e.walkPh = 0; e.throwT = rand(3, 6); e.throwP = 0; e.swingT = 0; e.swingP = 0; e.clubT = 0; e.bossT = rand(10, 14); }
+  else { e.kind = 'mage'; e.h = rand(90, 200); e.tpT = rand(6, 9); }
+}
+const bossFoes = () => [st.P, ...st.helpers].filter(a => !a.dead);
+const bossTarget = E => st.P.dead ? null : st.P;
+const bossTop = E => feet(E).y - (E.ship ? 200 : 125 * sizeOf(E));
+function bossStep(E, dt) {
+  if (!E.rage && E.hp <= E.max / 2) enrage(E);
+  const C = E.bc;
+  if (C) {
+    C.t += dt;
+    const f = feet(E);
+    if (Math.random() < .6) P_(f.x + rand(-30, 30), f.y - rand(20, 110) * sizeOf(E), rand(-30, 30), rand(-90, -20), .5, 2.6, BOSS_INFO[E.btype].col, 'spark');
+    if (C.t >= C.dur) { E.bc = null; bossAttack(E, C); E.bossT = E.rage ? rand(7, 10) : rand(10, 14); E.aiT = Math.max(E.aiT, 1.5); }
+    return true;
+  }
+  if (E.btype === 'giant') {
+    giantStep(E, dt);
+    if (!E.swingT && !E.throwP && (E.bossT -= dt) <= 0) startCharge(E);
+    return true;
+  }
+  if (E.btype === 'wizard' && !E.aiAim && !E.topple && (E.tpT -= dt) <= 0) { wizardJump(E); E.tpT = E.rage ? rand(5, 7) : rand(7, 10); }
+  if (!E.aiAim && (E.bossT -= dt) <= 0) startCharge(E);
+  return !!E.bc;
+}
+function startCharge(E) {
+  const T = bossTarget(E);
+  if (!T) { E.bossT = 2; return; }
+  const I = BOSS_INFO[E.btype], f = feet(E), tf = feet(T);
+  E.bc = { t: 0, dur: 1.7, tx: tf.x, ty: tf.y, tid: T.id };
+  E.aiAim = null; E.pow = 0; E.throwP = 0;
+  text(f.x, bossTop(E) - 34, '!! ' + I.move + ' !!', I.col, 18, 1.7);
+  text(f.x, bossTop(E) - 14, 'HIT HIM TO STOP IT', '#f6eedf', 12, 1.7);
+  ring(f.x, f.y - 55 * sizeOf(E), 90, I.col, .6, 4); sfx('whoosh');
+}
+function stopCharge(E, by) {
+  E.bc = null; E.bossT = E.rage ? rand(5, 7) : rand(7, 10);
+  const f = feet(E);
+  text(f.x, bossTop(E) - 20, 'STOPPED! +15 GP', '#7dff9a', 18, 1.3);
+  ring(f.x, f.y - 55 * sizeOf(E), 80, '#7dff9a', .5, 4); sfx('glass');
+  st.gp += 15;
+}
+function bossAttack(E, C) {
+  const T = bossFoes().find(a => a.id === C.tid), tf = T ? feet(T) : { x: C.tx, y: C.ty }, more = E.rage;
+  const f = feet(E), dir = tf.x < f.x ? -1 : 1;
+  if (E.btype === 'ship') {
+    // arrows fall out of the sky around the target
+    const n = more ? 13 : 9;
+    for (let i = 0; i < n; i++) {
+      const x = tf.x + rand(-140, 140), y = -900 - i * 45, vy = rand(380, 440);
+      st.arrows.push({ x, y, sx: x, sy: y, vx: -st.wind * .5 + rand(-25, 25), vy, owner: E, done: false, via: new Set(), pk: null, pk2: null, dmgMul: .75, col: '#ff8a7a' });
+    }
+    text(tf.x, tf.y - 200, 'LOOK UP!', '#ff5a4e', 18, 1.2); sfx('whoosh');
+  } else if (E.btype === 'giant') {
+    const n = more ? 5 : 3;
+    for (let i = 0; i < n; i++) throwBoulder(E, tf.x + (i - (n - 1) / 2) * 70, tf.y - 58, 1.4);
+    shake(6);
+  } else {
+    const n = more ? 5 : 3, sol = solve(E, tf.x, tf.y - 58), n0 = st.arrows.length;
+    for (let i = 0; i < n; i++) {
+      const er = (sol.e + (i - (n - 1) / 2) * 2.6) * Math.PI / 180;
+      fire(E, dir < 0 ? Math.PI + er : -er, sol.v * rand(.97, 1.03), 'fire');
+    }
+    for (let q = n0; q < st.arrows.length; q++) { st.arrows[q].magic = true; st.arrows[q].dmgMul = 1.3; if (E.slowT > 0) st.arrows[q].tm = E.slowM; }
+  }
+}
+function enrage(E) {
+  E.rage = true;
+  const f = feet(E);
+  text(f.x, bossTop(E) - 40, 'ENRAGED!', '#ff5a4e', 24, 1.8); shake(10); sfx('boom');
+  ring(f.x, f.y - 55 * sizeOf(E), 120, '#ff5a4e', .7, 5);
+  st.flashA = .25; st.flashC = '255,60,40';
+  for (let i = 0; i < 2; i++) spawnGuard(E, i);
+}
+function spawnGuard(E, i) {
+  const others = [st.P, ...st.helpers, ...st.enemies.filter(o => !o.dead)];
+  let x = 1200, bg = -1;
+  for (let k = 0; k < 40; k++) {
+    const c = rand(650, 1750), g = Math.min(...others.map(o => Math.abs(o.x - c)));
+    if (g > bg) { bg = g; x = c; }
+    if (g > 200) break;
+  }
+  const g = mkArcher(x, rand(60, 170), -1, Math.round((50 + st.level * 8) * .6), false, 54);
+  g.name = 'GUARD'; g.kind = Math.random() < .5 ? 'archer' : 'crossbow'; g.chops = []; g.guard = true;
+  g.dy = 420; g.rise = 1; g.aiT = 2.2 + i * .9;
+  st.enemies.push(g);
+  text(x, -240, 'GUARD!', '#ff5a4e', 14, 1.2);
+}
+function wizardJump(E) {
+  const f0 = feet(E), others = [st.P, ...st.helpers, ...st.enemies.filter(o => o !== E && !o.dead)];
+  let x = E.x, bg = -1;
+  for (let k = 0; k < 40; k++) {
+    const c = rand(700, 1750);
+    if (Math.abs(c - E.x) < 250) continue;
+    const g = Math.min(...others.map(o => Math.abs(o.x - c)));
+    if (g > bg) { bg = g; x = c; }
+    if (g > 220) break;
+  }
+  wizPoof(f0.x, f0.y);
+  st.pinned = st.pinned.filter(p => !(Math.abs(p.x - E.x) < E.pw / 2 + 8 && p.y > -E.h - 8));
+  E.x = x; E.h = rand(80, 220); E.chops = []; E.aiAim = null; E.pow = 0; E.aiShots = Math.max(0, E.aiShots - 2); E.aiT = Math.max(E.aiT, 1.2);
+  const f = feet(E);
+  wizPoof(f.x, f.y);
+  text(f.x, bossTop(E) - 20, 'POOF!', '#d58cff', 16, 1);
+  sfx('whoosh');
+}
+function wizPoof(x, y) {
+  for (let q = 0; q < 18; q++) P_(x + rand(-18, 18), y - rand(0, 100), rand(-130, 130), rand(-170, 40), .55, 2.8, Math.random() < .5 ? '#d58cff' : '#ff9a45', 'spark');
+  ring(x, y - 50, 70, '#d58cff', .55, 3);
+}
+// STONE GIANT: walks slowly at you, now and then throws a boulder, swings his club when he gets to you
+function giantStep(E, dt) {
+  const foes = bossFoes();
+  if (!foes.length) return;
+  const T = foes.reduce((b, a) => Math.abs(a.x - E.x) < Math.abs(b.x - E.x) ? a : b);
+  const dir = Math.sign(T.x - E.x) || -1;
+  E.f = dir; E.aim = dir > 0 ? -.35 : Math.PI + .35;
+  const wall = st.barrier && dir < 0 && E.x > barrierX() ? barrierX() : null;   // a barrier in the way gets smashed first
+  const stopAt = wall !== null ? wall + 46 : T.x - dir * (T.pw / 2 + 45);
+  const gap = (stopAt - E.x) * dir;
+  if (E.swingT > 0) {
+    E.swingT -= dt; E.swingP = clamp(1 - E.swingT / 1.1, 0, 1);
+    if (!E.swung && E.swingP >= .55) {
+      E.swung = true;
+      const f = feet(E), hx = f.x + dir * 70;
+      shake(10); sfx('boom');
+      for (let q = 0; q < 14; q++) P_(hx + rand(-30, 30), -4, rand(-160, 160), rand(-220, -40), rand(.4, .8), rand(3, 6), 'rgba(200,180,150,.8)', 'smoke');
+      if (wall !== null && gap < 30) {
+        const B = st.barrier; B.hp -= 70; B.hitT = .2;
+        text(wall, barrierTop() + 20, '-70', '#8fc8ff', 16, .8); sfx('glass');
+        if (B.hp <= 0) { st.barrier = null; text(wall, barrierTop() - 10, 'BARRIER DOWN', '#ff5a4e', 16, 1.2); }
+      } else if (Math.abs(T.x - E.x) < T.pw / 2 + 95) bossHurt(T, E.rage ? 42 : 32, E.x, 'CLUB SMASH!');
+    }
+    if (E.swingT <= 0) { E.swingT = 0; E.swingP = 0; E.swung = false; E.clubT = rand(1.2, 2) * (E.rage ? .7 : 1); }
+    return;
+  }
+  if (E.throwP > 0) {
+    E.throwP += dt / .9;
+    if (E.throwP >= 1) { E.throwP = 0; const tf = feet(T); throwBoulder(E, tf.x, tf.y - 58, 1); E.throwT = rand(4, 10) * (E.rage ? .6 : 1); }
+    return;
+  }
+  if (gap <= 8) {
+    if ((E.clubT -= dt) <= 0) { E.swingT = 1.1; E.swingP = 0; E.swung = false; text(feet(E).x, bossTop(E) - 10, 'SWING!', '#ffd27a', 14, .8); }
+    return;
+  }
+  const sp = E.rage ? 30 : 17;
+  E.x += dir * Math.min(gap, sp * dt);
+  const ph0 = E.walkPh; E.walkPh += dt * (E.rage ? 6.5 : 4.2);
+  if (Math.floor(ph0 / Math.PI) !== Math.floor(E.walkPh / Math.PI)) {   // a heavy footstep
+    shake(1.5);
+    for (let q = 0; q < 4; q++) P_(E.x + rand(-20, 20), -3, rand(-60, 60), rand(-80, -20), .5, rand(2.5, 4), 'rgba(200,180,150,.7)', 'smoke');
+  }
+  if ((E.throwT -= dt) <= 0 && gap > 250) E.throwP = .01;
+}
+function throwBoulder(E, tx, ty, err) {
+  const s = shoulder(E), sol = solve(E, tx, ty), dir = Math.sign(tx - s.x) || -1;
+  const e = (sol.e + gauss() * 2.2 * err) * Math.PI / 180, v = sol.v + gauss() * 30 * err;
+  const ang = dir < 0 ? Math.PI + e : -e;
+  st.boulders.push({ id: ++uid, x: s.x + Math.cos(ang) * 22, y: s.y + Math.sin(ang) * 22, vx: Math.cos(ang) * v, vy: Math.sin(ang) * v, r: 15, spin: 0, dmg: E.rage ? 34 : 26 });
+  sfx('whoosh');
+}
+function bossHurt(a, dmg, fromX, label) {
+  dmg = Math.round(dmg * (a === st.P ? 1 - st.armour : 1));
+  a.hp -= dmg; a.hitT = .15;
+  const f = feet(a);
+  text(f.x, f.y - 124, label, '#ffd27a', 16, 1.1);
+  text(f.x + rand(-10, 10), f.y - 100, '-' + dmg, '#ff5a4e', 18, .9);
+  blood(f.x, f.y - 50, (f.x - fromX) * 2, -100, 12); shake(9); sfx('hit');
+  if (a.hp <= 0) kill(a, { vx: f.x - fromX || -1, owner: null }, 'body');
+}
+function smashBoulder(R) {
+  R.done = true;
+  for (let q = 0; q < 14; q++) P_(R.x, R.y, rand(-180, 180), rand(-220, 40), rand(.4, .8), rand(2.5, 5), q % 2 ? '#7a6f66' : '#9a8f84');
+  sfx('crack');
+}
+function updateBoulders(dt) {
+  if (!st.boulders) st.boulders = [];
+  for (const R of st.boulders) {
+    R.vx += st.wind * dt; R.vy += G * dt; R.x += R.vx * dt; R.y += R.vy * dt; R.spin += dt * 5 * (R.vx < 0 ? -1 : 1);
+    const B = st.barrier, bx = barrierX();
+    if (B && Math.abs(R.x - bx) < R.r && R.y > barrierTop() && R.y < barrierBot()) {
+      B.hp -= 45; B.hitT = .15; text(bx, R.y - 14, '-45', '#8fc8ff', 14, .7); sfx('glass');
+      if (B.hp <= 0) { st.barrier = null; text(bx, barrierTop() - 10, 'BARRIER DOWN', '#ff5a4e', 16, 1.2); shake(6); }
+      smashBoulder(R); continue;
+    }
+    for (const a of bossFoes()) {
+      const f = feet(a), k = sizeOf(a);
+      if (Math.hypot(f.x - R.x, f.y - 50 * k - R.y) < R.r + 26 * k) { bossHurt(a, R.dmg, R.x - R.vx * .05, 'BOULDER!'); smashBoulder(R); break; }
+    }
+    if (R.done) continue;
+    for (const a of bossFoes()) if (inPillar(a, R.x, R.y + R.r * .6)) { smashBoulder(R); shake(4); break; }
+    if (!R.done && R.y + R.r * .6 >= 0) { smashBoulder(R); shake(3); }
+    if (R.x < -900 || R.x > farX() + 1200) R.done = true;
+  }
+  st.boulders = st.boulders.filter(R => !R.done);
+}
+// your arrows smash boulders in the air
+function boulderHit(ar) {
+  for (const R of st.boulders || []) {
+    if (R.done || Math.hypot(ar.x - R.x, ar.y - R.y) > R.r + 8) continue;
+    ar.done = true; smashBoulder(R);
+    text(R.x, R.y - 24, 'SMASHED! +10 GP', '#7dff9a', 15, 1.1); st.gp += 10;
+    return true;
+  }
+  return false;
+}
+function drawBoulders() {
+  for (const R of st.boulders || []) {
+    const r = R.r * sc;
+    ctx.save(); ctx.translate(SX(R.x), SY(R.y)); ctx.rotate(R.spin);
+    ctx.fillStyle = '#7a6f66'; ctx.strokeStyle = '#3a332e'; ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let i = 0; i < 9; i++) { const t = i / 9 * 6.283, rr = r * (i % 2 ? .84 : 1); ctx.lineTo(Math.cos(t) * rr, Math.sin(t) * rr); }
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#9a8f84'; ctx.beginPath(); ctx.arc(-r * .3, -r * .3, r * .32, 0, 6.283); ctx.fill();
+    ctx.restore();
+  }
+}
+// giant's arms: a club in one hand, a boulder held up in the other while he throws
+function drawGiantArms(a, ink) {
+  const ff = a.f, p = a.swingP || 0;
+  let phi = -.5;   // club angle from straight up (+ = the way he faces)
+  if (p > 0) phi = p < .45 ? -.5 - 1.3 * (p / .45) : p < .65 ? -1.8 + 3.9 * ((p - .45) / .2) : 2.1 - 2.6 * ((p - .65) / .35);
+  const ux = Math.sin(phi) * ff, uy = -Math.cos(phi), hx = ux * 20, hy = -64 + uy * 20;
+  ctx.strokeStyle = ink; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(0, -64); ctx.lineTo(hx, hy); ctx.stroke();
+  ctx.strokeStyle = '#6b4a2a'; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(hx - ux * 4, hy - uy * 4); ctx.lineTo(hx + ux * 30, hy + uy * 30); ctx.stroke();
+  ctx.fillStyle = '#5a3d22'; ctx.beginPath(); ctx.arc(hx + ux * 33, hy + uy * 33, 7.5, 0, 6.283); ctx.fill();
+  ctx.fillStyle = '#3a2a18';
+  for (const s of [-1, 1]) { ctx.beginPath(); ctx.arc(hx + ux * 33 - uy * 6 * s, hy + uy * 33 + ux * 6 * s, 2, 0, 6.283); ctx.fill(); }
+  const t = a.throwP || 0;
+  if (t > 0) {
+    const bx = -ff * (4 + 9 * t), by = -104 - 6 * t;
+    ctx.strokeStyle = ink; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(0, -64); ctx.lineTo(bx, by + 8); ctx.stroke();
+    ctx.fillStyle = '#7a6f66'; ctx.strokeStyle = '#3a332e'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(bx, by, 8.5, 0, 6.283); ctx.fill(); ctx.stroke();
+  } else { ctx.strokeStyle = ink; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(0, -64); ctx.lineTo(-ff * 9, -38); ctx.stroke(); }
+  for (const s2 of a.stuck) { ctx.save(); ctx.translate(s2.x, s2.y); ctx.rotate(s2.ang); drawArrowShape(24); ctx.restore(); }
+  if (a.frozen > 0 && !a.dead) {
+    ctx.fillStyle = 'rgba(191,233,255,.45)'; ctx.strokeStyle = 'rgba(230,248,255,.9)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(-18, 2); ctx.lineTo(-22, -70); ctx.lineTo(-10, -102); ctx.lineTo(12, -104); ctx.lineTo(22, -66); ctx.lineTo(18, 2); ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+}
+// crown, angry glow and the charge-up ring around a boss
+function drawBossFX() {
+  for (const E of st.enemies) {
+    if (!E.boss || E.dead) continue;
+    const f = feet(E), k = sizeOf(E), x = SX(f.x), y = SY(f.y - 55 * k);
+    if (x < -150 || x > W + 150) continue;
+    if (E.rage) {
+      ctx.save(); ctx.globalAlpha = .2 + .1 * Math.sin(st.t * 8);
+      const r = 85 * k * sc, g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, '#ff3a2a'); g.addColorStop(1, 'rgba(255,58,42,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, 6.283); ctx.fill(); ctx.restore();
+    }
+    if (E.btype !== 'wizard' && !E.rot) {
+      const s = sc * k, cx = x, cy = SY(f.y - 93 * k);
+      ctx.fillStyle = '#ffd27a'; ctx.strokeStyle = '#8a6a1a'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(cx - 9 * s, cy); ctx.lineTo(cx + 9 * s, cy); ctx.lineTo(cx + 9 * s, cy - 9 * s); ctx.lineTo(cx + 4.5 * s, cy - 4 * s);
+      ctx.lineTo(cx, cy - 11 * s); ctx.lineTo(cx - 4.5 * s, cy - 4 * s); ctx.lineTo(cx - 9 * s, cy - 9 * s); ctx.closePath(); ctx.fill(); ctx.stroke();
+    }
+    const C = E.bc;
+    if (C) {
+      const p = clamp(C.t / C.dur, 0, 1), col = BOSS_INFO[E.btype].col;
+      ctx.save(); ctx.strokeStyle = col; ctx.lineWidth = 3; ctx.globalAlpha = .5 + .5 * Math.abs(Math.sin(st.t * 10));
+      ctx.beginPath(); ctx.arc(x, y, (95 - 55 * p) * k * sc, 0, 6.283); ctx.stroke();
+      ctx.globalAlpha = 1;
+      const bw = 70, by = SY(bossTop(E)) - 8;
+      ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(x - bw / 2 - 1, by - 1, bw + 2, 7);
+      ctx.fillStyle = col; ctx.fillRect(x - bw / 2, by, bw * p, 5);
+      if (E.btype === 'ship') {   // red target where the rain will fall
+        const tx = SX(C.tx), ty = SY(C.ty - 60), r = (60 - 20 * p) * sc;
+        ctx.strokeStyle = '#ff5a4e'; ctx.lineWidth = 2.5; ctx.globalAlpha = .5 + .5 * Math.abs(Math.sin(st.t * 12));
+        ctx.beginPath(); ctx.arc(tx, ty, r, 0, 6.283); ctx.moveTo(tx - r * 1.3, ty); ctx.lineTo(tx + r * 1.3, ty); ctx.moveTo(tx, ty - r * 1.3); ctx.lineTo(tx, ty + r * 1.3); ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+}
+// big boss health bar across the top of the screen
+function drawBossBar() {
+  const B = st.enemies.find(e => e.boss && !e.dead);
+  if (!B) return;
+  const bw = Math.min(280, W * .34), bx = W / 2 - bw / 2, fr = clamp(B.hp / B.max, 0, 1);
+  ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  ctx.font = '700 11px Silkscreen, monospace';
+  ctx.fillStyle = B.rage ? (Math.sin(st.t * 8) > 0 ? '#ff5a4e' : '#ffd27a') : '#ffd27a';
+  ctx.fillText(B.name + (B.rage ? ' · ENRAGED' : '') + (B.bc ? ' · ' + BOSS_INFO[B.btype].move + '!' : ''), W / 2, 34);
+  ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(bx - 2, 48, bw + 4, 10);
+  ctx.fillStyle = B.rage ? '#ff5a4e' : '#ffd27a'; ctx.fillRect(bx, 50, bw * fr, 6);
+  ctx.fillStyle = 'rgba(246,238,223,.8)'; ctx.fillRect(bx + bw / 2 - 1, 47, 2, 12);
+  ctx.restore();
 }
 
 /* ---------- update ---------- */
@@ -1517,6 +1851,7 @@ function update(rdt) {
     if (E.dead || P.dead || E.rise > 0 || st.nextT > 0) continue;
     if (E.dummy && !st.dummyFire) continue;
     const edt = dt * (E.slowT > 0 ? E.slowM : 1);
+    if (E.boss && bossStep(E, edt)) continue;
     if (E.kind === 'healer' && !E.aiAim && E.aiT - edt <= 0) {
       const hurt = st.enemies.filter(o => o !== E && !o.dead && o.hp < o.max);
       if (hurt.length && Math.random() < .7) {
@@ -1539,7 +1874,7 @@ function update(rdt) {
         fire(E, A.ang, A.v, E.kind === 'mage' ? 'fire' : null); E.aiShots++; E.pow = 0; E.aiAim = null;
         if (E.kind === 'mage') for (let q = n0; q < st.arrows.length; q++) { st.arrows[q].magic = true; st.arrows[q].dmgMul = 1.3; }
         if (E.slowT > 0) for (let q = n0; q < st.arrows.length; q++) st.arrows[q].tm = E.slowM;
-        E.aiT = Math.max(1.6, 3.8 - st.level * .12) * (.75 + n * .3) * rand(.8, 1.2) * (E.kind === 'crossbow' ? 1.25 : E.kind === 'healer' ? 1.4 : 1);
+        E.aiT = Math.max(1.6, 3.8 - st.level * .12) * (.75 + n * .3) * rand(.8, 1.2) * (E.kind === 'crossbow' ? 1.25 : E.kind === 'healer' ? 1.4 : 1) * (E.rage ? .65 : 1);
       }
     } else {
       E.aiT -= edt;
@@ -1578,6 +1913,7 @@ function update(rdt) {
   }
   updateVortices(dt);
   updateMeteors(dt);
+  updateBoulders(dt);
   updateWeather(dt);
   if (st.nextT <= 0 && !P.dead) {
     if (SOLDIERS) updateAllies(dt);
@@ -1606,6 +1942,7 @@ function update(rdt) {
   st.gadgets = st.gadgets.filter(g => !g.gone);
 
   // arrows
+  headshotSlowmo();
   for (const ar of st.arrows) {
     if (ar.done) continue;
     const steps = 4, sdt = dt * (ar.tm || 1) / steps;
@@ -1631,6 +1968,7 @@ function update(rdt) {
       if (ar.done) break;
       if (ar.owner.isP) {
         if (coverHit(ar)) break;
+        if (boulderHit(ar)) break;
         for (const E of st.enemies) {
           if (E.ship && !E.ship.down && !E.dead && !ar.done) {
             const f = feet(E), bx = (ar.x - f.x) / 70, by = (ar.y - (f.y - 140)) / (38 * balloonSquash(E));
@@ -1714,6 +2052,7 @@ function update(rdt) {
     if (!a.dead) { a.hitT -= dt; continue; }
     if (a.topple) continue;
     a.vy += G * dt; a.dy += a.vy * dt; a.dx += a.vx * dt;
+    if (a.walker && a.dy > 0) { a.dy = 0; a.vy = 0; a.vx *= .85; }   // the giant falls flat on the ground
     a.rot = clamp(a.rot + a.vr * dt, -1.7, 1.7);
   }
   for (const p of st.parts) {
@@ -1758,27 +2097,49 @@ for (let i = 0; i < 9; i++) CLOUDS.push({ x: rand(0, 1.6), y: rand(.12, .42), w:
 const BIRDS = [];
 for (let i = 0; i < 5; i++) BIRDS.push({ x: rand(0, 1), y: rand(.15, .35), v: rand(14, 26), ph: rand(0, 6) });
 
+/* ---------- sky: each level gets its own time of day (sunset, dusk, dawn, day), fading over when the level changes ---------- */
+const hexC = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+const SKY_PALS = [
+  { name: 'sunset', sky: ['#141c38', '#3e3766', '#a0587a', '#ea8a5e', '#f9cf86'], sunY: .6, sun: '#fff0c4', g1: '#ffe6aa', g2: '#ffcd8c', g3: '#ffaa6e', ray: '#ffdca0', cl1: '#ffd6c8', cl2: '#f0a0aa', lay: [['#c48aa0', '#9c6a8a'], ['#8f6290', '#6c4a73'], ['#5a3f6e', '#3a2850']], tree: '#2a1c3c', haze: '#ffbeaa', ember: '#ffd696', stars: 1, sunA: 1 },
+  { name: 'dusk', sky: ['#060a20', '#18204a', '#38386e', '#6e4c80', '#b8707a'], sunY: .8, sun: '#ffd2a0', g1: '#ffb48c', g2: '#e88a7a', g3: '#a05a78', ray: '#e8a0a0', cl1: '#a898c8', cl2: '#6a5a96', lay: [['#6a5a8e', '#4e4272'], ['#463a68', '#332a52'], ['#2a2246', '#1c1632']], tree: '#150f26', haze: '#a08cc8', ember: '#c8b4ff', stars: 1.4, sunA: .8 },
+  { name: 'dawn', sky: ['#2b3a6e', '#6e6fae', '#c98fb5', '#f7b6a8', '#ffe3c2'], sunY: .7, sun: '#fff6e0', g1: '#fff0dc', g2: '#ffd6c8', g3: '#f0b4c0', ray: '#ffe6dc', cl1: '#ffe6f0', cl2: '#e6b4d2', lay: [['#a99ac4', '#8a7aa8'], ['#7c6a9e', '#5e4f80'], ['#4c3f6c', '#322850']], tree: '#2a2244', haze: '#ffd2dc', ember: '#fff0dc', stars: .45, sunA: 1 },
+  { name: 'day', sky: ['#3d6fbe', '#6a9ce0', '#9cc4ee', '#cfe2f2', '#f3ecd6'], sunY: .2, sun: '#fffbea', g1: '#fffaf0', g2: '#fff4d6', g3: '#ffeac0', ray: '#fffae6', cl1: '#ffffff', cl2: '#dce8f8', lay: [['#93abcc', '#7690b4'], ['#6e84a8', '#57698c'], ['#4e5878', '#363d5a']], tree: '#2a2c44', haze: '#eef2ff', ember: '#ffffff', stars: 0, sunA: .9 },
+].map(p => { const o = { name: p.name }; for (const k in p) if (k !== 'name') o[k] = typeof p[k] === 'string' ? hexC(p[k]) : Array.isArray(p[k]) ? p[k].map(v => Array.isArray(v) ? v.map(hexC) : hexC(v)) : p[k]; return o; });
+const mixV = (a, b, u) => typeof a === 'number' ? a + (b - a) * u : a.map((v, i) => mixV(v, b[i], u));
+const rgba = (c, al = 1) => `rgba(${Math.round(c[0])},${Math.round(c[1])},${Math.round(c[2])},${al})`;
+const SKY = { lv: null, from: null, to: null, t0: 0 };
+function skyPal() {
+  const lv = st ? st.level : 1, to = SKY_PALS[(Math.max(1, lv) - 1) % SKY_PALS.length], now = performance.now();
+  if (SKY.lv === null) { SKY.lv = lv; SKY.from = SKY.to = to; }
+  if (lv !== SKY.lv) { SKY.from = skyNow(now); SKY.to = to; SKY.t0 = now; SKY.lv = lv; }
+  return skyNow(now);
+}
+function skyNow(now) {
+  const u = clamp((now - SKY.t0) / 1800, 0, 1);
+  if (u >= 1 || SKY.from === SKY.to) return SKY.to;
+  const o = {}; for (const k in SKY.to) o[k] = k === 'name' ? SKY.to.name : mixV(SKY.from[k], SKY.to[k], u); return o;
+}
 function drawBG() {
-  const t = st ? st.t : 0;
+  const t = st ? st.t : 0, SP = skyPal();
   const g = ctx.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, '#141c38'); g.addColorStop(.3, '#3e3766'); g.addColorStop(.55, '#a0587a'); g.addColorStop(.78, '#ea8a5e'); g.addColorStop(1, '#f9cf86');
+  [0, .3, .55, .78, 1].forEach((o, i) => g.addColorStop(o, rgba(SP.sky[i])));
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-  for (const s2 of STARS) { ctx.globalAlpha = .35 + .35 * Math.sin(t * 1.5 + s2.p); ctx.fillStyle = '#fff6e6'; ctx.fillRect(s2.x * W, s2.y * H, s2.r, s2.r); }
+  for (const s2 of STARS) { ctx.globalAlpha = Math.min(1, (.35 + .35 * Math.sin(t * 1.5 + s2.p)) * SP.stars); if (!SP.stars) continue; ctx.fillStyle = '#fff6e6'; ctx.fillRect(s2.x * W, s2.y * H, s2.r, s2.r); }
   ctx.globalAlpha = 1;
   // sun with slow rays
-  const sx = W * .72 - camX * sc * .03, sy = H * .6;
+  const sx = W * .72 - camX * sc * .03, sy = H * SP.sunY;
   ctx.save(); ctx.translate(sx, sy); ctx.rotate(t * .02);
   for (let k = 0; k < 10; k++) {
     ctx.rotate(Math.PI / 5);
     const rg = ctx.createLinearGradient(0, 0, H * 1.1, 0);
-    rg.addColorStop(0, 'rgba(255,220,160,.10)'); rg.addColorStop(1, 'rgba(255,220,160,0)');
+    rg.addColorStop(0, rgba(SP.ray, .10)); rg.addColorStop(1, rgba(SP.ray, 0));
     ctx.fillStyle = rg; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(H * 1.1, -H * .09); ctx.lineTo(H * 1.1, H * .09); ctx.fill();
   }
   ctx.restore();
   const sg = ctx.createRadialGradient(sx, sy, 0, sx, sy, H * .55);
-  sg.addColorStop(0, 'rgba(255,230,170,.95)'); sg.addColorStop(.1, 'rgba(255,205,140,.6)'); sg.addColorStop(1, 'rgba(255,170,110,0)');
+  sg.addColorStop(0, rgba(SP.g1, .95 * SP.sunA)); sg.addColorStop(.1, rgba(SP.g2, .6 * SP.sunA)); sg.addColorStop(1, rgba(SP.g3, 0));
   ctx.fillStyle = sg; ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = '#fff0c4'; ctx.beginPath(); ctx.arc(sx, sy, H * .065, 0, 6.283); ctx.fill();
+  ctx.fillStyle = rgba(SP.sun); ctx.beginPath(); ctx.arc(sx, sy, H * .065, 0, 6.283); ctx.fill();
   // clouds
   for (const c of CLOUDS) {
     const span = W * 1.6 + c.w * 2;
@@ -1786,7 +2147,7 @@ function drawBG() {
     for (const [px, py, pr] of c.puffs) {
       const r = c.w * pr * .5;
       const cg = ctx.createRadialGradient(cx + px * c.w, cy + py * c.w - r * .3, 0, cx + px * c.w, cy + py * c.w, r);
-      cg.addColorStop(0, 'rgba(255,214,200,.42)'); cg.addColorStop(1, 'rgba(240,160,170,0)');
+      cg.addColorStop(0, rgba(SP.cl1, .42)); cg.addColorStop(1, rgba(SP.cl2, 0));
       ctx.fillStyle = cg; ctx.beginPath(); ctx.arc(cx + px * c.w, cy + py * c.w, r, 0, 6.283); ctx.fill();
     }
   }
@@ -1797,15 +2158,15 @@ function drawBG() {
     ctx.beginPath(); ctx.moveTo(bx - 6, by - f); ctx.quadraticCurveTo(bx - 3, by - 2, bx, by); ctx.quadraticCurveTo(bx + 3, by - 2, bx + 6, by - f); ctx.stroke();
   }
   // mountain layers with haze
-  for (const L of LAYERS) {
-    const off = camX * sc * L.par, topY = H * L.base - L.amp;
+  for (let li = 0; li < LAYERS.length; li++) {
+    const L = LAYERS[li], off = camX * sc * L.par, topY = H * L.base - L.amp;
     const mg = ctx.createLinearGradient(0, topY, 0, H);
-    mg.addColorStop(0, L.top); mg.addColorStop(.6, L.col);
+    mg.addColorStop(0, rgba(SP.lay[li][0])); mg.addColorStop(.6, rgba(SP.lay[li][1]));
     ctx.fillStyle = mg; ctx.beginPath(); ctx.moveTo(0, H);
     for (let px = -L.step; px <= W + L.step; px += L.step / 2) ctx.lineTo(px, H * L.base - ridge(L, px + off) * L.amp);
     ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
     if (L.trees) {
-      ctx.fillStyle = '#2a1c3c';
+      ctx.fillStyle = rgba(SP.tree);
       const startI = Math.floor((off - 40) / 22);
       for (let k = startI; k < startI + W / 22 + 4; k++) {
         if (hash(k) < .45) continue;
@@ -1814,11 +2175,11 @@ function drawBG() {
       }
     }
     const fg = ctx.createLinearGradient(0, H * L.base, 0, H * L.base + 60);
-    fg.addColorStop(0, 'rgba(255,190,170,.14)'); fg.addColorStop(1, 'rgba(255,190,170,0)');
+    fg.addColorStop(0, rgba(SP.haze, .14)); fg.addColorStop(1, rgba(SP.haze, 0));
     ctx.fillStyle = fg; ctx.fillRect(0, H * L.base, W, 60);
   }
   // embers
-  ctx.fillStyle = 'rgba(255,214,150,.6)';
+  ctx.fillStyle = rgba(SP.ember, .6);
   for (const s2 of SPECKS) {
     const y = H - ((s2.y * H + t * s2.v * 1.5) % H), x = (((s2.x * W - camX * sc * .5 + Math.sin(t + s2.y * 9) * 8) % W) + W) % W;
     ctx.fillRect(x, y, s2.r, s2.r);
@@ -1838,6 +2199,7 @@ function drawBG() {
 }
 function drawPillar(a) {
   if (a.ship) return drawShip(a);
+  if (a.walker) return;
   if (!a.topple) { drawPillarRaw(a); drawChops(a); return; }
   const T = a.topple, saved = { dx: a.dx, dy: a.dy, rot: a.rot };
   a.dx = 0; a.dy = 0; a.rot = 0;
@@ -1972,6 +2334,35 @@ function drawPillarRaw(a, isTop) {
     ctx.fill();
   }
 }
+// glowing path behind your own arrows: follows the whole flight, then fades after about a second
+const TRAILS = new Map();
+function trackTrails() {
+  const now = performance.now() / 1000;
+  for (const ar of st.arrows) {
+    if (ar.done || !ar.owner || !ar.owner.isP || ar.owner.helper || ar.magic) continue;
+    if (!ar.tid) ar.tid = ++uid;
+    let T = TRAILS.get(ar.tid);
+    if (!T) { T = { pts: [], col: ar.col || '#ffffff' }; TRAILS.set(ar.tid, T); }
+    const L = T.pts[T.pts.length - 1];
+    if (!L || Math.hypot(ar.x - L.x, ar.y - L.y) > 9) T.pts.push({ x: ar.x, y: ar.y, t: now });
+  }
+}
+function drawTrails() {
+  const now = performance.now() / 1000, LIFE = 1.1;
+  ctx.lineCap = 'round';
+  for (const [id, T] of TRAILS) {
+    T.pts = T.pts.filter(p => now - p.t < LIFE);
+    if (!T.pts.length) { TRAILS.delete(id); continue; }
+    ctx.strokeStyle = T.col; ctx.fillStyle = T.col;
+    for (let i = 1; i < T.pts.length; i++) {
+      const p = T.pts[i], q = T.pts[i - 1], k = 1 - (now - p.t) / LIFE;
+      ctx.globalAlpha = k * .75; ctx.lineWidth = (.8 + k * 3) * sc;
+      ctx.beginPath(); ctx.moveTo(SX(q.x), SY(q.y)); ctx.lineTo(SX(p.x), SY(p.y)); ctx.stroke();
+      if (i % 5 === 0) { ctx.globalAlpha = k; ctx.beginPath(); ctx.arc(SX(p.x) + (hash(i + id) - .5) * 10 * sc, SY(p.y) + (hash(i * 3 + id) - .5) * 10 * sc, 1.4 * sc, 0, 6.283); ctx.fill(); }
+    }
+  }
+  ctx.globalAlpha = 1;
+}
 function drawArrowShape(len, col) {
   ctx.lineCap = 'butt';
   ctx.strokeStyle = 'rgba(20,10,20,.55)'; ctx.lineWidth = 3.6;
@@ -1988,6 +2379,14 @@ function drawArcher(a) {
   if (SX(f.x) < -80 || SX(f.x) > W + 80) return;
   ctx.save();
   ctx.translate(SX(f.x), SY(f.y)); ctx.scale(sc * sizeOf(a), sc * sizeOf(a)); ctx.rotate(a.rot);
+  if (!a.dead && !a.dummy && !a.topple) {   // alive: breathes, leans back after a shot, rocks back when hit
+    const tf = st.t - (a.fireT === undefined ? -9 : a.fireT), th = st.t - (a.flinchT === undefined ? -9 : a.flinchT);
+    let lean = 0;
+    if (tf >= 0 && tf < 1) lean += .14 * Math.exp(-tf * 5);
+    if (th >= 0 && th < 1.2) lean += .3 * Math.exp(-th * 4) * Math.cos(th * 9);
+    if (lean) ctx.rotate(-(a.f || 1) * lean);
+    ctx.scale(1, 1 + Math.sin(st.t * 2.2 + a.x * .013) * .018);
+  }
   const ink = a.hitT > 0 ? '#5a1010' : '#141414', ff = a.f;
   if (!a.dead && isTagged(a)) { ctx.save(); ctx.strokeStyle = '#d58cff'; ctx.lineWidth = 2.5; ctx.setLineDash([7, 6]); ctx.lineDashOffset = -st.t * 40;
     ctx.beginPath(); ctx.arc(0, -50, 62, 0, 6.283); ctx.stroke(); ctx.restore(); }
@@ -2002,7 +2401,8 @@ function drawArcher(a) {
   ctx.beginPath(); ctx.moveTo(-ff * 8, -85); ctx.quadraticCurveTo(-ff * 16, -78 - tw, -ff * 23, -74 + tw); ctx.stroke();
   // warm rim light from the sun (offset silhouette)
   ctx.strokeStyle = 'rgba(255,176,112,.55)'; ctx.lineWidth = 7;
-  ctx.beginPath(); ctx.moveTo(1.6, -40); ctx.lineTo(-7.4, 0); ctx.moveTo(1.6, -40); ctx.lineTo(10.6, 0); ctx.stroke();
+  const lg = a.walker && !a.dead ? Math.sin(a.walkPh || 0) * 8 : 0;
+  ctx.beginPath(); ctx.moveTo(1.6, -40); ctx.lineTo(-7.4 + lg, 0); ctx.moveTo(1.6, -40); ctx.lineTo(10.6 - lg, 0); ctx.stroke();
   ctx.lineWidth = 17; ctx.beginPath(); ctx.moveTo(1.6, -44); ctx.lineTo(1.6, -68); ctx.stroke();
   ctx.fillStyle = 'rgba(255,176,112,.55)'; ctx.beginPath(); ctx.arc(1.8, -84.5, 11, 0, 6.283); ctx.fill();
   ctx.save(); ctx.translate(-ff * 8, -58); ctx.rotate(ff * .35);
@@ -2011,7 +2411,7 @@ function drawArcher(a) {
   for (const k of [-2, 0, 2]) { ctx.beginPath(); ctx.moveTo(k, -14); ctx.lineTo(k * 1.6, -22); ctx.stroke(); }
   ctx.restore();
   ctx.strokeStyle = ink; ctx.lineWidth = 6;
-  ctx.beginPath(); ctx.moveTo(0, -40); ctx.lineTo(-9, 0); ctx.moveTo(0, -40); ctx.lineTo(9, 0); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0, -40); ctx.lineTo(-9 + lg, 0); ctx.moveTo(0, -40); ctx.lineTo(9 - lg, 0); ctx.stroke();
   ctx.lineWidth = 15;
   ctx.beginPath(); ctx.moveTo(0, -44); ctx.lineTo(0, -68); ctx.stroke();
   ctx.fillStyle = ink; ctx.beginPath(); ctx.arc(0, -84, 10, 0, 6.283); ctx.fill();
@@ -2033,9 +2433,10 @@ function drawArcher(a) {
     ctx.beginPath(); ctx.moveTo(0, -55); ctx.lineTo(Math.sin(hand) * 36, -55 - Math.cos(hand) * 36); ctx.stroke();
   }
   if (a.stun > 0 && !a.dead) { for (let q = 0; q < 3; q++) { const t = st.t * 4 + q * 2.09; ctx.fillStyle = '#ffd27a'; ctx.beginPath(); ctx.arc(Math.cos(t) * 14, -102 + Math.sin(t) * 4, 2.6, 0, 6.283); ctx.fill(); } }
+  if (a.walker) { drawGiantArms(a, ink); ctx.restore(); return; }
   if (a.kind === 'mage' || a.kind === 'healer') {
     const orb = a.kind === 'mage' ? '#ff9a45' : '#7dff9a';
-    ctx.fillStyle = a.kind === 'mage' ? '#5b3a8a' : '#e8e8f0';
+    ctx.fillStyle = a.kind === 'mage' ? (a.boss ? '#c9a227' : '#5b3a8a') : '#e8e8f0';
     if (a.kind === 'mage') { ctx.beginPath(); ctx.moveTo(-12, -90); ctx.lineTo(12, -90); ctx.lineTo(ff * 4, -118); ctx.fill(); }
     else { ctx.fillRect(-3, -66, 6, 18); ctx.fillRect(-8, -60, 16, 6); }
     ctx.strokeStyle = '#6b4a2a'; ctx.lineWidth = 3;
@@ -2101,13 +2502,13 @@ function drawDummyBody(a) {
 }
 function drawHPBar(a) {
   if (a.dead) return;
-  const f = feet(a), x = SX(f.x), y = SY(f.y - 112) - 6;
+  const f = feet(a), x = SX(f.x), y = SY(f.y - 112 * sizeOf(a)) - 6;
   if (x < -60 || x > W + 60) return;
   const w = 62, h = 6, fr = clamp(a.hp / a.max, 0, 1);
   ctx.fillStyle = 'rgba(20,20,20,.55)'; ctx.fillRect(x - w / 2, y, w, h);
   ctx.fillStyle = fr > .35 ? '#f2f2f2' : '#c4141c'; ctx.fillRect(x - w / 2, y, w * fr, h);
   ctx.font = '700 11px Silkscreen, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-  ctx.fillStyle = a.boss ? '#ff5a4e' : '#f6eedf'; ctx.fillText(a.helper ? a.name : a.kind && a.kind !== 'archer' ? a.kind.toUpperCase() + ' ' + a.name : a.name, x, y - 3);
+  ctx.fillStyle = a.boss ? '#ff5a4e' : '#f6eedf'; ctx.fillText(a.helper || a.boss ? a.name : a.kind && a.kind !== 'archer' ? a.kind.toUpperCase() + ' ' + a.name : a.name, x, y - 3);
 }
 
 function drawWeakSpot(g) {
@@ -2392,6 +2793,7 @@ function drawHUD() {
   if (st.combo >= 2) { ctx.font = '700 13px Silkscreen, monospace'; ctx.fillStyle = '#ff8ad8'; ctx.fillText('COMBO ×' + st.combo, lx, st.power ? 112 : 78); ctx.font = '700 10px Silkscreen, monospace'; }
   if (st.barrier) { ctx.font = '700 11px Silkscreen, monospace'; ctx.fillStyle = '#8fc8ff'; ctx.fillText('BARRIER ' + Math.max(0, Math.round(st.barrier.hp)), lx + 150, 38); ctx.font = '700 10px Silkscreen, monospace'; }
   if (st.lastShot) { ctx.fillStyle = 'rgba(246,238,223,.7)'; ctx.fillText('LAST ' + Math.round(st.lastShot.p * 100) + '% ' + Math.round(-st.lastShot.a * 180 / Math.PI) + '°', lx, 64); }
+  if (!st.practice) drawBossBar();
   // enemy list
   const rx = W - 18 - 52;
   ctx.textAlign = 'right'; ctx.font = '700 12px Silkscreen, monospace'; ctx.fillStyle = '#f6eedf';
@@ -2464,8 +2866,10 @@ function draw() {
   for (const h of st.helpers) drawArcher(h);
   drawArcher(st.P);
   for (const e of st.enemies) drawArcher(e);
+  drawBossFX();
   for (const m of st.marchers) drawMarcher(m);
   for (const a of st.allies) drawMarcher(a);
+  trackTrails(); drawTrails();
   for (const ar of st.arrows) {
     ctx.save(); ctx.translate(SX(ar.x), SY(ar.y)); ctx.scale(sc, sc); ctx.rotate(Math.atan2(ar.vy, ar.vx));
     const tg = ctx.createLinearGradient(-36, 0, -110, 0);
@@ -2487,6 +2891,7 @@ function draw() {
   }
   drawVortices();
   drawMeteors();
+  drawBoulders();
   for (const g of st.gadgets) if (g.type === 'cloud') drawCloud(g);
   const ps = Math.max(.8, sc);
   for (const p of st.parts) {
@@ -2551,7 +2956,7 @@ function draw() {
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   for (const t of st.texts) {
     ctx.globalAlpha = clamp(t.life / t.max * 1.8, 0, 1);
-    ctx.font = `700 ${t.size}px Silkscreen, monospace`;
+    ctx.font = `700 ${t.pop ? Math.round(t.size * (1 + .8 * Math.exp(-(t.max - t.life) * 9))) : t.size}px Silkscreen, monospace`;
     ctx.fillStyle = 'rgba(20,10,30,.7)'; ctx.fillText(t.t, SX(t.x) + 1, SY(t.y) + 2);
     ctx.fillStyle = t.col; ctx.fillText(t.t, SX(t.x), SY(t.y));
   }
