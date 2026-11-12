@@ -1899,7 +1899,7 @@ function drawBossFX() {
 }
 /* ---------- HYDRA: heads on swaying necks; shoot a head off and two grow back; only a heart shot hurts it ---------- */
 const HYDRA_MAX = 9, HYDRA_EL = { fire: '#ff9a45', zap: '#ffe14a', ice: '#9fe6ff' };
-const hydraAng = (i, n) => -1.7 - 1.25 * (i + .5) / n;   // fan of necks from straight up to out in front
+const hydraAng = (i, n) => -1.3 + (Math.max(-2.95, -2 - .1 * n) + 1.3) * (i + .5) / n;   // necks fan from up-and-back to the front; more heads reach further out in front of the heart
 function hydraInit(e, round) {
   e.hydra = true; e.walker = true; e.h = 0; e.pw = 60; e.x = Math.max(e.x, 1150);
   e.hpLock = e.hp; e.heads = []; e.hk = 0; e.fireT = rand(2.5, 4); e.bossT = rand(10, 13);
@@ -1911,7 +1911,7 @@ function newHead(e, a) {
   return { k: ++e.hk, a, L: rand(150, 205), ph: rand(0, 6.283), t: 0, g: 1, br: 0, el: els[Math.floor(Math.random() * els.length)] };
 }
 const hydraRoot = E => { const f = feet(E); return { x: f.x + 70 * E.f, y: f.y - 118 }; };
-const hydraHeart = E => { const f = feet(E); return { x: f.x + 42 * E.f, y: f.y - 92 }; };
+const hydraHeart = E => { const f = feet(E); return { x: f.x + 80 * E.f, y: f.y - 82 }; };   // front of the chest, in a gap in the scales
 const hydraBody = E => { const f = feet(E); return { x: f.x, y: f.y - 75, rx: 100, ry: 52 }; };
 function headGeom(E, h) {
   const R = hydraRoot(E), t = st.t, m = -E.f;   // m = 1 when it faces left
@@ -1979,10 +1979,11 @@ function hydraHit(E, ar) {
     if (Math.hypot(ar.x - g.hx, ar.y - g.hy) < 22) { chopHead(E, h, ar, g); return true; }
   }
   const H = hydraHeart(E);
-  if (Math.hypot(ar.x - H.x, ar.y - H.y) < 17) { heartShot(E, ar); return true; }
+  const dH = Math.hypot(ar.x - H.x, ar.y - H.y);
+  if (dH < 22) { heartShot(E, ar); return true; }
   for (const h of E.heads) if (neckHit(headGeom(E, h), ar.x, ar.y, 9)) { hydraBlock(E, ar); return true; }
   const b = hydraBody(E), bx = (ar.x - b.x) / b.rx, by = (ar.y - b.y) / b.ry;
-  if (bx * bx + by * by < 1) { hydraBlock(E, ar); return true; }
+  if (bx * bx + by * by < 1 && dH > 40) { hydraBlock(E, ar); return true; }   // the armour gap round the heart lets arrows in
   return false;
 }
 function hydraBlock(E, ar) {
