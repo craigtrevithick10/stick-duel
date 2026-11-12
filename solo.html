@@ -212,6 +212,7 @@ const POWERS = {
   tornado:{ name: 'TORNADO',     short: 'TWISTER', col: '#d6e4f0', shots: 3 },
   shrink: { name: 'SHRINK ARROWS', short: 'SHRINK', col: '#b6ff5c', shots: 6 },
   tele:   { name: 'TELEPORT ARROWS', short: 'TELEPORT', col: '#d58cff', shots: 4 },
+  clone:  { name: 'CLONE ARROWS', short: 'CLONE', col: '#4fe3c1', shots: 2, rare: true },
   meteor: { name: 'METEOR SHOWER', short: 'METEOR', col: '#ff7b3a', shots: 1, mega: true },
   blackhole:{ name: 'BLACK HOLE', short: 'VOID',   col: '#b07cff', shots: 1, ultra: true }
 };
@@ -249,7 +250,7 @@ const ICON = {
   armour: '🛡️', leech: '🧛', revive: '💨', glass: '🪟', helper: '🤝',
   pw_triple: '🔱', pw_fire: '🔥', pw_ice: '❄️', pw_boom: '💥', pw_heavy: '🪨', pw_rapid: '⏩', pw_pierce: '📌',
   pw_homing: '🎯', pw_storm: '⚡', pw_cluster: '🎆', pw_scope: '🔭', pw_slowmo: '🐢', pw_tornado: '🌪️',
-  pw_shrink: '🤏', pw_tele: '🌀', pw_blackhole: '🕳️', pw_meteor: '☄️', pw_shield: '🧱'
+  pw_shrink: '🤏', pw_tele: '🌀', pw_blackhole: '🕳️', pw_meteor: '☄️', pw_clone: '👥', pw_shield: '🧱'
 };
 
 let W = 0, H = 0, DPR = 1, sc = 1, camX = 0, camY = 0, scBase = 1, zoom = 1, forcePortrait = false;
@@ -540,7 +541,9 @@ function padAction(g, k, ar) {
   sfx('click');
 }
 function gadgetStep(ar, sdt) {
+  const cl = ar.owner.isP && hasPk(ar, 'clone');
   for (const g of st.gadgets) {
+    if (cl && !g.gone && !g.falling && !(g.appearT > 0) && cloneTouch(g, ar) && shotOnce(ar, 'clone')) { ar.done = true; cloneGadget(g); return; }
     if (g.type === 'hp') {
       if (!g.gone && ar.owner.isP && Math.abs(ar.x - g.x) < 14 && Math.abs(ar.y - (g.y + Math.sin(st.t * 2 + g.bob) * 6)) < 14) {
         g.gone = true; ar.done = true;
@@ -609,6 +612,7 @@ function gadgetStep(ar, sdt) {
     if (ROPED[g.type]) {
       const px = ar.x - ar.vx * sdt;
       if ((px - g.x) * (ar.x - g.x) <= 0 && Math.abs(ar.y - cutY(g)) < 6) {
+        if (cl && shotOnce(ar, 'clone')) { ar.done = true; cloneGadget(g); return; }
         g.falling = true; g.vy = 0; g.hold = 0;
         text(g.x, ar.y - 10, 'SNAP!', '#ffd27a', 16, .9);
         for (let q = 0; q < 8; q++) P_(g.x, ar.y, rand(-80, 80), rand(-100, 40), .4, 2, '#3a2a1c', 'spark');
@@ -797,6 +801,9 @@ function impactFX(ar, x, y, onBody) {
     if (ar.owner.isP && shotOnce(ar, 'blackhole')) spawnHole(x, Math.min(y, -40), riderOf(ar, 'blackhole'));
   } else if (pk === 'meteor') {
     if (ar.owner.isP) { const n = meteorShare(ar); if (n > 0) spawnShower(x, Math.sign(ar.vx) || 1, n, riderOf(ar, 'meteor')); }
+  } else if (pk === 'clone') {
+    ring(x, y, 34, CLONE_COL, .4, 2.5);
+    for (let i = 0; i < 14; i++) P_(x, y, rand(-160, 160), rand(-180, 40), rand(.3, .6), 2.2, i % 2 ? CLONE_COL : '#ffffff', 'spark');
   } else if (pk === 'triple' || pk === 'rapid') {
     ring(x, y, 26, POWERS[pk].col, .3, 2);
     for (let i = 0; i < 10; i++) P_(x, y, rand(-150, 150), rand(-180, 40), rand(.25, .45), 2.2, POWERS[pk].col, 'spark');
@@ -932,6 +939,7 @@ function onHit(ar, a, z) {
   if (!a.isP && ar.vol) ar.vol.hits++;
   if (!a.isP && ar.owner === st.P && st.leech) st.P.hp = Math.min(st.P.max, st.P.hp + st.leech);
   impactFX(ar, ar.x, ar.y, true);
+  if (hasPk(ar, 'clone') && ar.owner && ar.owner.isP && !a.isP && !a.helper && shotOnce(ar, 'clone')) cloneArcher(a);
   if (hasPk(ar, 'fire') && !a.isP) { a.burn = 3.5; text(f.x, f.y - 132, 'BURNING', '#ff9a45', 14, .9); }
   if (hasPk(ar, 'slowmo') && !a.isP) {
     a.slowM = a.slowT > 0 ? Math.max(.04, a.slowM * .5) : .4; a.slowT = 4.5;
@@ -993,6 +1001,8 @@ function kill(a, ar, z) {
 }
 
 function clearLevel() {
+  for (const c of st.clones || []) if (c.type === 'a') removeClone(c);
+  st.clones = [];
   st.nextT = 2.6;
   st.P.hp = st.P.max; st.P.headRed = 0;
   for (const h of st.helpers) if (!h.dead) h.hp = h.max;
@@ -1005,6 +1015,107 @@ function clearLevel() {
 }
 
 /* ---------- tornado, black hole, toppling, cover ---------- */
+/* ---------- clone arrow: whatever it hits gets a copy (objects pop up somewhere else; archers come over to your side) ---------- */
+const CLONE_COL = '#4fe3c1', CLONE_MAX = 2;
+const MIRROR_KINDS = { archer: 1, crossbow: 1, mage: 1, healer: 1, dummy: 1 };
+function cloneFX(x, y, x2, y2) {
+  ring(x, y, 50, CLONE_COL, .5, 3); ring(x, y, 30, '#ffffff', .35, 2);
+  for (let q = 0; q < 20; q++) { const t = q / 19; P_(x + (x2 - x) * t, y + (y2 - y) * t, rand(-30, 30), rand(-30, 30), .7, 2.4, q % 2 ? CLONE_COL : '#ffffff', 'spark'); }
+  sfx('heal');
+}
+// at most 2 clones at once: a new one makes the oldest disappear
+function addClone(c) {
+  st.clones = (st.clones || []).filter(o => o.type === 'g' ? !o.o.gone : st.helpers.includes(o.o));
+  st.clones.push(c);
+  while (st.clones.length > CLONE_MAX) removeClone(st.clones.shift());
+}
+function removeClone(c) {
+  if (c.type === 'g') { if (!c.o.gone) { poof(c.o); c.o.gone = true; } return; }
+  const h = c.o, f = feet(h);
+  if (!st.helpers.includes(h)) return;
+  st.helpers = st.helpers.filter(o => o !== h);
+  ring(f.x, f.y - 50, 50, CLONE_COL, .5, 3);
+  for (let q = 0; q < 16; q++) P_(f.x + rand(-14, 14), f.y - rand(0, 90), rand(-90, 90), rand(-140, 20), .5, rand(2.5, 4), 'rgba(200,255,240,.8)', 'smoke');
+  if (!h.dead) text(f.x, f.y - 120, 'CLONE GONE', CLONE_COL, 13, 1);
+}
+function cloneGadget(g) {
+  const c = Object.assign({}, g, { id: ++uid, cloned: true, falling: false, vy: 0, hold: 0, flash: 0, gone: false, rain: 0 });
+  if (c.bob !== undefined) c.bob = rand(0, 6);
+  const p = gadgetSpot(g.type); c.x = c.tx = p.x; c.y = c.ty = p.y;
+  st.gadgets.push(c);
+  cloneFX(g.x, g.y, c.x, c.y); text(g.x, g.y - 62, 'CLONE', CLONE_COL, 14, .9);
+  popIn(c, 'CLONED!');
+  addClone({ type: 'g', o: c });
+}
+// does a clone arrow touch this object? Windows: only the frame (through the glass it copies arrows as usual)
+function cloneTouch(g, ar) {
+  if (g.type === 'portal') return false;
+  const by = g.bob !== undefined ? Math.sin(st.t * 2 + g.bob) * 6 : 0, dx = Math.abs(ar.x - g.x), dy = Math.abs(ar.y - g.y - by);
+  if (g.type === 'win') {
+    if (dx < 34 && dy < 41) { (ar.glass = ar.glass || new Set()).add(g.id); return false; }
+    if (dx < 46 && dy < 50) { (ar.frame = ar.frame || new Set()).add(g.id); return false; }
+    if (ar.frame && ar.frame.has(g.id)) { ar.frame.delete(g.id); return !(ar.glass && ar.glass.has(g.id)); }
+    return false;
+  }
+  if (g.type === 'cloud') return dx < g.w / 2 && dy < 30;
+  if (g.type === 'hp' || g.type === 'crate' || g.type === 'link') return dx < 16 && dy < 16;
+  if (g.type === 'bell') return Math.hypot(dx, dy) < 24;
+  if (g.type === 'clock') return Math.hypot(dx, dy) < 20;
+  if (g.type === 'bounce') { const c = Math.cos(g.ang), sn = Math.sin(g.ang), rx = ar.x - g.x, ry = ar.y - g.y; return Math.abs(rx * c + ry * sn) < 46 && Math.abs(-rx * sn + ry * c) < 7; }
+  if (g.type === 'fan') return dx < 30 && dy < 40;
+  return dx < 30 && dy < 30;
+}
+// an archer hit by a clone arrow: a copy comes over to your side. It copies every shot the real one takes
+// (turned round, so it flies back at them). Bosses, bats and other big ones give a MINI clone for 10 seconds.
+function cloneArcher(E) {
+  const idx = st.helpers.length, P = st.P, f = feet(E);
+  const mirror = MIRROR_KINDS[E.kind] && !E.boss && !E.flyer && !E.walker && !E.ship && !E.hydra;
+  const h = mkArcher(P.x - 72 - idx * 52, P.h - 22 - idx * 16, 1, mirror ? Math.min(E.max, 90) : 90, true, 40);
+  h.helper = true; h.clone = true; h.aiT = 1.5;
+  if (mirror) { h.kind = E.kind; h.dummy = !!E.dummy; h.mirrorOf = E.id; h.name = 'CLONE'; }
+  else { h.kind = 'archer'; h.mini = true; h.life = 10; h.name = 'MINI ' + (E.name || 'BOSS'); h.aiT = .6; }
+  st.helpers.push(h);
+  const hf = feet(h);
+  cloneFX(f.x, f.y - 60, hf.x, hf.y - 60);
+  text(f.x, f.y - 150, 'CLONED!', CLONE_COL, 18, 1.3);
+  text(hf.x, hf.y - 140, mirror ? 'YOUR CLONE COPIES ITS SHOTS' : 'MINI CLONE · 10s', CLONE_COL, 13, 1.8);
+  addClone({ type: 'a', o: h });
+}
+// the real archer fired: its clone fires the same shot, turned round
+function mirrorShot(E, ang, v) {
+  for (const h of st.helpers) {
+    if (h.mirrorOf !== E.id || h.dead || h.frozen > 0) continue;
+    const n0 = st.arrows.length;
+    fire(h, Math.PI - ang, v, E.kind === 'mage' ? 'fire' : null);
+    for (let q = n0; q < st.arrows.length; q++) st.arrows[q].dmgMul = .9;
+    h.pow = 0; h.fireT = st.t;
+  }
+}
+function cloneAura(h) {
+  const f = feet(h), x = SX(f.x), y = SY(f.y - 50), r = 58 * sc, a = .22 + .1 * Math.sin(st.t * 5 + h.id);
+  const g = ctx.createRadialGradient(x, y, 4, x, y, r);
+  g.addColorStop(0, `rgba(79,227,193,${a.toFixed(3)})`); g.addColorStop(1, 'rgba(79,227,193,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, 6.283); ctx.fill();
+  if (Math.random() < .25) P_(f.x + rand(-18, 18), f.y - rand(0, 95), 0, rand(-40, -10), .6, 1.6, CLONE_COL, 'spark');
+}
+// black hole: swallowed archers spin into it, shrink and vanish
+function swallow(a, B) {
+  const f = feet(a), dx = f.x - B.x, dy = f.y - 50 - B.y;
+  a.swallow = { B, t: 0, r0: Math.max(20, Math.hypot(dx, dy)), a0: Math.atan2(dy, dx) };
+  a.vx = a.vy = a.vr = 0; a.shrinkT = 99;
+}
+function swallowStep(a, dt) {
+  const S = a.swallow, B = S.B;
+  S.t += dt;
+  const p = Math.min(1, S.t / .9), r = S.r0 * (1 - p) * (1 - p), ang = S.a0 + p * p * 9;
+  const cx = B.x + Math.cos(ang) * r, cy = B.y + Math.sin(ang) * r;   // where the middle of the body goes
+  a.shrink = Math.min(.97, p);
+  a.dx = cx - a.x; a.dy = cy + 50 * (1 - p) + a.h; a.rot = p * 10;
+  if (Math.random() < .5) P_(cx, cy, rand(-30, 30), rand(-30, 30), .3, 2, B.k ? rideOf(B.k)[1] : '#b07cff', 'spark');
+  if (p >= 1 && !a.swallowed) { a.swallowed = true; ring(B.x, B.y, 30, '#ffffff', .3, 2); }
+}
+// arrows (not yours) shrink as they fall in
+const holeK = ar => { if (!st.holes.length || (ar.owner && ar.owner.isP)) return 1; let k = 1; for (const B of st.holes) k = Math.min(k, clamp((Math.hypot(ar.x - B.x, ar.y - B.y) - 20) / 140, .15, 1)); return k; };
 // the second power of a linked arrow lands on everyone a big effect (rocks, twister, black hole, blast, lightning) touches
 function infuse(a, k, by, seen, weak) {
   if (!k || !a || a.dead || a.isP || (seen && seen.has(a))) return;
@@ -1175,15 +1286,31 @@ function updateVortices(dt) {
     for (const E of st.enemies) {
       if (E.dead) continue;
       const f = feet(E), d = Math.hypot(f.x - B.x, f.y - 50 - B.y);
-      if (d < (B.k === 'heavy' ? 150 : 110) && !E.boss) { E.hp = 0; kill(E, { vx: (B.x - f.x) * 2, owner: st.P }, 'body'); text(f.x, f.y - 120, 'SWALLOWED', '#b07cff', 16, 1.2); continue; }
+      if (d < (B.k === 'heavy' ? 150 : 110) && !E.boss) { E.hp = 0; kill(E, { vx: (B.x - f.x) * 2, owner: st.P }, 'body'); swallow(E, B); text(f.x, f.y - 120, 'SWALLOWED', '#b07cff', 16, 1.2); continue; }
       if (d < 300) { infuse(E, B.k, st.P, B.hitE); if (E.dead) continue; const k = 1 - d / 300; E.hp -= 40 * k * dt; E.hitT = .05; if (E.hp <= 0) kill(E, { vx: (B.x - f.x) * 2, owner: st.P }, 'body'); }
     }
     for (const ar of st.arrows) {
       if (ar.owner.isP) continue;
       const dx = B.x - ar.x, dy = B.y - ar.y, d = Math.hypot(dx, dy);
-      if (d < 26) ar.done = true;
+      if (d < 26) { ar.done = true; for (let q = 0; q < 5; q++) P_(ar.x, ar.y, rand(-40, 40), rand(-40, 40), .3, 1.8, '#ffffff', 'spark'); }
       else if (d < 360) { const f = 3000 * (1 - d / 360); ar.vx += dx / d * f * dt; ar.vy += dy / d * f * dt; }
     }
+    for (const E of st.enemies) {   // bodies lying near it get pulled in too
+      if (!E.dead || E.swallow || E.topple || E.boss) continue;
+      const f = feet(E); if (Math.hypot(f.x - B.x, f.y - 50 - B.y) < 170) swallow(E, B);
+    }
+    for (const g of st.gadgets) {   // so do objects
+      if (g.gone || g.type === 'portal' || g.hold > 0) continue;
+      const dx = B.x - g.x, dy = B.y - g.y, d = Math.hypot(dx, dy);
+      if (d < 34) { g.gone = true; text(B.x, B.y - 50, 'GONE', '#b07cff', 13, .9); for (let q = 0; q < 14; q++) P_(g.x, g.y, rand(-80, 80), rand(-80, 80), .4, 2.2, q % 2 ? '#b07cff' : '#ffffff', 'spark'); sfx('void'); }
+      else if (d < 220) { const k = Math.min(1, dt * (2 + 4 * (1 - d / 220))); g.x += dx * k; g.y += dy * k; g.tx = g.x; g.ty = g.y; }
+    }
+    if (st.rocks && st.rocks.length) st.rocks = st.rocks.filter(R => {   // and falling rocks
+      const dx = B.x - R.x, dy = B.y - R.y, d = Math.hypot(dx, dy);
+      if (d < 28) { for (let q = 0; q < 6; q++) P_(R.x, R.y, rand(-50, 50), rand(-50, 50), .3, 2, '#ffb347', 'spark'); return false; }
+      if (d < 320) { const f = 4000 * (1 - d / 320); R.vx += dx / d * f * dt; R.vy += dy / d * f * dt; }
+      return true;
+    });
     for (let q = 0; q < 3; q++) { const a = rand(0, 6.283), r = rand(70, 180); P_(B.x + Math.cos(a) * r, B.y + Math.sin(a) * r, -Math.cos(a) * r * 2 + Math.sin(a) * 140, -Math.sin(a) * r * 2 - Math.cos(a) * 140, .45, rand(1.6, 2.6), B.k ? (Math.random() < .5 ? rideOf(B.k)[1] : rideOf(B.k)[2]) : Math.random() < .5 ? '#b07cff' : '#ffffff', B.k ? rideOf(B.k)[3] : 'spark'); }
     if (B.life <= 0) { if (B.k === 'boom') blast(B.x, B.y, st.P, null); ring(B.x, B.y, 160, B.k ? rideOf(B.k)[1] : '#b07cff', .6, 5); st.flashA = .3; st.flashC = '200,160,255'; }
   }
@@ -2226,6 +2353,7 @@ function update(rdt) {
       if (k >= 1) {
         const n0 = st.arrows.length;
         fire(E, A.ang, A.v, E.kind === 'mage' ? 'fire' : null); E.aiShots++; E.pow = 0; E.aiAim = null;
+        mirrorShot(E, A.ang, A.v);
         if (E.kind === 'mage') for (let q = n0; q < st.arrows.length; q++) { st.arrows[q].magic = true; st.arrows[q].dmgMul = 1.3; }
         if (E.slowT > 0) for (let q = n0; q < st.arrows.length; q++) st.arrows[q].tm = E.slowM;
         E.aiT = Math.max(1.6, 3.8 - st.level * .12) * (.75 + n * .3) * rand(.8, 1.2) * (E.kind === 'crossbow' ? 1.25 : E.kind === 'healer' ? 1.4 : 1) * (E.rage ? .65 : 1);
@@ -2245,7 +2373,13 @@ function update(rdt) {
   }
 
   for (const Hh of st.helpers) {
+    if (Hh.life !== undefined && !Hh.dead && (Hh.life -= dt) <= 0) { Hh.gone = true; continue; }
     if (Hh.dead || P.dead || st.nextT > 0) continue;
+    if (Hh.mirrorOf) {   // a clone copies how the real one aims (turned round); it fights on its own once the real one is gone
+      const O = st.enemies.find(e => e.id === Hh.mirrorOf && !e.dead);
+      if (O) { Hh.aim = Math.PI - O.aim; Hh.pow = O.pow; Hh.aiAim = null; continue; }
+      if (Hh.kind === 'dummy') continue;
+    }
     if (Hh.aiAim) {
       const A = Hh.aiAim; A.t += dt;
       const k = clamp(A.t / A.dur, 0, 1);
@@ -2254,7 +2388,7 @@ function update(rdt) {
         const n0 = st.arrows.length;
         fire(Hh, A.ang, A.v, Hh.kind === 'mage' ? 'fire' : null);
         for (let q = n0; q < st.arrows.length; q++) { if (Hh.kind === 'mage') st.arrows[q].magic = true; st.arrows[q].dmgMul = .8; }
-        Hh.pow = 0; Hh.aiAim = null; Hh.aiT = rand(2.8, 3.8) * (Hh.kind === 'crossbow' ? 1.2 : 1);
+        Hh.pow = 0; Hh.aiAim = null; Hh.aiT = (Hh.mini ? rand(1.1, 1.5) : rand(2.8, 3.8)) * (Hh.kind === 'crossbow' ? 1.2 : 1);
       }
     } else if ((Hh.aiT -= dt) <= 0) {
       const tgts = st.enemies.filter(e => !e.dead && e.rise <= 0);
@@ -2265,6 +2399,7 @@ function update(rdt) {
       Hh.aiAim = { ang: -e, v, t: 0, dur: .7, from: Hh.aim };
     }
   }
+  if (st.helpers.some(h => h.gone)) for (const h of st.helpers.filter(h => h.gone)) { h.gone = false; removeClone({ type: 'a', o: h }); }
   updateVortices(dt);
   updateMeteors(dt);
   updateBoulders(dt);
@@ -2407,6 +2542,7 @@ function update(rdt) {
   for (const a of [P, ...st.helpers, ...st.enemies]) {
     if (!a.dead) { a.hitT -= dt; continue; }
     if (a.topple) continue;
+    if (a.swallow) { swallowStep(a, dt); continue; }
     a.vy += G * dt; a.dy += a.vy * dt; a.dx += a.vx * dt;
     if (a.walker && a.dy > 0) { a.dy = 0; a.vy = 0; a.vx *= .85; }   // the giant falls flat on the ground
     a.rot = clamp(a.rot + a.vr * dt, -1.7, 1.7);
@@ -2733,6 +2869,7 @@ function drawArrowShape(len, col) {
 }
 function drawArcher(a) {
   if (a.hydra) return drawHydra(a);
+  if (a.swallowed) return;
   const f = feet(a);
   if (SX(f.x) < -80 || SX(f.x) > W + 80) return;
   ctx.save();
@@ -3221,7 +3358,7 @@ function draw() {
     if (p.g) { if (p.g.gone) continue; if (p.ox === undefined) { p.ox = p.x - p.g.x; p.oy = p.y - p.g.y; } p.x = p.g.x + p.ox; p.y = p.g.y + p.oy; }
     ctx.save(); ctx.translate(SX(p.x), SY(p.y)); ctx.scale(sc, sc); ctx.rotate(p.ang); drawArrowShape(26, p.col); ctx.restore();
   }
-  for (const h of st.helpers) drawArcher(h);
+  for (const h of st.helpers) { if (h.clone && !h.dead) cloneAura(h); drawArcher(h); }
   drawArcher(st.P);
   for (const e of st.enemies) drawArcher(e);
   drawBossFX();
@@ -3229,7 +3366,8 @@ function draw() {
   for (const a of st.allies) drawMarcher(a);
   trackTrails(); drawTrails();
   for (const ar of st.arrows) {
-    ctx.save(); ctx.translate(SX(ar.x), SY(ar.y)); ctx.scale(sc, sc); ctx.rotate(Math.atan2(ar.vy, ar.vx));
+    const hk = holeK(ar);
+    ctx.save(); ctx.translate(SX(ar.x), SY(ar.y)); ctx.scale(sc * hk, sc * hk); ctx.rotate(Math.atan2(ar.vy, ar.vx));
     const tg = ctx.createLinearGradient(-36, 0, -110, 0);
     tg.addColorStop(0, ar.col ? ar.col : 'rgba(255,255,255,.55)'); tg.addColorStop(1, 'rgba(255,255,255,0)');
     ctx.strokeStyle = tg; ctx.lineWidth = 2; ctx.globalAlpha = .6; ctx.beginPath(); ctx.moveTo(-36, 0); ctx.lineTo(-110, 0); ctx.stroke(); ctx.globalAlpha = 1;
@@ -3528,7 +3666,7 @@ $('clockGo').onclick = () => {
 };
 $('shopNext').onclick = () => {
   show('shopScreen', false); st.shop = false;
-  st.helpers = st.helpers.filter(h => !h.dead);
+  st.helpers = st.helpers.filter(h => !h.dead && !h.clone);
   st.helpers.forEach((h, i) => { h.x = st.P.x - 72 - i * 52; h.h = st.P.h - 22 - i * 16; h.dx = 0; h.dy = 0; h.rot = 0; h.hp = h.max; h.stuck = []; });
   st.level++; spawnLevel(false); st.camHold = 0; st.camFocus = null; camX = homeCam();
 };
@@ -3576,13 +3714,14 @@ function linkSlots(i, j) {
 function linkTap(i) {
   const q = st.quiver[i];
   if (!q || q.k2) return;
+  if (q.k === 'clone') { text(feet(st.P).x, feet(st.P).y - 150, "CLONE CAN'T BE LINKED", CLONE_COL, 14, 1.4); sfx('click'); return; }
   if (st.linkA < 0 || st.linkA === i) { st.linkA = st.linkA === i ? -1 : i; sfx('click'); return; }
   linkSlots(st.linkA, i);
 }
 function toggleLink() {
   if (!st || !st.links) return;
   if (st.linking) { st.linking = false; st.linkA = -1; sfx('click'); return; }
-  if (st.quiver.filter(o => !o.k2).length < 2) { text(feet(st.P).x, feet(st.P).y - 150, 'NEED 2 ARROW TYPES TO LINK', '#7dffe8', 14, 1.6); sfx('click'); return; }
+  if (st.quiver.filter(o => !o.k2 && o.k !== 'clone').length < 2) { text(feet(st.P).x, feet(st.P).y - 150, 'NEED 2 ARROW TYPES TO LINK', '#7dffe8', 14, 1.6); sfx('click'); return; }
   st.linking = true; st.linkA = -1; sfx('click');
 }
 function pickSlot(i) {   // -1 = plain arrows
@@ -3815,13 +3954,13 @@ $('musicBtn').onclick = () => {
 
 /* ---------- practice range: straw dummies, any arrow from the rack, unlimited shots ---------- */
 const PRAC_X = [650, 1050, 1500, 1950], PRAC_H = [70, 135, 175, 110];
-const RACK = ['triple', 'fire', 'ice', 'boom', 'heavy', 'rapid', 'pierce', 'homing', 'storm', 'cluster', 'scope', 'slowmo', 'tornado', 'shrink', 'tele', 'meteor', 'blackhole'];
+const RACK = ['triple', 'fire', 'ice', 'boom', 'heavy', 'rapid', 'pierce', 'homing', 'storm', 'cluster', 'scope', 'slowmo', 'tornado', 'shrink', 'tele', 'clone', 'meteor', 'blackhole'];
 const RACK_DESC = {
   plain: 'A normal arrow', triple: '3 arrows at once', fire: 'Sets them on fire', ice: 'Freezes them solid', boom: 'Explodes; 3 hits topple a tower',
   heavy: 'Hits much harder', rapid: 'Very fast reload', pierce: 'Goes through archers', homing: 'Steers into the nearest archer',
   storm: 'Lightning jumps between archers', cluster: 'Tap the screen to split it', scope: 'Shows where your arrow will go',
   slowmo: 'Slows down whoever it hits', tornado: 'A twister that turns arrows round', shrink: 'Each hit shrinks them',
-  tele: 'Tag one; your next arrow moves them there', meteor: 'Rocks rain down. They hit you too!', blackhole: 'Sucks everything in',
+  tele: 'Tag one; your next arrow moves them there', clone: 'Copies what it hits. A cloned archer fights for you', meteor: 'Rocks rain down. They hit you too!', blackhole: 'Sucks everything in',
   shield: 'Puts a wall up in front of you'
 };
 function makeDummy(i) {
@@ -3901,7 +4040,7 @@ function renderRack() {
     : rackA ? 'Now tap a second arrow to link with ' + POWERS[rackA].short : 'Tap the first arrow of the pair';
   let h = '';
   if (!rackLink) h += rackItem('plain');
-  for (const k of RACK) h += rackItem(k, rackLink && rackA && rackA !== k ? ` aria-label="Link ${POWERS[rackA].short} with ${POWERS[k].short}"` : '');
+  for (const k of RACK) if (!(rackLink && k === 'clone')) h += rackItem(k, rackLink && rackA && rackA !== k ? ` aria-label="Link ${POWERS[rackA].short} with ${POWERS[k].short}"` : '');
   if (!rackLink) h += rackItem('shield');
   $('rackGrid').innerHTML = h;
 }
