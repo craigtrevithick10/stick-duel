@@ -279,6 +279,22 @@ const COMBOS = {
 };
 const comboKey = (a, b) => a && b ? [a, b].sort().join('+') : null;
 const comboOf = ar => !ar ? null : comboKey(ar.pk, ar.pk2);
+const COMBO_DESC = {
+  'fire+ice': "A steam cloud: nobody inside can aim", 'boom+fire': 'Leaves a ring of fire that burns', 'fire+meteor': 'Rocks leave burning patches',
+  'meteor+storm': 'Every rock zaps the nearest enemy', 'storm+tornado': 'The twister throws lightning', 'blackhole+meteor': 'The hole eats the rocks, then one huge blast',
+  'blackhole+tornado': 'The twister carries the black hole', 'blackhole+tele': 'Pulls the tagged enemy in from anywhere', 'blackhole+shrink': 'Can swallow a boss you have shrunk',
+  'boom+heavy': 'A huge blast that knocks an archer off their tower', 'pierce+storm': 'Lightning down the whole flight path', 'cluster+meteor': 'Tap the screen: it bursts into 5 flaming rocks'
+};
+// linking two arrows that make a combo: show its name and what it does
+function comboAnnounce(P, a, b) {
+  const key = comboKey(a, b), C = COMBOS[key];
+  if (!C || !P) return false;
+  const f = feet(P);
+  text(f.x, f.y - 190, '★ COMBO: ' + C[0] + '!', C[1], 24, 2.8, 1);
+  text(f.x, f.y - 160, COMBO_DESC[key], '#f6eedf', 14, 2.8);
+  ring(f.x, f.y - 60, 95, C[1], .7, 4); ring(f.x, f.y - 60, 60, '#ffffff', .5, 2); sfx('heal');
+  return true;
+}
 const powShort = q => q.k2 ? (COMBOS[comboKey(q.k, q.k2)] ? '★' + COMBOS[comboKey(q.k, q.k2)][2] : POWERS[q.k].short + '+' + POWERS[q.k2].short) : POWERS[q.k].short;
 const powName = q => q.k2 ? powShort(q) : POWERS[q.k].name;
 // a picture for every shop item and arrow type (shop cards and the quiver buttons)
@@ -545,12 +561,13 @@ function popIn(g, label) {
   text(g.x, g.y - 46, label || 'NEW!', '#ffd27a', 13, 1);
 }
 function updateDirector(dt) {
+  placeStep(dt);
   for (const g of st.gadgets) if (g.appearT > 0) g.appearT = Math.max(0, g.appearT - dt);
   if (st.nextT > 0 || st.dirT === undefined) return;
   if ((st.dirT -= dt) > 0) return;
   st.dirT = rand(5, 9);
   const live = st.gadgets.filter(g => !g.gone && g.type !== 'portal');
-  const free = live.filter(g => !g.falling && !(g.hold > 0) && !(g.rain > 0) && !(g.appearT > 0) && !(g.type === 'clock' && st.clockPending));
+  const free = live.filter(g => !g.falling && !g.placeBy && !(g.hold > 0) && !(g.rain > 0) && !(g.appearT > 0) && !(g.type === 'clock' && st.clockPending));
   const cap = gadgetCap(), r = Math.random();
   if ((live.length < cap && r < .3) || !free.length) { if (live.length <= cap) popIn(addGadget(pickGadgetType())); return; }
   const g = free[Math.floor(Math.random() * free.length)];
@@ -612,11 +629,43 @@ function relocate(g) {
   if (g.type === 'bounce') g.tang = rand(-1, 1);
   g.relocT = rand(8, 13);
 }
+/* ---------- MOVE pad: the player who hit it chooses where the object goes (the game keeps going) ---------- */
+const PLACE_T = 8, PLACE_NAME = { win: 'WINDOW', fan: 'FAN', bounce: 'BOUNCE PAD', magnet: 'MAGNET' };
+function placeSpot(x, y) { return { x: clamp(x, 180, farX() - 100), y: clamp(y, Math.max(-330, topY() + 80), -110) }; }
+function placedFX(g, x, y) { ring(x, y, 44, '#ffd27a', .5, 3); text(x, y - 64, 'PLACED', '#ffd27a', 15, 1); sfx('whoosh'); }
+function drawPlaceBox(g, secs, dim) {
+  if (dim) { ctx.fillStyle = 'rgba(20,10,30,.28)'; ctx.fillRect(0, 0, W, H); }
+  const x = SX(g.x), y = SY(g.y), pulse = 1 + .12 * Math.sin(performance.now() / 140);
+  ctx.save(); ctx.strokeStyle = '#ffd27a'; ctx.lineWidth = 3; ctx.setLineDash([9, 7]);
+  ctx.beginPath(); ctx.arc(x, y, 62 * sc * pulse, 0, 6.283); ctx.stroke(); ctx.restore();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const msg = 'TAP WHERE THE ' + (PLACE_NAME[g.type] || 'OBJECT') + ' GOES', sub2 = 'DRAG TO LOOK AROUND · ' + Math.max(1, Math.ceil(secs)) + 's';
+  ctx.font = '700 ' + Math.round(Math.min(22, W / 26)) + 'px Silkscreen, monospace';
+  ctx.fillStyle = 'rgba(20,10,30,.7)'; ctx.fillText(msg, W / 2 + 2, H * .2 + 2); ctx.fillStyle = '#ffd27a'; ctx.fillText(msg, W / 2, H * .2);
+  ctx.font = '700 13px Silkscreen, monospace';
+  ctx.fillStyle = 'rgba(20,10,30,.7)'; ctx.fillText(sub2, W / 2 + 1, H * .2 + 27); ctx.fillStyle = '#f6eedf'; ctx.fillText(sub2, W / 2, H * .2 + 26);
+}
+
+const myPlace = () => st && st.P && st.gadgets.find(g => g.placeBy === st.P.id && !g.gone);
+function startPlace(g, P) {
+  for (const o of st.gadgets) if (o.placeBy === P.id && o !== g) { o.placeBy = 0; relocate(o); }
+  g.placeBy = P.id; g.placeT = PLACE_T; text(g.x, g.y - 64, P.name + ' IS MOVING IT', P.col || '#ffd27a', 13, 1.2); sfx('click');
+}
+function doPlace(P, x, y) {
+  const g = st.gadgets.find(o => o.placeBy === P.id && !o.gone); if (!g) return;
+  g.placeBy = 0;
+  const p = placeSpot(+x || 0, +y || 0); g.tx = p.x; g.ty = p.y; g.relocT = rand(10, 15);
+  placedFX(g, p.x, p.y);
+}
+function placeStep(dt) {   // host: nobody tapped in time, so it goes somewhere random
+  for (const g of st.gadgets) if (g.placeBy && ((g.placeT -= dt) <= 0 || g.gone || g.falling)) { g.placeBy = 0; if (!g.gone && !g.falling) { relocate(g); text(g.x, g.y - 64, 'RELOCATED', '#ffd27a', 14, .9); } }
+}
 function padAction(g, k, ar) {
   const mine = ar.owner.isP, col = mine ? '#ffd27a' : '#ff5a4e';
   if (k === 'MOVE') {
     if (g.hold > 0) { text(g.x, g.y - 64, 'LOCKED', '#8fc8ff', 14, .8); sfx('thud'); return; }
-    relocate(g); text(g.x, g.y - 64, 'RELOCATED', col, 14, .9);
+    const pl = ar.owner && !ar.owner.helper && st.players.includes(ar.owner) ? ar.owner : null;
+    if (pl) startPlace(g, pl); else { relocate(g); text(g.x, g.y - 64, 'RELOCATED', col, 14, .9); }
   } else if (k === 'BOOST') {
     if (g.type === 'win') {
       if (g.mult >= 16) { text(g.x, g.y - 64, 'MAXED ×16', '#7dff9a', 14, .8); }
@@ -1293,6 +1342,8 @@ function megaBomb(x, y, owner) {
   megaBlast(x, y, owner, 1.6);
 }
 // STEAM (fire + ice): a cloud enemies can't see out of
+// a player standing in the steam can't see their dotted aim path
+const inSteam = a => !!a && (st.steams || []).some(S => { const f = feet(a); return Math.hypot(f.x - S.x, (f.y - 60 - S.y) * 1.4) < S.r; });
 function spawnSteam(x, y) { (st.steams = st.steams || []).push({ x, y, life: 4.2, r: 150 }); comboText(x, y - 110, 'fire+ice'); sfx('whoosh'); }
 // a burning patch from napalm / fire rain: burns enemies that stand in it
 function burnPatch(x, y, by, life) { st.fires.push({ x, y, life, burnE: 1, by }); }
@@ -2958,7 +3009,7 @@ function update(rdt) {
     if ((g.type === 'fan' || g.type === 'win' || g.type === 'bounce' || g.type === 'magnet') && !g.falling) {
       if (g.type === 'bounce') g.ang += (g.tang - g.ang) * k;
       if (g.hold > 0) g.hold -= dt;
-      else if (st.nextT <= 0) { g.relocT -= dt; if (g.relocT <= 0) relocate(g); }
+      else if (st.nextT <= 0 && !g.placeBy) { g.relocT -= dt; if (g.relocT <= 0) relocate(g); }
     }
   }
   updateDirector(dt);
@@ -3111,8 +3162,8 @@ function update(rdt) {
 function updateCam(rdt) {
   if (!st) return;
   const P = st.P, viewW = W / sc;
-  if (spectating()) {
-    // spotter: the camera stays where you drag it, inside the field
+  if (spectating() || myPlace()) {
+    // spotter (or choosing where a moved object goes): the camera stays where you drag it, inside the field
     camX = clamp(camX, fieldL() - viewW * .5, farX() - viewW * .4);
     return;
   }
@@ -3765,6 +3816,7 @@ const degOf = a => Math.round(Math.atan2(-Math.sin(a), Math.abs(Math.cos(a))) * 
 function drawPreview() {
   const P = st.P;
   if (!drag || P.pow < .05 || P.dead) return;
+  if (inSteam(P)) return;
   const s = shoulder(P), v = (300 + P.pow * 1100) * sizeOf(P);
   let x = s.x + Math.cos(P.aim) * 24, y = s.y + Math.sin(P.aim) * 24, vx = Math.cos(P.aim) * v, vy = Math.sin(P.aim) * v;
   const dt = 1 / 60;
@@ -4073,6 +4125,7 @@ function draw() {
   drawInset();
   if (running) drawHUD();
   drawQuiver();
+  const mp = running && myPlace(); if (mp) drawPlaceBox(mp, mp.placeT || 0, false);
   drawZoomNote();
 }
 function drawVortices() {
@@ -4383,7 +4436,7 @@ function linkSlots(P, i, j) {
   P.quiver = P.quiver.filter(o => o !== a && o !== b); P.quiver.splice(Math.min(i, j), 0, q);
   P.power = q; P.links--; P.linking = false; P.linkA = -1;
   const f = feet(P);
-  text(f.x, f.y - 150, 'LINKED: ' + powShort(q), '#7dffe8', 18, 1.8);
+  if (!comboAnnounce(P, q.k, q.k2)) text(f.x, f.y - 150, 'LINKED: ' + powShort(q), '#7dffe8', 18, 1.8);
   ring(f.x, f.y - 60, 70, '#7dffe8', .6, 3); sfx('heal');
 }
 function linkTap(P, i) {
@@ -4511,6 +4564,8 @@ cv.addEventListener('pointerdown', e => {
   if (spectating()) {
     // spotter: drag to look around, tap to mark a spot for the team
     drag = { id: e.pointerId, x: e.clientX, y: e.clientY, cam: camX, moved: false, spec: true };
+  } else if (myPlace()) {   // you hit a MOVE pad: drag to look around, tap where it goes
+    drag = { id: e.pointerId, x: e.clientX, y: e.clientY, cam: camX, moved: false, spec: true, place: true };
   } else {
     drag = { id: e.pointerId, x: e.clientX, y: e.clientY };   // the camera only goes home once you actually pull (a tap to split a cluster keeps following it)
   }
@@ -4540,6 +4595,10 @@ function release(e) {
   if (!drag || (e && e.pointerId !== drag.id)) return;
   const d = drag; drag = null;
   if (!st || !running) return;
+  if (d.spec && d.place) {
+    if (!d.moved && e) { const w = toWorld(e); if (isHost()) doPlace(st.P, w.x, w.y); else sendHost({ t: 'place', x: w.x, y: w.y }); }
+    return;
+  }
   if (d.spec) {
     if (!d.moved && e) {
       const w = toWorld(e);
@@ -4771,6 +4830,7 @@ function onGuestMsg(c, raw) {
   else if (m.t === 'buy') shopBuy(P, String(m.id));
   else if (m.t === 'pick') { const i = num(m.i); if (i !== null) pickSlot(P, Math.round(i)); }
   else if (m.t === 'split') { if (inPlay(P)) splitFor(P); }
+  else if (m.t === 'place') { if (inPlay(P)) doPlace(P, m.x, m.y); }
   else if (m.t === 'link') toggleLink(P);
   else if (m.t === 'ready') setReady(P);
   else if (m.t === 'clock') { if (st.clockOpen && st.clockBy === P.id) setTime(num(m.v) || 1); }
@@ -4891,7 +4951,7 @@ function applySnap(m) {
   if (drag && !drag.spec && inPlay(st.P)) { st.P.aim = NET.myAim; st.P.pow = NET.myPow; st.P.f = Math.cos(st.P.aim) < 0 ? -1 : 1; }
   st.pinned = (m.pin || []).map(p => Object.assign(p, { g: p.gid ? NET.gads.get(p.gid) || null : null }));
   st.arrows = (m.ar || []).map(a => Object.assign(a, { owner: NET.objs.get(a.o) || { isP: false }, bx: a.x, by: a.y, bvx: a.vx, bvy: a.vy }));
-  st.tornados = m.tn || []; st.holes = m.bh || []; st.fires = m.fi || []; st.rocks = m.rk || [];
+  st.tornados = m.tn || []; st.holes = m.bh || []; st.fires = m.fi || []; st.rocks = m.rk || []; st.steams = m.sm || [];
   st.boulders = (m.bo || []).map(R => Object.assign(R, { bx: R.x, by: R.y, bvx: R.vx, bvy: R.vy }));
   for (const e of st.enemies) if (e.flyer) { e.gx = e.x; e.gh = e.h; }
   const fx = m.fx || {};
@@ -4970,6 +5030,7 @@ function netTick(rdt) {
   m.tn = st.tornados.map(T => pack(T, new Set(['hitG', 'by', 'hitE'])));
   m.bh = st.holes.map(B => pack(B, new Set(['by', 'hitE', 'tw'])));
   m.fi = st.fires.map(f => ({ x: f.x, y: f.y, life: f.life }));
+  m.sm = (st.steams || []).map(S => ({ x: S.x, y: S.y, life: S.life, r: S.r }));
   const fresh = list => { const out = []; for (const o of list) if (!o._s) { o._s = 1; const c = Object.assign({}, o); delete c._s; out.push(c); } return out; };
   const fp = [];
   for (const p of st.parts) if (!p._s) { p._s = 1; fp.push([p.x, p.y, p.vx, p.vy, p.life, p.max, p.r, p.col || 0, p.kind || 0]); }

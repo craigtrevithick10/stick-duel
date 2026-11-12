@@ -252,6 +252,22 @@ const COMBOS = {
 };
 const comboKey = (a, b) => a && b ? [a, b].sort().join('+') : null;
 const comboOf = ar => !ar ? null : comboKey(ar.pk, ar.pk2);
+const COMBO_DESC = {
+  'fire+ice': "A steam cloud: nobody inside can aim", 'boom+fire': 'Leaves a ring of fire that burns', 'fire+meteor': 'Rocks leave burning patches',
+  'meteor+storm': 'Every rock zaps the nearest enemy', 'storm+tornado': 'The twister throws lightning', 'blackhole+meteor': 'The hole eats the rocks, then one huge blast',
+  'blackhole+tornado': 'The twister carries the black hole', 'blackhole+tele': 'Pulls the tagged enemy in from anywhere', 'blackhole+shrink': 'Can swallow a boss you have shrunk',
+  'boom+heavy': 'A huge blast that knocks an archer off their tower', 'pierce+storm': 'Lightning down the whole flight path', 'cluster+meteor': 'Tap the screen: it bursts into 5 flaming rocks'
+};
+// linking two arrows that make a combo: show its name and what it does
+function comboAnnounce(P, a, b) {
+  const key = comboKey(a, b), C = COMBOS[key];
+  if (!C || !P) return false;
+  const f = feet(P);
+  text(f.x, f.y - 190, '★ COMBO: ' + C[0] + '!', C[1], 24, 2.8, 1);
+  text(f.x, f.y - 160, COMBO_DESC[key], '#f6eedf', 14, 2.8);
+  ring(f.x, f.y - 60, 95, C[1], .7, 4); ring(f.x, f.y - 60, 60, '#ffffff', .5, 2); sfx('heal');
+  return true;
+}
 const powShort = q => q.k2 ? (COMBOS[comboKey(q.k, q.k2)] ? '★' + COMBOS[comboKey(q.k, q.k2)][2] : POWERS[q.k].short + '+' + POWERS[q.k2].short) : POWERS[q.k].short;
 const powName = q => q.k2 ? powShort(q) : POWERS[q.k].name;
 // a picture for every shop item and arrow type (shop cards and the quiver buttons)
@@ -535,11 +551,41 @@ function relocate(g) {
   if (g.type === 'bounce') g.tang = rand(-1, 1);
   g.relocT = rand(8, 13);
 }
+/* ---------- MOVE pad: you choose where the object goes (the game waits while you tap) ---------- */
+const PLACE_T = 8, PLACE_NAME = { win: 'WINDOW', fan: 'FAN', bounce: 'BOUNCE PAD', magnet: 'MAGNET' };
+function placeSpot(x, y) { return { x: clamp(x, 180, farX() - 100), y: clamp(y, Math.max(-330, topY() + 80), -110) }; }
+function placedFX(g, x, y) { ring(x, y, 44, '#ffd27a', .5, 3); text(x, y - 64, 'PLACED', '#ffd27a', 15, 1); sfx('whoosh'); }
+function drawPlaceBox(g, secs, dim) {
+  if (dim) { ctx.fillStyle = 'rgba(20,10,30,.28)'; ctx.fillRect(0, 0, W, H); }
+  const x = SX(g.x), y = SY(g.y), pulse = 1 + .12 * Math.sin(performance.now() / 140);
+  ctx.save(); ctx.strokeStyle = '#ffd27a'; ctx.lineWidth = 3; ctx.setLineDash([9, 7]);
+  ctx.beginPath(); ctx.arc(x, y, 62 * sc * pulse, 0, 6.283); ctx.stroke(); ctx.restore();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const msg = 'TAP WHERE THE ' + (PLACE_NAME[g.type] || 'OBJECT') + ' GOES', sub2 = 'DRAG TO LOOK AROUND · ' + Math.max(1, Math.ceil(secs)) + 's';
+  ctx.font = '700 ' + Math.round(Math.min(22, W / 26)) + 'px Silkscreen, monospace';
+  ctx.fillStyle = 'rgba(20,10,30,.7)'; ctx.fillText(msg, W / 2 + 2, H * .2 + 2); ctx.fillStyle = '#ffd27a'; ctx.fillText(msg, W / 2, H * .2);
+  ctx.font = '700 13px Silkscreen, monospace';
+  ctx.fillStyle = 'rgba(20,10,30,.7)'; ctx.fillText(sub2, W / 2 + 1, H * .2 + 27); ctx.fillStyle = '#f6eedf'; ctx.fillText(sub2, W / 2, H * .2 + 26);
+}
+
+function toWorld(e) { const r = cv.getBoundingClientRect(); return { x: camX + (e.clientX - r.left) / sc, y: (e.clientY - r.top - (H - GROUND) - camY) / sc }; }
+function startPlace(g) {
+  if (st.placing) finishPlace(null);
+  st.placing = { g, t: PLACE_T }; st.camHome = false; sfx('click');
+}
+function finishPlace(w) {
+  const g = st.placing && st.placing.g; st.placing = null;
+  if (!g || g.gone || g.falling) return;
+  if (!w) { relocate(g); text(g.x, g.y - 64, 'RELOCATED', '#ffd27a', 14, .9); return; }
+  const p = placeSpot(w.x, w.y); g.tx = p.x; g.ty = p.y; g.relocT = rand(10, 15);
+  placedFX(g, p.x, p.y);
+  st.camHold = 1.2; st.camLast = camX;
+}
 function padAction(g, k, ar) {
   const mine = ar.owner.isP, col = mine ? '#ffd27a' : '#ff5a4e';
   if (k === 'MOVE') {
     if (g.hold > 0) { text(g.x, g.y - 64, 'LOCKED', '#8fc8ff', 14, .8); sfx('thud'); return; }
-    relocate(g); text(g.x, g.y - 64, 'RELOCATED', col, 14, .9);
+    if (ar.owner === st.P) startPlace(g); else { relocate(g); text(g.x, g.y - 64, 'RELOCATED', col, 14, .9); }
   } else if (k === 'BOOST') {
     if (g.type === 'win') {
       if (g.mult >= 16) { text(g.x, g.y - 64, 'MAXED ×16', '#7dff9a', 14, .8); }
@@ -1090,6 +1136,8 @@ function megaBomb(x, y, owner) {
   megaBlast(x, y, owner, 1.6);
 }
 // STEAM (fire + ice): a cloud enemies can't see out of
+// a player standing in the steam can't see their dotted aim path
+const inSteam = a => !!a && (st.steams || []).some(S => { const f = feet(a); return Math.hypot(f.x - S.x, (f.y - 60 - S.y) * 1.4) < S.r; });
 function spawnSteam(x, y) { (st.steams = st.steams || []).push({ x, y, life: 4.2, r: 150 }); comboText(x, y - 110, 'fire+ice'); sfx('whoosh'); }
 // a burning patch from napalm / fire rain: burns enemies that stand in it
 function burnPatch(x, y, by, life) { st.fires.push({ x, y, life, burnE: 1, by }); }
@@ -3561,6 +3609,7 @@ function drawGadget(g) {
 function drawPreview() {
   const P = st.P;
   if (!drag || P.pow < .05 || P.dead) return;
+  if (inSteam(P)) return;
   const s = shoulder(P), v = 300 + P.pow * 1100;
   let x = s.x + Math.cos(P.aim) * 24, y = s.y + Math.sin(P.aim) * 24, vx = Math.cos(P.aim) * v, vy = Math.sin(P.aim) * v;
   const dt = 1 / 60;
@@ -3827,6 +3876,7 @@ function draw() {
   drawInset();
   if (running) drawHUD();
   drawQuiver();
+  if (st && st.placing) drawPlaceBox(st.placing.g, st.placing.t, true);
   drawZoomNote();
 }
 function drawVortices() {
@@ -4035,7 +4085,8 @@ function frame(ts) {
   const dt = Math.min(.04, (ts - last) / 1000 || 0); last = ts;
   const portrait = running && H > W && !forcePortrait;
   if ($('rotateScreen').hidden === portrait) show('rotateScreen', portrait);
-  if (running && !paused && !portrait && !(st && (st.shop || st.clockOpen || st.linking || st.rack))) update(dt);
+  if (st && st.placing && running && !paused && (st.placing.t -= dt) <= 0) finishPlace(null);
+  if (running && !paused && !portrait && !(st && (st.shop || st.clockOpen || st.linking || st.rack || st.placing))) update(dt);
   camY += (camYTarget() - camY) * Math.min(1, dt * 6);
   draw();
   requestAnimationFrame(frame);
@@ -4068,7 +4119,7 @@ function linkSlots(i, j) {
   st.quiver = st.quiver.filter(o => o !== a && o !== b); st.quiver.splice(at, 0, q);
   st.power = q; st.links--; st.linking = false; st.linkA = -1;
   const f = feet(st.P);
-  text(f.x, f.y - 150, 'LINKED: ' + powShort(q), '#7dffe8', 18, 1.8);
+  if (!comboAnnounce(st.P, q.k, q.k2)) text(f.x, f.y - 150, 'LINKED: ' + powShort(q), '#7dffe8', 18, 1.8);
   ring(f.x, f.y - 60, 70, '#7dffe8', .6, 3); sfx('heal');
 }
 function linkTap(i) {
@@ -4188,13 +4239,16 @@ function cancelAim() { drag = null; if (st) st.P.pow = 0; }
 
 let drag = null;
 cv.addEventListener('pointerdown', e => {
+  if (running && !paused && st.placing) { drag = { id: e.pointerId, x: e.clientX, y: e.clientY, cam: camX, moved: false, place: true }; try { cv.setPointerCapture(e.pointerId); } catch (err) {} return; }
   if (!running || paused || st.P.dead) return;
   drag = { id: e.pointerId, x: e.clientX, y: e.clientY };   // the camera only goes home once you actually pull (a tap to split a cluster keeps following it)
   try { cv.setPointerCapture(e.pointerId); } catch (err) {}
 });
 cv.addEventListener('pointermove', e => {
-  if (!drag || e.pointerId !== drag.id || st.P.dead) return;
+  if (!drag || e.pointerId !== drag.id) return;
   const dx = e.clientX - drag.x, dy = e.clientY - drag.y, len = Math.hypot(dx, dy);
+  if (drag.place) { if (len > 8) drag.moved = true; if (drag.moved) camX = drag.cam - dx / sc; return; }
+  if (st.P.dead) return;
   st.P.pow = clamp(len / 120, 0, 1);
   if (len > 12) st.camHome = true;
   if (len > 6) {
@@ -4203,7 +4257,8 @@ cv.addEventListener('pointermove', e => {
     st.P.aim = a; st.P.f = Math.cos(a) < 0 ? -1 : 1;
   }
 });
-function release() {
+function release(e) {
+  if (drag && drag.place) { const d = drag; drag = null; if (!d.moved && e && st && st.placing) finishPlace(toWorld(e)); return; }
   const P = st && st.P;
   if (drag && P && !P.dead && running && !paused) {
     const cl = P.pow <= .1 ? st.arrows.filter(a => !a.done && !a.split && a.owner === P && hasPk(a, 'cluster')) : [];
@@ -4224,7 +4279,7 @@ function release() {
   }
   drag = null;
 }
-cv.addEventListener('pointerup', e => { if (drag && e.pointerId === drag.id) release(); });
+cv.addEventListener('pointerup', e => { if (drag && e.pointerId === drag.id) release(e); });
 cv.addEventListener('pointercancel', () => { drag = null; if (st) st.P.pow = 0; });
 
 /* ---------- sound ---------- */
@@ -4394,7 +4449,7 @@ function rackItem(k, extra) {
   const isPlain = k === 'plain', P = POWERS[k];
   const name = isPlain ? 'PLAIN' : P.name, col = isPlain ? '#f6eedf' : P.col, ico = isPlain ? '➶' : ICON['pw_' + k] || '';
   const now = !rackLink && (isPlain ? !st.power : st.power && st.power.k === k && !st.power.k2);
-  return `<button type="button" class="item${rackA === k ? ' sel' : ''}${now ? ' now' : ''}" data-k="${k}"${extra || ''}><i class="ico">${ico}</i><span class="txt"><b style="color:${col}">${name}</b><span>${RACK_DESC[k]}</span></span></button>`;
+  return `<button type="button" class="item${rackA === k ? ' sel' : ''}${now ? ' now' : ''}" data-k="${k}"${extra || ''}><i class="ico">${ico}</i><span class="txt"><b style="color:${col}">${name}</b><span>${rackLink && rackA && rackA !== k && COMBOS[comboKey(rackA, k)] ? '<b style="color:#ffd27a">★ COMBO: ' + COMBOS[comboKey(rackA, k)][0] + '</b> · ' + COMBO_DESC[comboKey(rackA, k)] : RACK_DESC[k]}</span></span></button>`;
 }
 function renderRack() {
   $('rackOne').setAttribute('aria-pressed', String(!rackLink && !rackBoss)); $('rackTwo').setAttribute('aria-pressed', String(rackLink)); $('rackBoss').setAttribute('aria-pressed', String(rackBoss));
@@ -4429,7 +4484,7 @@ function rackPick(k) {
   if (b === 'cluster') [a, b] = [b, a];   // cluster first, so its split arrows carry the other power
   st.power = { k: a, k2: b, shots: 99 }; rackA = null;
   const f = feet(st.P);
-  text(f.x, f.y - 150, 'LINKED: ' + powShort(st.power), '#7dffe8', 18, 1.8); ring(f.x, f.y - 60, 70, '#7dffe8', .6, 3); sfx('heal');
+  if (!comboAnnounce(st.P, a, b)) { text(f.x, f.y - 150, 'LINKED: ' + powShort(st.power), '#7dffe8', 18, 1.8); ring(f.x, f.y - 60, 70, '#7dffe8', .6, 3); sfx('heal'); }
   closeRack();
 }
 $('rackOne').onclick = () => { rackLink = false; rackBoss = false; rackA = null; renderRack(); };
