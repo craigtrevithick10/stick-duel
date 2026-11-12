@@ -344,6 +344,11 @@ function spawnLevel(first) {
     e.aiT = (first ? 3 : 2.4) + i * rand(.7, 1.3);
     st.enemies.push(e);
   }
+  let nb = 0;   // acid bats: from level 4, not on boss levels, more of them higher up
+  if (lv >= 4 && !bossLv && Math.random() < .6) {
+    nb = Math.min(4, 1 + Math.floor(Math.random() * (1 + lv / 6)));
+    for (let i = 0; i < nb; i++) st.enemies.push(makeFlyer(lv, i));
+  }
   st.wind = lv >= 4 ? Math.round(rand(-1, 1) * Math.min(100, (lv - 3) * 14)) : 0;
   st.pinned = st.pinned.filter(p => p.x < 200);
   st.marchers = []; if (SOLDIERS) buildMarchQueue(); else st.marchQ = []; st.allies = []; st.allyQ = 0; st.gateCD = Math.min(st.gateCD, 3);
@@ -353,7 +358,7 @@ function spawnLevel(first) {
   if (st.weather === 'storm') { st.wind = Math.round(rand(-120, 120)); st.windT = st.wind; st.stormT = rand(2.5, 4); }
   spawnGadgets();
   const wx = { clear: '', night: ' · NIGHT', storm: ' · STORM', fog: ' · FOG' }[st.weather];
-  st.banner = { t: bossLv ? 'BOSS LEVEL ' + lv : 'LEVEL ' + lv, sub: (bossLv ? st.enemies[n - 1].name + ' · ' : '') + (n === 1 ? '1 ARCHER' : n + ' ARCHERS') + wx, life: 2.4 };
+  st.banner = { t: bossLv ? 'BOSS LEVEL ' + lv : 'LEVEL ' + lv, sub: (bossLv ? st.enemies[n - 1].name + ' · ' : '') + (n === 1 ? '1 ARCHER' : n + ' ARCHERS') + (nb ? ' · ' + nb + (nb === 1 ? ' ACID BAT' : ' ACID BATS') : '') + wx, life: 2.4 };
 }
 
 /* ---------- gadgets: fans, windows, health ---------- */
@@ -762,6 +767,10 @@ function ring(x, y, r1, col, life = .45, w = 3) { st.rings.push({ x, y, r1, col,
 function glow(x, y, r, col, life = .3) { st.glows.push({ x, y, r, col, life, max: life }); }
 function impactFX(ar, x, y, onBody) {
   const pk = ar.pk, ang = Math.atan2(ar.vy, ar.vx);
+  if (ar.acid) {   // acid splat
+    glow(x, y, 40, 'rgba(140,255,90,', .3); ring(x, y, 26, '#8cff5a', .35, 2.5);
+    for (let i = 0; i < 16; i++) P_(x, y, rand(-140, 140), rand(-220, -30), rand(.35, .7), rand(1.8, 3.4), i % 2 ? '#8cff5a' : '#5fd13a', 'spark');
+  }
   if (!pk) return;
   if (pk === 'fire') {
     glow(x, y, 60, 'rgba(255,150,60,', .35); ring(x, y, 46, '#ffb347', .4, 3);
@@ -858,14 +867,14 @@ function segDist(px, py, ax, ay, bx, by) {
   return Math.hypot(px - ax - vx * t, py - ay - vy * t);
 }
 function zone(a, x, y) {
-  if (a.dead || a.hydra) return null;
+  if (a.dead || a.hydra || a.flyer) return null;
   const p = toLocal(a, x, y);
   if (Math.hypot(p.x, p.y + 84) < 11) return 'head';
   if (segDist(p.x, p.y, 0, -72, 0, -40) < 9) return 'body';
   if (segDist(p.x, p.y, 0, -40, -9, 0) < 4.5 || segDist(p.x, p.y, 0, -40, 9, 0) < 4.5) return 'legs';
   return null;
 }
-function inPillar(a, x, y) { const f = feet(a); if (a.walker) return false; if (a.ship) return Math.abs(x - f.x) < a.pw / 2 && y > f.y && y < f.y + 26; return Math.abs(x - f.x) < a.pw / 2 && y > f.y && y < 80; }
+function inPillar(a, x, y) { const f = feet(a); if (a.walker || a.flyer) return false; if (a.ship) return Math.abs(x - f.x) < a.pw / 2 && y > f.y && y < f.y + 26; return Math.abs(x - f.x) < a.pw / 2 && y > f.y && y < 80; }
 
 function blood(x, y, vx, vy, n) {
   for (let i = 0; i < n && st.parts.length < 450; i++)
@@ -887,7 +896,7 @@ function teleportTo(id, x, y) {
   for (let q = 0; q < 16; q++) P_(f0.x + rand(-15, 15), f0.y - rand(0, 90), rand(-120, 120), rand(-160, 40), .5, 2.6, '#d58cff', 'spark');
   ring(f0.x, f0.y - 50, 60, '#d58cff', .5, 3);
   if (E.ship) { E.ship.baseX = E.ship.tx = x; E.x = x; }
-  else { E.x = x; E.h = E.walker ? 0 : clamp(-y, 30, 240); E.chops = []; E.dy = 0; E.vy = 0; E.rise = 0; }
+  else { E.x = x; E.h = E.walker ? 0 : E.flyer ? clamp(-y, 175, 375) : clamp(-y, 30, 240); if (E.flyer) { E.tx = x; E.th = E.h; E.fvx = E.fvh = 0; } E.chops = []; E.dy = 0; E.vy = 0; E.rise = 0; }
   E.aiAim = null; E.pow = 0; E.aiT = Math.max(E.aiT || 0, 1.2);
   const f = feet(E);
   for (let q = 0; q < 16; q++) P_(f.x + rand(-15, 15), f.y - rand(0, 90), rand(-120, 120), rand(-160, 40), .5, 2.6, '#d58cff', 'spark');
@@ -924,6 +933,7 @@ function onHit(ar, a, z) {
   const dmg = Math.round(base * rand(.9, 1.15) * (ar.dmgMul || 1) * (ar.owner.isP ? st.dmgBoost : 1) * (a === st.P ? 1 - st.armour : 1));
   a.hp -= dmg; a.hitT = .12; a.flinchT = st.t;
   if (a.bc) stopCharge(a, ar.owner);
+  if (ar.acid && (a.isP || a.helper)) { a.acidT = 3; text(feet(a).x, feet(a).y - 150, 'ACID!', '#8cff5a', 16, 1.1); }
   if (ar.chill && a === st.P) { st.reload = Math.max(st.reload, 2); text(feet(a).x, feet(a).y - 150, 'BOW FROZEN!', '#9fe6ff', 16, 1.2); }
   const p = toLocal(a, ar.x, ar.y);
   a.stuck.push({ x: p.x, y: p.y, ang: Math.atan2(ar.vy, ar.vx) - a.rot });
@@ -1004,7 +1014,7 @@ function clearLevel() {
   for (const c of st.clones || []) if (c.type === 'a') removeClone(c);
   st.clones = [];
   st.nextT = 2.6;
-  st.P.hp = st.P.max; st.P.headRed = 0;
+  st.P.hp = st.P.max; st.P.headRed = 0; st.P.acidT = 0;
   for (const h of st.helpers) if (!h.dead) h.hp = h.max;
   st.banner = { t: 'LEVEL ' + st.level + ' CLEAR', sub: 'HEALTH RESTORED', life: 2.4 };
   text(feet(st.P).x, feet(st.P).y - 140, 'FULL HP', '#7dff9a', 20, 1.4);
@@ -1318,7 +1328,7 @@ function updateVortices(dt) {
 }
 const ri = (a, b) => Math.floor(rand(a, b + 1));
 function chopPillar(e, ar) {
-  if (e.isP || e.ship || e.walker || e.dead || e.rise > 0) return;
+  if (e.isP || e.ship || e.walker || e.flyer || e.dead || e.rise > 0) return;
   const y = ar.y;
   let c = e.chops.find(c => Math.abs(c.y - y) < 30);
   if (c) { c.n++; c.y = (c.y + y) / 2; } else e.chops.push(c = { y, n: 1 });
@@ -1384,7 +1394,7 @@ function resolveVolley(v) {
 function lightning(g) {
   const x = g.x + rand(-.45, .45) * g.w;
   let gy = 0;
-  for (const a of [st.P, ...st.helpers, ...st.enemies]) if (!a.ship && !a.topple && Math.abs(a.x - x) < a.pw / 2) gy = Math.min(gy, -a.h);
+  for (const a of [st.P, ...st.helpers, ...st.enemies]) if (!a.ship && !a.flyer && !a.topple && Math.abs(a.x - x) < a.pw / 2) gy = Math.min(gy, -a.h);
   st.bolts.push({ x1: x, y1: g.y + 16, x2: x, y2: gy, life: .4, col: '#eaf2ff' });
   st.bolts.push({ x1: x, y1: g.y + 16, x2: x + rand(-30, 30), y2: (g.y + gy) / 2, life: .3, col: '#bcd4ff' });
   glow(x, gy - 10, 70, 'rgba(220,235,255,', .35);
@@ -1459,7 +1469,7 @@ function updateWeather(dt) {
         }
       }
       let floor = 0;
-      for (const E of st.enemies) if (!E.ship && Math.abs(g.x - E.x) < E.pw / 2 + 20 && !E.topple) floor = Math.min(floor, -E.h);
+      for (const E of st.enemies) if (!E.ship && !E.flyer && Math.abs(g.x - E.x) < E.pw / 2 + 20 && !E.topple) floor = Math.min(floor, -E.h);
       if (Math.abs(g.x - st.P.x) < st.P.pw / 2 + 20) floor = Math.min(floor, -st.P.h);
       if (g.y + halfH(g) >= floor) {
         g.gone = true; shake(6); sfx('crack');
@@ -2303,6 +2313,135 @@ function drawBossBar() {
   ctx.restore();
 }
 
+/* ---------- acid bats: small flyers that flap about and spit acid ---------- */
+const BAT_Y = 55;   // body centre sits this far above feet()
+function makeFlyer(lv, i, tx) {
+  const x = tx || flyerSpot();
+  const e = mkArcher(x + rand(500, 800), rand(420, 500), -1, Math.round(30 + lv * 2.5), false, 0);
+  e.flyer = true; e.kind = 'bat'; e.name = 'ACID BAT'; e.chops = [];
+  e.wingPh = rand(0, 6.28); e.tx = x; e.th = rand(175, 375); e.wT = rand(3, 5); e.fvx = 0; e.fvh = 0; e.spitP = 0;
+  e.aiT = rand(3, 5) + i * 1.3;
+  return e;
+}
+const flyerTarget = E => st.P;
+function flyerSpot(T) {
+  const px = T ? T.x : st.P.x;
+  return clamp(px + rand(420, 1300), 450, 2100);
+}
+function flyerStep(E, dt) {
+  E.wingPh += dt * (E.spitP > 0 ? 24 : 15);
+  if ((E.wT -= dt) <= 0) { E.wT = rand(2.5, 5); E.tx = flyerSpot(flyerTarget(E)); E.th = rand(175, 375); }
+  E.fvx += ((E.tx - E.x) * .9 - E.fvx) * Math.min(1, dt * 1.6);
+  E.fvh += ((E.th - E.h) * .9 - E.fvh) * Math.min(1, dt * 1.6);
+  E.fvx = clamp(E.fvx, -120, 120); E.fvh = clamp(E.fvh, -90, 90);
+  E.x += E.fvx * dt; E.h = clamp(E.h + E.fvh * dt + Math.sin(E.wingPh * .5) * dt * 34, 110, 560);
+  const T = E.spitT || flyerTarget(E);
+  if (T) E.f = T.x < E.x ? -1 : 1;
+  if (E.spitP > 0) {
+    if (Math.random() < .5) { const f = feet(E); P_(f.x + E.f * 8, f.y - BAT_Y - 4, rand(-15, 15), rand(10, 60), .4, 1.8, '#8cff5a', 'spark'); }
+    if ((E.spitP -= dt) <= 0) { spitAcid(E, T); E.spitT = null; }
+    return;
+  }
+  if ((E.aiT -= dt) <= 0) {
+    const T2 = flyerTarget(E);
+    E.aiT = rand(3.5, 6.5) * (st.level > 10 ? .85 : 1);
+    if (T2 && !T2.dead) { E.spitT = T2; E.spitP = .5; }
+  }
+}
+function spitAcid(E, T) {
+  if (!T || T.dead) return;
+  const f = feet(E), s = sizeOf(E), mx = f.x + E.f * 6 * s, my = f.y - BAT_Y - 4 * s;
+  const tf = feet(T), fake = { x: mx, h: -my - 64, dx: 0, dy: 0 }, sol = solve(fake, tf.x, tf.y - 58);
+  const er = Math.max(2, 5 - st.level * .12), dir = tf.x < mx ? -1 : 1;
+  const e = (sol.e + gauss() * er) * Math.PI / 180, v = (sol.v + gauss() * 25) * (1 - (E.shrink || 0)), ang = dir < 0 ? Math.PI + e : -e;
+  const ar = { x: mx, y: my, sx: mx, sy: my, vx: Math.cos(ang) * v, vy: Math.sin(ang) * v, owner: E, done: false, via: new Set(),
+    pk: null, pk2: null, dmgMul: .4, col: '#8cff5a', magic: true, el: 'acid', acid: true };
+  if (E.slowT > 0) ar.tm = E.slowM;
+  st.arrows.push(ar);
+  for (let q = 0; q < 8; q++) P_(mx, my, Math.cos(ang) * 90 + rand(-50, 50), Math.sin(ang) * 90 + rand(-50, 50), .35, 2.2, q % 2 ? '#8cff5a' : '#d6ff9a', 'spark');
+  E.fireT = st.t;
+  sfx('spit');
+}
+// player arrow vs bat: a small head (headshot) and a body with wings
+function flyerHit(E, ar, sdt) {
+  if (ar.hit && ar.hit.has(E)) return false;
+  const f = feet(E), s = sizeOf(E), bx = f.x, by = f.y - BAT_Y, ax = ar.x - ar.vx * sdt, ay = ar.y - ar.vy * sdt;
+  let z = null;
+  if (segDist(bx + E.f * 2 * s, by - 12 * s, ax, ay, ar.x, ar.y) < 8 * s) z = 'head';
+  else if (segDist(bx, by + 2 * s, ax, ay, ar.x, ar.y) < 15 * s || (Math.abs(ar.y - by + 4 * s) < 9 * s && Math.abs(ar.x - bx) < 36 * s)) z = 'body';
+  if (!z) return false;
+  onHit(ar, E, z); E.stuck.length = 0;
+  return true;
+}
+// acid burns for a few seconds
+function acidStep(dt) {
+  for (const a of [...PEOPLE(), ...st.helpers]) {
+    if (!(a.acidT > 0)) continue;
+    a.acidT -= dt;
+    if (a.dead) { a.acidT = 0; continue; }
+    a.hp -= 4 * dt * (a === st.P ? 1 - st.armour : 1);
+    if (Math.random() < .4) { const f = feet(a); P_(f.x + rand(-9, 9), f.y - rand(20, 90), rand(-10, 10), rand(20, 60), .5, rand(1.6, 2.6), Math.random() < .5 ? '#8cff5a' : '#5fd13a', 'spark'); }
+    if (a.hp <= 0) kill(a, { vx: -1 }, 'body');
+  }
+}
+function drawFlyer(a) {
+  const f = feet(a), s = sizeOf(a), cx = SX(f.x), cy = SY(f.y - BAT_Y);
+  if (cx < -80 || cx > W + 80) return;
+  // shadow on the ground
+  if (!a.dead) {
+    const gy = SY(0), k = clamp(1 - (a.h + BAT_Y) / 700, .15, .7);
+    ctx.fillStyle = `rgba(0,0,0,${(.25 * k).toFixed(3)})`; ctx.beginPath(); ctx.ellipse(cx, gy - 2, 26 * sc * s * k, 4 * sc * k, 0, 0, 6.283); ctx.fill();
+  }
+  ctx.save(); ctx.translate(cx, cy); ctx.scale(sc * s, sc * s); ctx.rotate(a.rot);
+  if (a.f < 0) ctx.scale(-1, 1);
+  const flap = a.dead ? -.3 : Math.sin(st.t * (a.spitP > 0 ? 24 : 15) + a.id), hit = a.hitT > 0, ice = a.frozen > 0;
+  const body = hit ? '#7a1c1c' : ice ? '#5a7c96' : '#2b1f38', mem = hit ? 'rgba(150,45,45,.9)' : ice ? 'rgba(120,170,205,.85)' : 'rgba(78,54,104,.9)', bone = hit ? '#3a0e0e' : '#1a1224';
+  const ch = a.spitP > 0 ? 1 - a.spitP / .5 : 0;
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  for (const k of [-1, 1]) {   // wings
+    const el = { x: k * 19, y: -9 - 13 * flap }, t1 = { x: k * 40, y: -17 - 20 * flap }, t2 = { x: k * 45, y: 1 - 9 * flap }, t3 = { x: k * 30, y: 13 - 2 * flap };
+    ctx.fillStyle = mem; ctx.beginPath(); ctx.moveTo(k * 6, -5); ctx.lineTo(el.x, el.y); ctx.lineTo(t1.x, t1.y);
+    ctx.quadraticCurveTo(k * 36, -4 - 10 * flap, t2.x, t2.y); ctx.quadraticCurveTo(k * 31, 4 - 4 * flap, t3.x, t3.y);
+    ctx.quadraticCurveTo(k * 17, 6, k * 6, 8); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = bone; ctx.lineWidth = 1.6; ctx.beginPath();
+    ctx.moveTo(k * 6, -5); ctx.lineTo(el.x, el.y); ctx.lineTo(t1.x, t1.y); ctx.moveTo(el.x, el.y); ctx.lineTo(t2.x, t2.y); ctx.moveTo(el.x, el.y); ctx.lineTo(t3.x, t3.y); ctx.stroke();
+    ctx.fillStyle = bone; ctx.beginPath(); ctx.arc(el.x, el.y, 1.8, 0, 6.283); ctx.fill();
+  }
+  // body, fuzzy belly, feet
+  ctx.fillStyle = body; ctx.beginPath(); ctx.ellipse(0, 2, 10, 13, 0, 0, 6.283); ctx.fill();
+  ctx.fillStyle = hit ? '#a04040' : '#4a3a5c'; ctx.beginPath(); ctx.ellipse(1, 5, 6, 8, 0, 0, 6.283); ctx.fill();
+  ctx.strokeStyle = body; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-3, 13); ctx.lineTo(-4, 18); ctx.moveTo(3, 13); ctx.lineTo(4, 18); ctx.stroke();
+  // head and ears
+  ctx.fillStyle = body; ctx.beginPath(); ctx.arc(1, -12, 9, 0, 6.283); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(-5, -17); ctx.lineTo(-8, -30); ctx.lineTo(0, -20); ctx.moveTo(4, -19); ctx.lineTo(9, -31); ctx.lineTo(9, -16); ctx.fill();
+  ctx.fillStyle = 'rgba(255,140,170,.35)'; ctx.beginPath(); ctx.moveTo(-5, -19); ctx.lineTo(-7, -27); ctx.lineTo(-2, -20); ctx.fill();
+  // glowing green eyes (X when dead)
+  if (a.dead) {
+    ctx.strokeStyle = '#9a9a9a'; ctx.lineWidth = 1.4;
+    for (const ex of [-1, 5]) { ctx.beginPath(); ctx.moveTo(ex - 2, -15); ctx.lineTo(ex + 2, -11); ctx.moveTo(ex + 2, -15); ctx.lineTo(ex - 2, -11); ctx.stroke(); }
+  } else {
+    ctx.save(); ctx.shadowColor = '#8cff5a'; ctx.shadowBlur = 8 + ch * 10; ctx.fillStyle = '#c8ff7a';
+    for (const ex of [-1, 5]) { ctx.beginPath(); ctx.arc(ex, -13, 2.4, 0, 6.283); ctx.fill(); }
+    ctx.restore();
+    ctx.fillStyle = '#1a1224'; for (const ex of [0, 6]) { ctx.beginPath(); ctx.arc(ex, -13, .9, 0, 6.283); ctx.fill(); }
+  }
+  // mouth and fangs; it fills with acid before a spit
+  ctx.fillStyle = ch > 0 ? '#2a6a18' : '#140c1c'; ctx.beginPath(); ctx.ellipse(3, -6.5, 3 + ch * 1.5, 1.2 + ch * 2.4, 0, 0, 6.283); ctx.fill();
+  ctx.fillStyle = '#f6eedf'; ctx.beginPath(); ctx.moveTo(1, -7); ctx.lineTo(2, -3.5); ctx.lineTo(3, -7); ctx.moveTo(4, -7); ctx.lineTo(5, -3.5); ctx.lineTo(6, -7); ctx.fill();
+  if (!a.dead) {
+    const dr = ch > 0 ? 2 + ch * 3.5 : 1.2 + Math.sin(st.t * 3 + a.id) * .4;
+    ctx.save(); ctx.shadowColor = '#8cff5a'; ctx.shadowBlur = ch > 0 ? 12 : 4; ctx.fillStyle = '#8cff5a';
+    ctx.beginPath(); ctx.arc(3.5, -3 + (ch > 0 ? 0 : (st.t * 1.5 + a.id) % 1 * 5), dr, 0, 6.283); ctx.fill(); ctx.restore();
+  }
+  ctx.restore();
+  // tiny health bar once it's been hurt
+  if (!a.dead && a.hp < a.max) {
+    const w = 34, y = cy - 42 * sc * s, fr = clamp(a.hp / a.max, 0, 1);
+    ctx.fillStyle = 'rgba(20,20,20,.55)'; ctx.fillRect(cx - w / 2, y, w, 4);
+    ctx.fillStyle = fr > .35 ? '#8cff5a' : '#c4141c'; ctx.fillRect(cx - w / 2, y, w * fr, 4);
+  }
+}
+
 /* ---------- update ---------- */
 function update(rdt) {
   const dt = rdt * (st.slow > 0 ? .3 : 1) * (st.timeScale || 1);
@@ -2332,6 +2471,7 @@ function update(rdt) {
     if (E.dead || P.dead || E.rise > 0 || st.nextT > 0) continue;
     if (E.dummy && !st.dummyFire) continue;
     const edt = dt * (E.slowT > 0 ? E.slowM : 1);
+    if (E.flyer) { flyerStep(E, edt); continue; }
     if (E.boss && bossStep(E, edt)) continue;
     if (E.kind === 'healer' && !E.aiAim && E.aiT - edt <= 0) {
       const hurt = st.enemies.filter(o => o !== E && !o.dead && !o.hydra && o.hp < o.max);
@@ -2403,6 +2543,7 @@ function update(rdt) {
   updateVortices(dt);
   updateMeteors(dt);
   updateBoulders(dt);
+  acidStep(dt);
   updateWeather(dt);
   if (st.nextT <= 0 && !P.dead) {
     if (SOLDIERS) updateAllies(dt);
@@ -2472,6 +2613,8 @@ function update(rdt) {
         }
         if (ar.done) break;
         for (const E of st.enemies) if (E.hydra && !E.dead && hydraHit(E, ar)) break;
+        if (ar.done) break;
+        for (const E of st.enemies) if (E.flyer && !E.dead && flyerHit(E, ar, sdt)) break;
         if (ar.done) break;
         for (const E of st.enemies) { if (ar.hit && ar.hit.has(E)) continue; const z = zone(E, ar.x, ar.y); if (z) { onHit(ar, E, z); break; } }
         if (!ar.done && SOLDIERS) {
@@ -2545,6 +2688,7 @@ function update(rdt) {
     if (a.swallow) { swallowStep(a, dt); continue; }
     a.vy += G * dt; a.dy += a.vy * dt; a.dx += a.vx * dt;
     if (a.walker && a.dy > 0) { a.dy = 0; a.vy = 0; a.vx *= .85; }   // the giant falls flat on the ground
+    if (a.flyer && a.dy - a.h > 42) { a.dy = a.h + 42; a.vy = 0; a.vx *= .8; a.vr = 0; }   // a dead bat lands on the ground
     a.rot = clamp(a.rot + a.vr * dt, -1.7, 1.7);
   }
   for (const p of st.parts) {
@@ -2691,7 +2835,7 @@ function drawBG() {
 }
 function drawPillar(a) {
   if (a.ship) return drawShip(a);
-  if (a.walker) return;
+  if (a.walker || a.flyer) return;
   if (!a.topple) { drawPillarRaw(a); drawChops(a); return; }
   const T = a.topple, saved = { dx: a.dx, dy: a.dy, rot: a.rot };
   a.dx = 0; a.dy = 0; a.rot = 0;
@@ -2870,6 +3014,7 @@ function drawArrowShape(len, col) {
 function drawArcher(a) {
   if (a.hydra) return drawHydra(a);
   if (a.swallowed) return;
+  if (a.flyer) return drawFlyer(a);
   const f = feet(a);
   if (SX(f.x) < -80 || SX(f.x) > W + 80) return;
   ctx.save();
@@ -2996,7 +3141,7 @@ function drawDummyBody(a) {
   if (a.headRed > 0) { ctx.fillStyle = 'rgba(196,20,28,.7)'; ctx.beginPath(); ctx.arc(-a.f * 3, -86, 6, 0, 6.283); ctx.fill(); }
 }
 function drawHPBar(a) {
-  if (a.dead || a.hydra) return;
+  if (a.dead || a.hydra || a.flyer) return;
   const f = feet(a), x = SX(f.x), y = SY(f.y - 112 * sizeOf(a)) - 6;
   if (x < -60 || x > W + 60) return;
   const w = 62, h = 6, fr = clamp(a.hp / a.max, 0, 1);
@@ -3373,7 +3518,7 @@ function draw() {
     ctx.strokeStyle = tg; ctx.lineWidth = 2; ctx.globalAlpha = .6; ctx.beginPath(); ctx.moveTo(-36, 0); ctx.lineTo(-110, 0); ctx.stroke(); ctx.globalAlpha = 1;
     if (hasPk(ar, 'fire') && Math.random() < .6) st.parts.push({ x: ar.x, y: ar.y, vx: rand(-30, 30), vy: rand(-60, 0), life: .3, max: .3, r: 2.2, col: '#ff9a45' });
     if (ar.magic) {
-      const el = ar.el === 'zap' ? ['rgba(255,240,90,.4)', '#fff8b0', '#ffe14a', '#ffffff', 'spark'] : ar.el === 'ice' ? ['rgba(150,220,255,.4)', '#e8f8ff', '#9fe6ff', '#ffffff', 'spark'] : ['rgba(255,140,60,.35)', '#ffd27a', '#ff9a45', '#ff5a2e', 'flame'];
+      const el = ar.el === 'acid' ? ['rgba(140,255,90,.4)', '#e6ffc0', '#8cff5a', '#5fd13a', 'spark'] : ar.el === 'zap' ? ['rgba(255,240,90,.4)', '#fff8b0', '#ffe14a', '#ffffff', 'spark'] : ar.el === 'ice' ? ['rgba(150,220,255,.4)', '#e8f8ff', '#9fe6ff', '#ffffff', 'spark'] : ['rgba(255,140,60,.35)', '#ffd27a', '#ff9a45', '#ff5a2e', 'flame'];
       ctx.fillStyle = el[0]; ctx.beginPath(); ctx.arc(0, 0, 14, 0, 6.283); ctx.fill();
       ctx.fillStyle = el[1]; ctx.beginPath(); ctx.arc(0, 0, 7, 0, 6.283); ctx.fill();
       if (Math.random() < .7) P_(ar.x, ar.y, rand(-30, 30), rand(-60, 0), .35, 3, Math.random() < .5 ? el[2] : el[3], el[4]);
@@ -3871,7 +4016,7 @@ cv.addEventListener('pointercancel', () => { drag = null; if (st) st.P.pow = 0; 
 let AC = null;
 const SFX = { twang: ['triangle', 260, 90, .12, .16, .12], hit: ['square', 160, 60, .08, .1, .1], head: ['square', 520, 120, .12, .16, .12],
   thud: ['sine', 120, 50, .08, .1, .1], kill: ['sawtooth', 220, 40, .4, .5, .12], click: ['square', 900, 1400, .05, .07, .08],
-  glass: ['triangle', 1800, 900, .12, .16, .08], bell: ['sine', 880, 860, 1.2, 1.4, .16], whoosh: ['sawtooth', 300, 80, .4, .5, .05], void: ['sine', 220, 30, 1.2, 1.4, .2], crack: ['square', 300, 90, .1, .14, .1], zap: ['square', 1200, 200, .2, .25, .08], boom: ['sawtooth', 140, 30, .3, .4, .16], heal: ['triangle', 500, 1200, .25, .3, .12] };
+  glass: ['triangle', 1800, 900, .12, .16, .08], bell: ['sine', 880, 860, 1.2, 1.4, .16], whoosh: ['sawtooth', 300, 80, .4, .5, .05], void: ['sine', 220, 30, 1.2, 1.4, .2], crack: ['square', 300, 90, .1, .14, .1], zap: ['square', 1200, 200, .2, .25, .08], boom: ['sawtooth', 140, 30, .3, .4, .16], heal: ['triangle', 500, 1200, .25, .3, .12], spit: ['square', 620, 150, .12, .16, .08] };
 function sfx(t) {
   if (!AC || AC.state !== 'running') return;
   const P = SFX[t], now = AC.currentTime;
@@ -3992,6 +4137,14 @@ function practiceBoss(bt) {
   st.banner = { t: e.name, sub: "PRACTICE · YOU CAN'T DIE HERE", life: 2.4 };
   camX = homeCam();
 }
+function practiceBats() {
+  st.pracBoss = 'bats';
+  st.enemies = []; st.boulders = []; st.P.tpTag = null; st.shotDmg = 0;
+  for (const ar of st.arrows) if (ar.owner !== st.P) ar.done = true;
+  for (let i = 0; i < 3; i++) { const e = makeFlyer(st.level, i); e.aiT = 2 + i * 1.3; st.enemies.push(e); }
+  st.banner = { t: 'ACID BATS', sub: "PRACTICE · YOU CAN'T DIE HERE", life: 2.4 };
+  camX = homeCam();
+}
 function resetDummies() {
   st.pracBoss = null; st.boulders = [];
   st.enemies = PRAC_X.map((x, i) => makeDummy(i));
@@ -4002,7 +4155,7 @@ function resetDummies() {
 function practiceStep(rdt) {
   const P = st.P;
   if (P.hp < P.max) P.hp = Math.min(P.max, P.hp + 25 * rdt);
-  if (st.pracBoss) {   // beaten boss comes back after a moment; its guards just go away
+  if (st.pracBoss && st.pracBoss !== 'bats') {   // beaten boss comes back after a moment; its guards just go away
     st.enemies = st.enemies.filter(e => !(e.guard && e.dead && (e.backT = (e.backT === undefined ? 2 : e.backT) - rdt) <= 0));
     const B = st.enemies.find(e => e.boss);
     if (!B || (B.dead && (B.backT = (B.backT === undefined ? 4 : B.backT) - rdt) <= 0)) { practiceBoss(st.pracBoss); return; }
@@ -4016,6 +4169,7 @@ function practiceStep(rdt) {
       const d = makeDummy(e.slot); st.enemies[i] = d;
       const f = feet(d); ring(f.x, f.y - 50, 60, '#ffd27a', .5, 3); text(f.x, f.y - 130, 'NEW DUMMY', '#ffd27a', 13, 1);
     }
+    if (e.flyer && e.dead && (e.backT = (e.backT === undefined ? 3 : e.backT) - rdt) <= 0) st.enemies[i] = makeFlyer(st.level, 0);   // a new bat flies in
   });
 }
 let rackLink = false, rackA = null, rackBoss = false;
@@ -4033,6 +4187,7 @@ function renderRack() {
     $('rackHint').textContent = "Pick a boss to fight. You can't die here.";
     let b = '';
     for (const k of PRAC_BOSS) b += `<button type="button" class="item${st.pracBoss === k ? ' now' : ''}" data-k="boss_${k}"><i class="ico">${PRAC_BOSS_ICO[k]}</i><span class="txt"><b style="color:${BOSS_INFO[k].col}">${BOSS_INFO[k].name}</b><span>${PRAC_BOSS_DESC[k]}</span></span></button>`;
+    b += `<button type="button" class="item${st.pracBoss === 'bats' ? ' now' : ''}" data-k="bats"><i class="ico">🦇</i><span class="txt"><b style="color:#8cff5a">ACID BATS</b><span>Small flyers that spit acid. Acid burns for 3 seconds</span></span></button>`;
     b += `<button type="button" class="item${st.pracBoss ? '' : ' now'}" data-k="dummies"><i class="ico">🎯</i><span class="txt"><b style="color:#d9b87a">STRAW DUMMIES</b><span>Back to the practice dummies</span></span></button>`;
     $('rackGrid').innerHTML = b; return;
   }
@@ -4047,6 +4202,7 @@ function renderRack() {
 function rackPick(k) {
   if (k.startsWith('boss_')) { practiceBoss(k.slice(5)); sfx('click'); closeRack(); return; }
   if (k === 'dummies') { resetDummies(); closeRack(); return; }
+  if (k === 'bats') { practiceBats(); sfx('click'); closeRack(); return; }
   if (!rackLink) {
     if (k === 'plain') st.power = null;
     else if (k === 'shield') { st.barrier = { hp: 120, max: 120, hitT: 0 }; text(feet(st.P).x + 60, feet(st.P).y - 150, 'BARRIER UP', '#8fc8ff', 16, 1.4); }
