@@ -152,6 +152,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
       <div class="rackmodes" role="group" aria-label="Arrow mode">
         <button type="button" id="rackOne" aria-pressed="true">ONE ARROW</button>
         <button type="button" id="rackTwo" aria-pressed="false">🔗 LINK TWO</button>
+        <button type="button" id="rackBoss" aria-pressed="false">👑 BOSSES</button>
       </div>
       <p class="small" id="rackHint">Tap an arrow to load it</p>
       <div class="shopgrid" id="rackGrid"></div>
@@ -3149,7 +3150,7 @@ function drawHUD() {
   if (st.combo >= 2) { ctx.font = '700 13px Silkscreen, monospace'; ctx.fillStyle = '#ff8ad8'; ctx.fillText('COMBO ×' + st.combo, lx, st.power ? 112 : 78); ctx.font = '700 10px Silkscreen, monospace'; }
   if (st.barrier) { ctx.font = '700 11px Silkscreen, monospace'; ctx.fillStyle = '#8fc8ff'; ctx.fillText('BARRIER ' + Math.max(0, Math.round(st.barrier.hp)), lx + 150, 38); ctx.font = '700 10px Silkscreen, monospace'; }
   if (st.lastShot) { ctx.fillStyle = 'rgba(246,238,223,.7)'; ctx.fillText('LAST ' + Math.round(st.lastShot.p * 100) + '% ' + Math.round(-st.lastShot.a * 180 / Math.PI) + '°', lx, 64); }
-  if (!st.practice) drawBossBar();
+  drawBossBar();
   // enemy list
   const rx = W - 18 - 52;
   ctx.textAlign = 'right'; ctx.font = '700 12px Silkscreen, monospace'; ctx.fillStyle = '#f6eedf';
@@ -3836,7 +3837,23 @@ function setupPractice() {
   st.banner = { t: 'PRACTICE RANGE', sub: 'TAP THE ARROW BUTTON TO PICK ANY ARROW', life: 3 };
   camX = homeCam();
 }
+// fight any boss in the practice range (you can't die here)
+const PRAC_BOSS = ['ship', 'giant', 'wizard', 'hydra'], PRAC_BOSS_ICO = { ship: '🎈', giant: '👹', wizard: '🧙', hydra: '🐉' };
+const PRAC_BOSS_DESC = { ship: 'Flies about. Pop the balloon 6 times to crash it', giant: 'Walks at you, throws boulders, swings a club. Shoot the boulders!',
+  wizard: 'Jumps from tower to tower, throws fireballs', hydra: 'Shoot a head off and two grow back. Only the heart hurts it' };
+function practiceBoss(bt) {
+  st.pracBoss = bt;
+  st.enemies = []; st.boulders = []; st.P.tpTag = null; st.shotDmg = 0;
+  for (const ar of st.arrows) if (ar.owner !== st.P) ar.done = true;
+  const e = mkArcher({ ship: 1300, giant: 1650, wizard: 1300, hydra: 1450 }[bt], rand(90, 160), -1, Math.round((50 + st.level * 8) * BOSS_INFO[bt].hp), false, 54);
+  e.name = 'BOSS'; e.boss = true; e.chops = []; e.kind = 'archer'; e.aiT = 2.5;
+  makeBoss(e, bt, (PRAC_BOSS.indexOf(bt) + 1) * 5);
+  st.enemies.push(e);
+  st.banner = { t: e.name, sub: "PRACTICE · YOU CAN'T DIE HERE", life: 2.4 };
+  camX = homeCam();
+}
 function resetDummies() {
+  st.pracBoss = null; st.boulders = [];
   st.enemies = PRAC_X.map((x, i) => makeDummy(i));
   st.P.tpTag = null; st.shotDmg = 0;
   for (const ar of st.arrows) if (ar.owner !== st.P) ar.done = true;
@@ -3845,18 +3862,23 @@ function resetDummies() {
 function practiceStep(rdt) {
   const P = st.P;
   if (P.hp < P.max) P.hp = Math.min(P.max, P.hp + 25 * rdt);
+  if (st.pracBoss) {   // beaten boss comes back after a moment; its guards just go away
+    st.enemies = st.enemies.filter(e => !(e.guard && e.dead && (e.backT = (e.backT === undefined ? 2 : e.backT) - rdt) <= 0));
+    const B = st.enemies.find(e => e.boss);
+    if (!B || (B.dead && (B.backT = (B.backT === undefined ? 4 : B.backT) - rdt) <= 0)) { practiceBoss(st.pracBoss); return; }
+  }
   st.enemies.forEach((e, i) => {
     // count the damage each shot does (arrows, fire, rocks, blasts all lower hp)
     const hp = Math.max(0, e.hp);
     if (e.lastHp !== undefined && hp < e.lastHp) { st.shotDmg = (st.shotDmg || 0) + e.lastHp - hp; st.bestDmg = Math.max(st.bestDmg || 0, st.shotDmg); }
     e.lastHp = hp;
-    if (e.dead && (e.backT = (e.backT === undefined ? 3 : e.backT) - rdt) <= 0) {   // a new dummy pops up
+    if (e.dummy && e.dead && (e.backT = (e.backT === undefined ? 3 : e.backT) - rdt) <= 0) {   // a new dummy pops up
       const d = makeDummy(e.slot); st.enemies[i] = d;
       const f = feet(d); ring(f.x, f.y - 50, 60, '#ffd27a', .5, 3); text(f.x, f.y - 130, 'NEW DUMMY', '#ffd27a', 13, 1);
     }
   });
 }
-let rackLink = false, rackA = null;
+let rackLink = false, rackA = null, rackBoss = false;
 function openRack() { if (!st || !st.practice) return; st.rack = true; rackA = null; renderRack(); show('rackScreen', true); sfx('click'); }
 function closeRack() { st.rack = false; show('rackScreen', false); quiverSig = ''; }
 function rackItem(k, extra) {
@@ -3866,7 +3888,14 @@ function rackItem(k, extra) {
   return `<button type="button" class="item${rackA === k ? ' sel' : ''}${now ? ' now' : ''}" data-k="${k}"${extra || ''}><i class="ico">${ico}</i><span class="txt"><b style="color:${col}">${name}</b><span>${RACK_DESC[k]}</span></span></button>`;
 }
 function renderRack() {
-  $('rackOne').setAttribute('aria-pressed', String(!rackLink)); $('rackTwo').setAttribute('aria-pressed', String(rackLink));
+  $('rackOne').setAttribute('aria-pressed', String(!rackLink && !rackBoss)); $('rackTwo').setAttribute('aria-pressed', String(rackLink)); $('rackBoss').setAttribute('aria-pressed', String(rackBoss));
+  if (rackBoss) {
+    $('rackHint').textContent = "Pick a boss to fight. You can't die here.";
+    let b = '';
+    for (const k of PRAC_BOSS) b += `<button type="button" class="item${st.pracBoss === k ? ' now' : ''}" data-k="boss_${k}"><i class="ico">${PRAC_BOSS_ICO[k]}</i><span class="txt"><b style="color:${BOSS_INFO[k].col}">${BOSS_INFO[k].name}</b><span>${PRAC_BOSS_DESC[k]}</span></span></button>`;
+    b += `<button type="button" class="item${st.pracBoss ? '' : ' now'}" data-k="dummies"><i class="ico">🎯</i><span class="txt"><b style="color:#d9b87a">STRAW DUMMIES</b><span>Back to the practice dummies</span></span></button>`;
+    $('rackGrid').innerHTML = b; return;
+  }
   $('rackHint').textContent = !rackLink ? 'Tap an arrow to load it. Unlimited shots.'
     : rackA ? 'Now tap a second arrow to link with ' + POWERS[rackA].short : 'Tap the first arrow of the pair';
   let h = '';
@@ -3876,6 +3905,8 @@ function renderRack() {
   $('rackGrid').innerHTML = h;
 }
 function rackPick(k) {
+  if (k.startsWith('boss_')) { practiceBoss(k.slice(5)); sfx('click'); closeRack(); return; }
+  if (k === 'dummies') { resetDummies(); closeRack(); return; }
   if (!rackLink) {
     if (k === 'plain') st.power = null;
     else if (k === 'shield') { st.barrier = { hp: 120, max: 120, hitT: 0 }; text(feet(st.P).x + 60, feet(st.P).y - 150, 'BARRIER UP', '#8fc8ff', 16, 1.4); }
@@ -3890,8 +3921,9 @@ function rackPick(k) {
   text(f.x, f.y - 150, 'LINKED: ' + powShort(st.power), '#7dffe8', 18, 1.8); ring(f.x, f.y - 60, 70, '#7dffe8', .6, 3); sfx('heal');
   closeRack();
 }
-$('rackOne').onclick = () => { rackLink = false; rackA = null; renderRack(); };
-$('rackTwo').onclick = () => { rackLink = true; rackA = null; renderRack(); };
+$('rackOne').onclick = () => { rackLink = false; rackBoss = false; rackA = null; renderRack(); };
+$('rackTwo').onclick = () => { rackLink = true; rackBoss = false; rackA = null; renderRack(); };
+$('rackBoss').onclick = () => { rackLink = false; rackBoss = true; rackA = null; renderRack(); };
 $('rackBack').onclick = closeRack;
 $('rackGrid').addEventListener('click', e => { const b = e.target.closest('button[data-k]'); if (b) rackPick(b.dataset.k); });
 
