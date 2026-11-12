@@ -283,18 +283,20 @@ function spawnLevel(first) {
   st.enemies = [];
   // each archer gets its own random spot: some close, some far
   const xs = [], maxX = 2000 + Math.min(lv, 10) * 35;   // furthest spot stays inside bow range
-  for (let i = 0; i < n; i++) {
+  const hyX = lv % 5 === 0 && bossTypeFor(lv) === 'hydra' ? rand(1350, 1650) : null;   // the hydra is wide: everyone else keeps ~400 away
+  for (let i = 0; i < (hyX !== null ? n - 1 : n); i++) {
     let x = 0, best = 0, bestGap = -1;   // if no spot is clear, take the one with the most room
     for (let tries = 0; tries < 60; tries++) {
       const r = Math.random();
       x = r < .3 ? rand(560, 950) : r < .65 ? rand(950, 1550) : rand(1550, maxX);
-      const g = xs.length ? Math.min(...xs.map(o => Math.abs(o - x))) : 1e9;
+      const g = Math.min(xs.length ? Math.min(...xs.map(o => Math.abs(o - x))) : 1e9, hyX !== null ? Math.abs(hyX - x) - 200 : 1e9);
       if (g > bestGap) { bestGap = g; best = x; }
       if (g > 200) break;
     }
     xs.push(best);
   }
   xs.sort((a, b) => a - b);
+  if (hyX !== null) xs.push(hyX);
   const bossLv = lv % 5 === 0;
   // the boss ship stays within 1700 and gets its own clear spot
   if (bossLv && xs[n - 1] > 1700) {
@@ -827,7 +829,7 @@ function segDist(px, py, ax, ay, bx, by) {
   return Math.hypot(px - ax - vx * t, py - ay - vy * t);
 }
 function zone(a, x, y) {
-  if (a.dead) return null;
+  if (a.dead || a.hydra) return null;
   const p = toLocal(a, x, y);
   if (Math.hypot(p.x, p.y + 84) < 11) return 'head';
   if (segDist(p.x, p.y, 0, -72, 0, -40) < 9) return 'body';
@@ -893,6 +895,7 @@ function onHit(ar, a, z) {
   const dmg = Math.round(base * rand(.9, 1.15) * (ar.dmgMul || 1) * (ar.owner.isP ? st.dmgBoost : 1) * (a === st.P ? 1 - st.armour : 1));
   a.hp -= dmg; a.hitT = .12; a.flinchT = st.t;
   if (a.bc) stopCharge(a, ar.owner);
+  if (ar.chill && a === st.P) { st.reload = Math.max(st.reload, 2); text(feet(a).x, feet(a).y - 150, 'BOW FROZEN!', '#9fe6ff', 16, 1.2); }
   const p = toLocal(a, ar.x, ar.y);
   a.stuck.push({ x: p.x, y: p.y, ang: Math.atan2(ar.vy, ar.vx) - a.rot });
   if (a.stuck.length > 14) a.stuck.shift();
@@ -940,6 +943,7 @@ function onHit(ar, a, z) {
   if (hasPk(ar, 'boom')) blast(ar.x, ar.y, ar.owner);
 }
 function kill(a, ar, z) {
+  if (a.hydra && !a.heartDead) { a.hp = a.hpLock; return; }   // only a heart shot kills the hydra
   if (a === st.P && st.practice) { a.hp = a.max; text(feet(a).x, feet(a).y - 140, 'OUCH! (NO DYING IN PRACTICE)', '#ff5a4e', 14, 1.4); return; }
   if (a === st.P && st.revive > 0) {
     st.revive--; a.hp = 50; a.hitT = 0;
@@ -1516,13 +1520,14 @@ function crashShip(E) {
   if (E.hp <= 0) kill(E, { vx: 1, owner: st.P }, 'body');
 }
 
-/* ---------- bosses: SKY CAPTAIN (airship), STONE GIANT (walks, throws boulders, clubs you), WIZARD KING (jumps tower to tower) ---------- */
+/* ---------- bosses: SKY CAPTAIN (airship), OGRE (walks, throws boulders, clubs you), WIZARD KING (jumps tower to tower), HYDRA (heads grow back) ---------- */
 // each boss has a special move it charges up (hit it to stop it) and gets angry at half health (faster, calls 2 guards)
-const BOSSES = ['ship', 'giant', 'wizard'];
+const BOSSES = ['ship', 'giant', 'wizard', 'hydra'];
 const BOSS_INFO = {
   ship: { name: 'SKY CAPTAIN', hp: 1.8, move: 'ARROW RAIN', col: '#ff5a4e' },
-  giant: { name: 'STONE GIANT', hp: 3, move: 'BOULDER STORM', col: '#ffd27a' },
-  wizard: { name: 'WIZARD KING', hp: 1.6, move: 'FIREBALL BURST', col: '#ff9a45' }
+  giant: { name: 'OGRE', hp: 3, move: 'BOULDER STORM', col: '#ffd27a' },
+  wizard: { name: 'WIZARD KING', hp: 1.6, move: 'FIREBALL BURST', col: '#ff9a45' },
+  hydra: { name: 'HYDRA', hp: 1.8, move: 'ALL HEADS ATTACK', col: '#7dff9a' }
 };
 const bossTypeFor = lv => BOSSES[(Math.floor(lv / 5) - 1) % BOSSES.length];
 function makeBoss(e, bt, lv) {
@@ -1531,12 +1536,14 @@ function makeBoss(e, bt, lv) {
   e.bossT = rand(6, 9); e.rage = false; e.bc = null;
   if (bt === 'ship') { e.ship = { baseX: e.x, ph: rand(0, 6), tx: e.x, th: 120, vx: 0, vh: 0, wT: 0, leak: 0, puffT: 0, sinking: false, down: false }; e.h = rand(110, 130); e.pw = 70; }
   else if (bt === 'giant') { e.walker = true; e.big = 1.9; e.h = 0; e.pw = 40; e.walkPh = 0; e.throwT = rand(3, 6); e.throwP = 0; e.swingT = 0; e.swingP = 0; e.clubT = 0; e.bossT = rand(10, 14); }
+  else if (bt === 'hydra') hydraInit(e, round);
   else { e.kind = 'mage'; e.h = rand(90, 200); e.tpT = rand(6, 9); }
 }
 const bossFoes = () => [st.P, ...st.helpers].filter(a => !a.dead);
 const bossTarget = E => st.P.dead ? null : st.P;
-const bossTop = E => feet(E).y - (E.ship ? 200 : 125 * sizeOf(E));
+const bossTop = E => feet(E).y - (E.ship ? 200 : E.hydra ? 340 : 125 * sizeOf(E));
 function bossStep(E, dt) {
+  if (E.hydra) hydraStep(E, dt, !!E.bc);
   if (!E.rage && E.hp <= E.max / 2) enrage(E);
   const C = E.bc;
   if (C) {
@@ -1546,6 +1553,7 @@ function bossStep(E, dt) {
     if (C.t >= C.dur) { E.bc = null; bossAttack(E, C); E.bossT = E.rage ? rand(7, 10) : rand(10, 14); E.aiT = Math.max(E.aiT, 1.5); }
     return true;
   }
+  if (E.hydra) { if ((E.bossT -= dt) <= 0) startCharge(E); return true; }
   if (E.btype === 'giant') {
     giantStep(E, dt);
     if (!E.swingT && !E.throwP && (E.bossT -= dt) <= 0) startCharge(E);
@@ -1562,7 +1570,7 @@ function startCharge(E) {
   E.bc = { t: 0, dur: 1.7, tx: tf.x, ty: tf.y, tid: T.id };
   E.aiAim = null; E.pow = 0; E.throwP = 0;
   text(f.x, bossTop(E) - 34, '!! ' + I.move + ' !!', I.col, 18, 1.7);
-  text(f.x, bossTop(E) - 14, 'HIT HIM TO STOP IT', '#f6eedf', 12, 1.7);
+  text(f.x, bossTop(E) - 14, E.hydra ? 'SHOOT A HEAD TO STOP IT' : 'HIT HIM TO STOP IT', '#f6eedf', 12, 1.7);
   ring(f.x, f.y - 55 * sizeOf(E), 90, I.col, .6, 4); sfx('whoosh');
 }
 function stopCharge(E, by) {
@@ -1587,6 +1595,9 @@ function bossAttack(E, C) {
     const n = more ? 5 : 3;
     for (let i = 0; i < n; i++) throwBoulder(E, tf.x + (i - (n - 1) / 2) * 70, tf.y - 58, 1.4);
     shake(6);
+  } else if (E.hydra) {
+    const live = E.heads.filter(h => h.t <= 0 && h.g >= 1);
+    live.forEach((h, i) => hydraBreath(E, h, (i - (live.length - 1) / 2) * 1.6));
   } else {
     const n = more ? 5 : 3, sol = solve(E, tf.x, tf.y - 58), n0 = st.arrows.length;
     for (let i = 0; i < n; i++) {
@@ -1783,7 +1794,7 @@ function drawBossFX() {
       g.addColorStop(0, '#ff3a2a'); g.addColorStop(1, 'rgba(255,58,42,0)');
       ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, 6.283); ctx.fill(); ctx.restore();
     }
-    if (E.btype !== 'wizard' && !E.rot) {
+    if (E.btype !== 'wizard' && !E.hydra && !E.rot) {
       const s = sc * k, cx = x, cy = SY(f.y - 93 * k);
       ctx.fillStyle = '#ffd27a'; ctx.strokeStyle = '#8a6a1a'; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(cx - 9 * s, cy); ctx.lineTo(cx + 9 * s, cy); ctx.lineTo(cx + 9 * s, cy - 9 * s); ctx.lineTo(cx + 4.5 * s, cy - 4 * s);
@@ -1807,6 +1818,182 @@ function drawBossFX() {
     }
   }
 }
+/* ---------- HYDRA: heads on swaying necks; shoot a head off and two grow back; only a heart shot hurts it ---------- */
+const HYDRA_MAX = 9, HYDRA_EL = { fire: '#ff9a45', zap: '#ffe14a', ice: '#9fe6ff' };
+const hydraAng = (i, n) => -1.7 - 1.25 * (i + .5) / n;   // fan of necks from straight up to out in front
+function hydraInit(e, round) {
+  e.hydra = true; e.walker = true; e.h = 0; e.pw = 60; e.x = Math.max(e.x, 1150);
+  e.hpLock = e.hp; e.heads = []; e.hk = 0; e.fireT = rand(2.5, 4); e.bossT = rand(10, 13);
+  const n = 3 + Math.min(2, round);
+  for (let i = 0; i < n; i++) e.heads.push(newHead(e, hydraAng(i, n)));
+}
+function newHead(e, a) {
+  const els = Object.keys(HYDRA_EL);
+  return { k: ++e.hk, a, L: rand(150, 205), ph: rand(0, 6.283), t: 0, g: 1, br: 0, el: els[Math.floor(Math.random() * els.length)] };
+}
+const hydraRoot = E => { const f = feet(E); return { x: f.x + 70 * E.f, y: f.y - 118 }; };
+const hydraHeart = E => { const f = feet(E); return { x: f.x + 42 * E.f, y: f.y - 92 }; };
+const hydraBody = E => { const f = feet(E); return { x: f.x, y: f.y - 75, rx: 100, ry: 52 }; };
+function headGeom(E, h) {
+  const R = hydraRoot(E), t = st.t, m = -E.f;   // m = 1 when it faces left
+  let a = h.a + .13 * Math.sin(t * 1.25 + h.ph), L = (h.L + 12 * Math.sin(t * 1.7 + h.ph * 1.3)) * (h.t > 0 ? .45 : .35 + .65 * h.g);
+  if (E.dead) { a = 2.55 + .2 * Math.sin(h.ph); L = h.L * .9; }
+  const ca = Math.cos(a) * m, sa = Math.sin(a), cb = Math.cos(a + .55) * m, sb = Math.sin(a + .55);
+  return { R, cx: R.x + cb * L * .55, cy: R.y + sb * L * .55, hx: R.x + ca * L, hy: R.y + sa * L };
+}
+function neckHit(g, x, y, w) {
+  let px = g.R.x, py = g.R.y;
+  for (let s = 1; s <= 6; s++) {
+    const u = s / 6, q = 1 - u, nx = q * q * g.R.x + 2 * q * u * g.cx + u * u * g.hx, ny = q * q * g.R.y + 2 * q * u * g.cy + u * u * g.hy;
+    if (segDist(x, y, px, py, nx, ny) < w) return true;
+    px = nx; py = ny;
+  }
+  return false;
+}
+function hydraStep(E, dt, charging) {
+  E.hp = E.hpLock;   // nothing but a heart shot hurts it
+  const n = E.heads.length;
+  for (let i = 0; i < E.heads.length; i++) {
+    const h = E.heads[i];
+    h.a += (hydraAng(i, E.heads.length) - h.a) * Math.min(1, dt * 2.5);
+    if (h.g < 1) h.g = Math.min(1, h.g + dt / .6);
+    if (h.t > 0) {
+      h.t -= dt;
+      if (h.t <= 0) {
+        h.t = 0; h.g = 0; h.br = 0;
+        const g = headGeom(E, h);
+        if (E.heads.length < HYDRA_MAX) {
+          const h2 = newHead(E, h.a); h2.g = 0; E.heads.splice(i + 1, 0, h2); i++;
+          text(g.hx, g.hy - 30, 'TWO HEADS!', '#7dff9a', 16, 1.2);
+        } else text(g.hx, g.hy - 30, 'GREW BACK', '#7dff9a', 14, 1);
+        for (let q = 0; q < 12; q++) P_(g.hx, g.hy, rand(-120, 120), rand(-160, 20), .5, 2.6, '#7dff9a', 'spark');
+        sfx('heal');
+      }
+      continue;
+    }
+    if (h.br > 0) { h.br -= dt; if (h.br <= 0) { h.br = 0; hydraBreath(E, h, 0); } }
+  }
+  if (!charging && (E.fireT -= dt) <= 0) {
+    const ready = E.heads.filter(h => h.t <= 0 && h.g >= 1 && h.br <= 0);
+    if (ready.length) ready[Math.floor(Math.random() * ready.length)].br = .7;
+    E.fireT = rand(2.6, 4.2) * (E.rage ? .75 : 1) / (1 + (n - 3) * .08);
+  }
+}
+// each head spits its own thing: fire bolt (lobbed), lightning (fast and flat), ice (freezes your bow)
+function hydraBreath(E, h, spread) {
+  const T = bossTarget(E);
+  if (!T) return;
+  const g = headGeom(E, h), tf = feet(T), flat = h.el === 'zap';
+  const fake = { x: g.hx, h: -g.hy - 64, dx: 0, dy: 0 }, sol = solve(fake, tf.x, tf.y - 58, flat), dir = tf.x < g.hx ? -1 : 1;
+  const e = (sol.e + gauss() * 2.6 + spread) * Math.PI / 180, v = sol.v + gauss() * 35, ang = dir < 0 ? Math.PI + e : -e;
+  const x = g.hx + Math.cos(ang) * 24, y = g.hy + Math.sin(ang) * 24;
+  st.arrows.push({ x, y, sx: x, sy: y, vx: Math.cos(ang) * v, vy: Math.sin(ang) * v, owner: E, done: false, via: new Set(),
+    pk: h.el === 'zap' ? 'storm' : h.el, pk2: null, dmgMul: h.el === 'ice' ? .6 : h.el === 'zap' ? .9 : .8, col: HYDRA_EL[h.el], magic: true, el: h.el, chill: h.el === 'ice' });
+  for (let q = 0; q < 8; q++) P_(x, y, Math.cos(ang) * 120 + rand(-60, 60), Math.sin(ang) * 120 + rand(-60, 60), .35, 2.6, HYDRA_EL[h.el], 'spark');
+  sfx(h.el === 'zap' ? 'zap' : 'whoosh');
+}
+// arrow vs hydra: heads blow up, the heart gets hurt, necks and scales just stop the arrow
+function hydraHit(E, ar) {
+  for (const h of E.heads) {
+    if (h.t > 0 || h.g < .6) continue;
+    const g = headGeom(E, h);
+    if (Math.hypot(ar.x - g.hx, ar.y - g.hy) < 22) { chopHead(E, h, ar, g); return true; }
+  }
+  const H = hydraHeart(E);
+  if (Math.hypot(ar.x - H.x, ar.y - H.y) < 17) { heartShot(E, ar); return true; }
+  for (const h of E.heads) if (neckHit(headGeom(E, h), ar.x, ar.y, 9)) { hydraBlock(E, ar); return true; }
+  const b = hydraBody(E), bx = (ar.x - b.x) / b.rx, by = (ar.y - b.y) / b.ry;
+  if (bx * bx + by * by < 1) { hydraBlock(E, ar); return true; }
+  return false;
+}
+function hydraBlock(E, ar) {
+  ar.done = true;
+  for (let q = 0; q < 6; q++) P_(ar.x, ar.y, rand(-90, 90), rand(-120, -10), .35, 2, '#b8d8a0', 'spark');
+  impactFX(ar, ar.x, ar.y, false);
+  if ((E.blkT || 0) < st.t) { E.blkT = st.t + 1.2; text(ar.x, ar.y - 20, 'BLOCKED', '#b8d8a0', 12, .8); }
+  sfx('thud');
+}
+function chopHead(E, h, ar, g) {
+  ar.done = true; h.t = E.rage ? 2 : 3; h.br = 0;
+  for (let q = 0; q < 26; q++) P_(g.hx, g.hy, rand(-240, 240), rand(-280, 60), rand(.4, .9), rand(2.5, 5), q % 3 ? '#4f8a4a' : '#ff5a4e', q % 2 ? 'spark' : 'smoke');
+  ring(g.hx, g.hy, 70, '#ffd27a', .45, 4); glow(g.hx, g.hy, 80, 'rgba(255,200,120,', .3);
+  text(g.hx, g.hy - 34, 'HEAD OFF!', '#ffd27a', 18, 1.1);
+  shake(6); sfx('boom');
+  impactFX(ar, ar.x, ar.y, true);
+  if (E.bc) stopCharge(E, ar.owner);
+}
+function heartShot(E, ar) {
+  ar.done = true;
+  const dmg = Math.round(70 * (ar.dmgMul || 1) * (ar.owner && ar.owner.isP ? st.dmgBoost : 1));
+  E.hpLock = Math.max(0, E.hpLock - dmg); E.hp = E.hpLock; E.hitT = .25;
+  const H = hydraHeart(E);
+  text(H.x, H.y - 46, 'HEART SHOT!', '#ff5a4e', 24, 1.4); text(H.x + rand(-10, 10), H.y - 20, '-' + dmg, '#f6eedf', 18, 1);
+  blood(ar.x, ar.y, ar.vx, ar.vy, 22); ring(H.x, H.y, 60, '#ff3a4a', .5, 4); shake(10); sfx('head');
+  st.gp += Math.round(dmg * .5);
+  if (ar.vol) ar.vol.hits++;
+  impactFX(ar, ar.x, ar.y, true);
+  if (E.bc) stopCharge(E, ar.owner);
+  if (E.hpLock <= 0) { E.heartDead = true; kill(E, ar, 'head'); }
+}
+function drawHydra(E) {
+  const f = feet(E), fx = f.x, m = -E.f;
+  if (SX(fx) < -400 || SX(fx) > W + 400) return;
+  const skin = E.hitT > 0 ? '#8a3a32' : '#3d6b3e', dark = '#1d3a22', belly = '#8fae6a', X = x => SX(x), Y = y => SY(y);
+  ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  if (E.dead) ctx.globalAlpha = .8;
+  // tail
+  const tw = Math.sin(st.t * 1.6) * 12;
+  ctx.strokeStyle = dark; ctx.lineWidth = 26 * sc; ctx.beginPath(); ctx.moveTo(X(fx + 70 * m), Y(-60)); ctx.quadraticCurveTo(X(fx + 170 * m), Y(-6), X(fx + 240 * m), Y(-40 + tw)); ctx.stroke();
+  ctx.strokeStyle = skin; ctx.lineWidth = 20 * sc; ctx.stroke();
+  // legs
+  ctx.strokeStyle = dark; ctx.lineWidth = 18 * sc;
+  for (const lx of [-60, -25, 30, 65]) { ctx.beginPath(); ctx.moveTo(X(fx + lx * m), Y(-50)); ctx.lineTo(X(fx + lx * m - 6 * m), Y(-3)); ctx.stroke(); }
+  // body, belly, back spikes
+  const b = hydraBody(E);
+  ctx.fillStyle = skin; ctx.strokeStyle = dark; ctx.lineWidth = 3 * sc;
+  ctx.beginPath(); ctx.ellipse(X(b.x), Y(b.y), b.rx * sc, b.ry * sc, 0, 0, 6.283); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = belly; ctx.beginPath(); ctx.ellipse(X(b.x - 22 * m), Y(b.y + 18), 66 * sc, 26 * sc, 0, 0, 6.283); ctx.fill();
+  ctx.fillStyle = dark;
+  for (let i = 0; i < 6; i++) { const sx = fx + (55 - i * 22) * -m, top = b.y - b.ry * Math.sqrt(Math.max(0, 1 - ((sx - b.x) / b.rx) ** 2)); ctx.beginPath(); ctx.moveTo(X(sx - 8), Y(top + 4)); ctx.lineTo(X(sx), Y(top - 16)); ctx.lineTo(X(sx + 8), Y(top + 4)); ctx.fill(); }
+  // heart (glows; the only weak spot)
+  const H = hydraHeart(E), pr = (11 + 2 * Math.sin(st.t * 6)) * sc;
+  if (!E.dead) {
+    ctx.save(); ctx.shadowColor = '#ff3a4a'; ctx.shadowBlur = 18; ctx.fillStyle = '#ff3a4a';
+    ctx.beginPath(); ctx.arc(X(H.x) - pr * .45, Y(H.y) - pr * .2, pr * .6, 0, 6.283); ctx.arc(X(H.x) + pr * .45, Y(H.y) - pr * .2, pr * .6, 0, 6.283); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(X(H.x) - pr * 1.02, Y(H.y) - pr * .05); ctx.lineTo(X(H.x), Y(H.y) + pr * 1.05); ctx.lineTo(X(H.x) + pr * 1.02, Y(H.y) - pr * .05); ctx.fill();
+    ctx.restore();
+  }
+  // necks, then heads (or stumps with a countdown)
+  const geo = E.heads.map(h => headGeom(E, h));
+  for (const w of [22, 16]) {
+    ctx.strokeStyle = w === 22 ? dark : skin; ctx.lineWidth = w * sc;
+    for (const g of geo) { ctx.beginPath(); ctx.moveTo(X(g.R.x), Y(g.R.y)); ctx.quadraticCurveTo(X(g.cx), Y(g.cy), X(g.hx), Y(g.hy)); ctx.stroke(); }
+  }
+  E.heads.forEach((h, i) => {
+    const g = geo[i], hx = X(g.hx), hy = Y(g.hy);
+    if (h.t > 0) {
+      ctx.fillStyle = '#a8322c'; ctx.beginPath(); ctx.arc(hx, hy, 9 * sc, 0, 6.283); ctx.fill();
+      ctx.font = '700 ' + Math.round(22 * Math.min(1.4, sc + .3)) + 'px Silkscreen, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+      ctx.fillStyle = Math.sin(st.t * 12) > 0 ? '#ffd27a' : '#ff5a4e'; ctx.fillText(String(Math.ceil(h.t)), hx, hy - 12 * sc);
+      return;
+    }
+    const s = sc * (.4 + .6 * h.g), ang = Math.atan2(g.hy - g.cy, (g.hx - g.cx) * -m), col = HYDRA_EL[h.el];   // drawn facing right, mirrored when it faces left
+    ctx.save(); ctx.translate(hx, hy); ctx.scale(m > 0 ? -s : s, s); ctx.rotate(ang * .35);
+    if (h.br > 0 && !E.dead) { ctx.shadowColor = col; ctx.shadowBlur = 20; }
+    ctx.fillStyle = skin; ctx.strokeStyle = dark; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.ellipse(6, 0, 22, 13, 0, 0, 6.283); ctx.fill(); ctx.stroke();    // skull + snout
+    ctx.beginPath(); ctx.ellipse(22, 4, 12, 6, .15, 0, 6.283); ctx.fill(); ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(-6, -11); ctx.lineTo(-16, -24); ctx.lineTo(0, -12); ctx.fill();      // horn in its colour
+    ctx.beginPath(); ctx.moveTo(4, -12); ctx.lineTo(-2, -26); ctx.lineTo(12, -12); ctx.fill();
+    if (E.dead) { ctx.strokeStyle = '#141414'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(6, -6); ctx.lineTo(12, 0); ctx.moveTo(12, -6); ctx.lineTo(6, 0); ctx.stroke(); }
+    else { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(9, -4, 3.4, 0, 6.283); ctx.fill(); ctx.fillStyle = '#141414'; ctx.fillRect(9, -6, 1.6, 4); }
+    if (h.br > 0 && !E.dead) { ctx.fillStyle = col; ctx.globalAlpha = .6 + .4 * Math.sin(st.t * 30); ctx.beginPath(); ctx.arc(34, 6, 6 + (.7 - h.br) * 8, 0, 6.283); ctx.fill(); ctx.globalAlpha = 1; }
+    ctx.restore();
+  });
+  ctx.restore();
+}
+
 // big boss health bar across the top of the screen
 function drawBossBar() {
   const B = st.enemies.find(e => e.boss && !e.dead);
@@ -1853,7 +2040,7 @@ function update(rdt) {
     const edt = dt * (E.slowT > 0 ? E.slowM : 1);
     if (E.boss && bossStep(E, edt)) continue;
     if (E.kind === 'healer' && !E.aiAim && E.aiT - edt <= 0) {
-      const hurt = st.enemies.filter(o => o !== E && !o.dead && o.hp < o.max);
+      const hurt = st.enemies.filter(o => o !== E && !o.dead && !o.hydra && o.hp < o.max);
       if (hurt.length && Math.random() < .7) {
         const f = feet(E);
         for (const o of hurt) {
@@ -1981,6 +2168,8 @@ function update(rdt) {
             }
           }
         }
+        if (ar.done) break;
+        for (const E of st.enemies) if (E.hydra && !E.dead && hydraHit(E, ar)) break;
         if (ar.done) break;
         for (const E of st.enemies) { if (ar.hit && ar.hit.has(E)) continue; const z = zone(E, ar.x, ar.y); if (z) { onHit(ar, E, z); break; } }
         if (!ar.done && SOLDIERS) {
@@ -2375,6 +2564,7 @@ function drawArrowShape(len, col) {
   ctx.beginPath(); ctx.moveTo(-len, 0); ctx.lineTo(-len - 6, -4); ctx.lineTo(-len + 3, 0); ctx.lineTo(-len - 6, 4); ctx.fill();
 }
 function drawArcher(a) {
+  if (a.hydra) return drawHydra(a);
   const f = feet(a);
   if (SX(f.x) < -80 || SX(f.x) > W + 80) return;
   ctx.save();
@@ -2387,7 +2577,7 @@ function drawArcher(a) {
     if (lean) ctx.rotate(-(a.f || 1) * lean);
     ctx.scale(1, 1 + Math.sin(st.t * 2.2 + a.x * .013) * .018);
   }
-  const ink = a.hitT > 0 ? '#5a1010' : '#141414', ff = a.f;
+  const ink = a.hitT > 0 ? '#5a1010' : a.walker ? '#66785e' : '#141414', ff = a.f;
   if (!a.dead && isTagged(a)) { ctx.save(); ctx.strokeStyle = '#d58cff'; ctx.lineWidth = 2.5; ctx.setLineDash([7, 6]); ctx.lineDashOffset = -st.t * 40;
     ctx.beginPath(); ctx.arc(0, -50, 62, 0, 6.283); ctx.stroke(); ctx.restore(); }
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
@@ -2501,7 +2691,7 @@ function drawDummyBody(a) {
   if (a.headRed > 0) { ctx.fillStyle = 'rgba(196,20,28,.7)'; ctx.beginPath(); ctx.arc(-a.f * 3, -86, 6, 0, 6.283); ctx.fill(); }
 }
 function drawHPBar(a) {
-  if (a.dead) return;
+  if (a.dead || a.hydra) return;
   const f = feet(a), x = SX(f.x), y = SY(f.y - 112 * sizeOf(a)) - 6;
   if (x < -60 || x > W + 60) return;
   const w = 62, h = 6, fr = clamp(a.hp / a.max, 0, 1);
@@ -2877,9 +3067,10 @@ function draw() {
     ctx.strokeStyle = tg; ctx.lineWidth = 2; ctx.globalAlpha = .6; ctx.beginPath(); ctx.moveTo(-36, 0); ctx.lineTo(-110, 0); ctx.stroke(); ctx.globalAlpha = 1;
     if (hasPk(ar, 'fire') && Math.random() < .6) st.parts.push({ x: ar.x, y: ar.y, vx: rand(-30, 30), vy: rand(-60, 0), life: .3, max: .3, r: 2.2, col: '#ff9a45' });
     if (ar.magic) {
-      ctx.fillStyle = 'rgba(255,140,60,.35)'; ctx.beginPath(); ctx.arc(0, 0, 14, 0, 6.283); ctx.fill();
-      ctx.fillStyle = '#ffd27a'; ctx.beginPath(); ctx.arc(0, 0, 7, 0, 6.283); ctx.fill();
-      if (Math.random() < .7) P_(ar.x, ar.y, rand(-30, 30), rand(-60, 0), .35, 3, Math.random() < .5 ? '#ff9a45' : '#ff5a2e', 'flame');
+      const el = ar.el === 'zap' ? ['rgba(255,240,90,.4)', '#fff8b0', '#ffe14a', '#ffffff', 'spark'] : ar.el === 'ice' ? ['rgba(150,220,255,.4)', '#e8f8ff', '#9fe6ff', '#ffffff', 'spark'] : ['rgba(255,140,60,.35)', '#ffd27a', '#ff9a45', '#ff5a2e', 'flame'];
+      ctx.fillStyle = el[0]; ctx.beginPath(); ctx.arc(0, 0, 14, 0, 6.283); ctx.fill();
+      ctx.fillStyle = el[1]; ctx.beginPath(); ctx.arc(0, 0, 7, 0, 6.283); ctx.fill();
+      if (Math.random() < .7) P_(ar.x, ar.y, rand(-30, 30), rand(-60, 0), .35, 3, Math.random() < .5 ? el[2] : el[3], el[4]);
       ctx.restore(); continue;
     }
     if (hasPk(ar, 'meteor') && Math.random() < .7) P_(ar.x, ar.y, rand(-30, 30), rand(-50, 10), .35, 2.6, Math.random() < .5 ? '#ff7b3a' : '#ffd27a', 'flame');
