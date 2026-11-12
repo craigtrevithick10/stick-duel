@@ -34,6 +34,13 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 #musicBtn.off{opacity:.35;text-decoration:line-through}
 #homeBtn{position:absolute;left:max(14px,env(safe-area-inset-left,0px));bottom:14px;padding:10px 16px;border:0;cursor:pointer;font:700 14px var(--pixel);letter-spacing:.06em;color:#24150a;background:var(--ember);box-shadow:0 3px 0 rgba(0,0,0,.35)}
 #homeBtn:focus-visible{outline:3px solid var(--blood);outline-offset:3px}
+#quiver{position:absolute;left:50%;transform:translateX(-50%);bottom:12px;display:flex;gap:6px}
+#quiver button{min-width:62px;padding:6px 8px 5px;border:2px solid rgba(246,238,223,.25);background:rgba(20,14,30,.62);color:var(--bone);font:700 11px var(--pixel);letter-spacing:.04em;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;line-height:1}
+#quiver button small{font:700 11px var(--pixel);color:var(--bone)}
+#quiver button.on{border-color:var(--ember);background:rgba(242,166,90,.28);box-shadow:0 0 0 2px rgba(242,166,90,.35)}
+#quiver button.empty{opacity:.3;cursor:default}
+#quiver .qi{font-size:20px;font-style:normal;line-height:1}
+@media (max-width:700px){#quiver button{min-width:52px;padding:5px 5px 4px;font-size:10px}}
 #pauseBtn:focus-visible,#musicBtn:focus-visible,.btn:focus-visible{outline:3px solid var(--blood);outline-offset:3px}
 .overlay{position:absolute;inset:0;display:grid;place-items:center;padding:16px;background:rgba(22,18,38,.78);overflow-y:auto}
 .panel{width:min(380px,100%);display:flex;flex-direction:column;gap:16px;align-items:center;text-align:center}
@@ -76,6 +83,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
   <button id="pauseBtn" type="button" aria-label="Pause"><i></i><i></i></button>
   <button id="musicBtn" type="button" aria-label="Music on or off">♪</button>
   <button id="homeBtn" type="button" hidden>◀ ARCHER</button>
+  <div id="quiver" hidden></div>
 
   <div class="overlay" id="startScreen">
     <div class="panel">
@@ -220,9 +228,9 @@ const farX = () => Math.max(...st.enemies.map(e => e.x));
 function newGame() {
   st = { helpers: [], reloadMul: 1, extraShots: 0, extraCrates: 0, extraHp: 0, longAim: false, armour: 0, leech: 0, revive: 0, winBonus: 0, dmgBoost: 1, shopBuys: {}, shop: false, level: 1, kills: 0, heads: 0, gp: 0, arrows: [], parts: [], texts: [], pinned: [], enemies: [], gadgets: [],
     wind: 0, camHold: 0, camLast: 0, camFocus: null, lastShot: null, slow: 0, shake: 0, hint: true,
-    nextT: 0, t: 0, reload: 0, overT: 0, banner: null, power: null, marchers: [], marchQ: [], marchT: 0, allies: [], allyQ: 0, allyT: 0, gateCD: 0, gateOpen: 0, gateHint: true, overReason: null, barrier: null, bolts: [], rings: [], glows: [], fires: [], flashA: 0, flashC: '#fff', tornados: [], holes: [], weather: 'clear', combo: 0, stormT: 0, windT: 0, boltT: 8 };
+    nextT: 0, t: 0, reload: 0, overT: 0, banner: null, power: null, quiver: [], marchers: [], marchQ: [], marchT: 0, allies: [], allyQ: 0, allyT: 0, gateCD: 0, gateOpen: 0, gateHint: true, overReason: null, barrier: null, bolts: [], rings: [], glows: [], fires: [], flashA: 0, flashC: '#fff', tornados: [], holes: [], weather: 'clear', combo: 0, stormT: 0, windT: 0, boltT: 8 };
   st.P = mkArcher(0, rand(140, 175), 1, 100, true, 72);
-  try { const q = new URLSearchParams(location.search), lv = +q.get('lv'); if (lv > 1) st.level = Math.min(99, Math.floor(lv)); if (q.has('debug')) window.__sd = { get st() { return st; }, step(n, dt = 1 / 60) { for (let i = 0; i < n; i++) if (!st.shop && !st.clockOpen) update(dt); draw(); }, fire(ang, v, pk) { fire(st.P, ang, v, pk); } }; } catch (e) {}
+  try { const q = new URLSearchParams(location.search), lv = +q.get('lv'); if (lv > 1) st.level = Math.min(99, Math.floor(lv)); if (q.has('debug')) window.__sd = { get st() { return st; }, step(n, dt = 1 / 60) { for (let i = 0; i < n; i++) if (!st.shop && !st.clockOpen) update(dt); draw(); }, fire(ang, v, pk) { fire(st.P, ang, v, pk); }, give(k, n) { givePower(k, n); }, pick(i) { pickSlot(i); } }; } catch (e) {}
   spawnLevel(true);
   camX = homeCam();
 }
@@ -438,8 +446,7 @@ function gadgetStep(ar, sdt) {
         g.gone = true; ar.done = true;
         const pw = POWERS[g.pk];
         if (g.pk === 'shield') st.barrier = { hp: 120, max: 120, hitT: 0 };
-        else if (st.power && st.power.k === g.pk) st.power.shots += pw.shots + st.extraShots;
-        else st.power = { k: g.pk, shots: pw.shots + st.extraShots };
+        else givePower(g.pk, pw.shots + st.extraShots);
         text(g.x, g.y - 26, pw.name, pw.col, 18, 1.4);
         text(feet(st.P).x, feet(st.P).y - 140, pw.name, pw.col, 16, 1.4);
         for (let i = 0; i < 20; i++) st.parts.push({ x: g.x, y: g.y, vx: rand(-180, 180), vy: rand(-220, 60), life: .6, max: .6, r: 2.6, col: i % 2 ? '#b07a43' : pw.col });
@@ -2319,6 +2326,7 @@ function draw() {
   if (st.flashA > 0) { ctx.fillStyle = `rgba(${st.flashC},${st.flashA.toFixed(3)})`; ctx.fillRect(0, 0, W, H); }
   drawInset();
   if (running) drawHUD();
+  drawQuiver();
   drawZoomNote();
 }
 function drawVortices() {
@@ -2416,7 +2424,7 @@ const SHOP_POOL = [
   { id: 'revive', name: 'SECOND WIND', desc: 'Survive one killing blow', base: 140, w: .45, max: 1, buy: () => { st.revive++; } },
   { id: 'glass', name: 'GLASS MASTER', desc: 'Windows start +1 arrow', base: 100, w: .5, max: 3, buy: () => { st.winBonus++; } },
   { id: 'helper', name: 'HELPER ARCHER', desc: '', base: 150, w: .35, once: true, helper: true, buy: o => { addHelper(o.kind); } },
-  { id: 'pw_blackhole', name: 'BLACK HOLE', desc: '1 black hole arrow', base: 220, w: .08, once: true, col: '#b07cff', buy: () => { st.power = { k: 'blackhole', shots: 1 + Math.floor(st.extraShots / 2) }; } },
+  { id: 'pw_blackhole', name: 'BLACK HOLE', desc: '1 black hole arrow', base: 220, w: .08, once: true, col: '#b07cff', buy: () => { givePower('blackhole', 1 + Math.floor(st.extraShots / 2)); } },
 ];
 let shopOffers = [];
 // every item the armoury can ever sell (the ones not on sale this visit are shown greyed out)
@@ -2436,7 +2444,7 @@ function openShop() {
   const pool = SHOP_POOL.filter(o => !(o.max && (st.shopBuys[o.id] || 0) >= o.max) && !(o.helper && st.helpers.filter(h => !h.dead).length >= 2));
   const keys = Object.keys(POWERS).filter(k => k !== 'shield' && k !== 'blackhole');
   for (const k of keys) pool.push({ id: 'pw_' + k, name: POWERS[k].name, desc: (POWERS[k].shots + st.extraShots) + ' arrows to start the level', base: 35, w: .45, once: true, col: POWERS[k].col,
-    buy: () => { const n = POWERS[k].shots + st.extraShots; if (st.power && st.power.k === k) st.power.shots += n; else st.power = { k, shots: n }; } });
+    buy: () => { givePower(k, POWERS[k].shots + st.extraShots); } });
   // weighted pick of 6: not everything shows up every visit
   shopOffers = [];
   const bag = pool.slice();
@@ -2531,6 +2539,49 @@ function frame(ts) {
   requestAnimationFrame(frame);
 }
 
+/* ---------- quiver: plain arrows + up to 3 special arrow types, tap a slot to load it ---------- */
+const QUIVER_SLOTS = 3;
+function givePower(k, n) {
+  let q = st.quiver.find(o => o.k === k);
+  if (q) q.shots += n;
+  else {
+    if (st.quiver.length >= QUIVER_SLOTS) {   // full: the type with the fewest arrows left is dropped
+      const drop = st.quiver.reduce((a, o) => o.shots < a.shots ? o : a);
+      st.quiver = st.quiver.filter(o => o !== drop);
+      if (st.power === drop) st.power = null;
+      text(feet(st.P).x, feet(st.P).y - 160, 'DROPPED ' + POWERS[drop.k].short, '#f6eedf', 13, 1.3);
+    }
+    q = { k, shots: n }; st.quiver.push(q);
+  }
+  st.power = q;   // a new pickup is loaded straight away
+}
+function pickSlot(i) {   // -1 = plain arrows
+  if (!st) return;
+  const q = i >= 0 ? st.quiver[i] : null;
+  if (i >= 0 && !q) return;
+  st.power = q; sfx('click');
+}
+let quiverSig = '';
+function drawQuiver() {
+  const box = $('quiver'), on = running && st && !st.shop && !st.clockOpen && !st.P.dead;
+  if (box.hidden === on) box.hidden = !on;
+  if (!on) return;
+  const sig = st.quiver.map(o => o.k + o.shots).join() + '|' + st.quiver.indexOf(st.power);
+  if (sig === quiverSig) return;
+  quiverSig = sig;
+  const sel = st.quiver.indexOf(st.power);
+  let h = `<button type="button" data-i="-1" class="${sel < 0 ? 'on' : ''}"><i class="qi">➶</i><span>PLAIN</span><small>∞</small></button>`;
+  for (let i = 0; i < QUIVER_SLOTS; i++) {
+    const o = st.quiver[i];
+    h += o ? `<button type="button" data-i="${i}" class="${sel === i ? 'on' : ''}"><i class="qi">${ICON['pw_' + o.k] || ''}</i><span style="color:${POWERS[o.k].col}">${POWERS[o.k].short}</span><small>×${o.shots}</small></button>`
+           : `<button type="button" class="empty" disabled><i class="qi">·</i><span>EMPTY</span><small>—</small></button>`;
+  }
+  box.innerHTML = h;
+}
+$('quiver').addEventListener('pointerdown', e => e.stopPropagation());
+$('quiver').addEventListener('click', e => { const b = e.target.closest('button[data-i]'); if (b) pickSlot(+b.dataset.i); });
+addEventListener('keydown', e => { const n = +e.key; if (running && n >= 1 && n <= 4) pickSlot(n - 2); });
+
 /* ---------- input ---------- */
 /* ---------- pinch with two fingers (or the mouse wheel) to zoom in and out ---------- */
 const ZMIN = .5, ZMAX = 1.8, fingers = new Map();
@@ -2612,7 +2663,7 @@ function release() {
       fire(P, P.aim, 300 + P.pow * 1100, pk);
       const vol = { alive: st.arrows.length - n0, hits: 0 };
       for (let q = n0; q < st.arrows.length; q++) st.arrows[q].vol = vol;
-      if (st.power && --st.power.shots <= 0) { text(feet(P).x, feet(P).y - 130, POWERS[st.power.k].short + ' EMPTY', '#f6eedf', 14, 1); st.power = null; }
+      if (st.power && --st.power.shots <= 0) { text(feet(P).x, feet(P).y - 130, POWERS[st.power.k].short + ' EMPTY', '#f6eedf', 14, 1); st.quiver = st.quiver.filter(o => o !== st.power); st.power = null; }
       st.camHome = false;
       st.reload = (pk === 'rapid' ? .2 : .55) * st.reloadMul; st.hint = false; st.lastShot = { p: P.pow, a: P.aim };
     }
