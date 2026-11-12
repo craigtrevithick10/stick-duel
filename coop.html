@@ -310,7 +310,7 @@ function newGame() {
 }
 
 function spawnLevel(first) {
-  const lv = st.level, np = Math.max(1, st.players.length), n = Math.min(lv, 6) + Math.min(4, np - 1);
+  const lv = st.level, np = Math.max(1, st.players.length), n = Math.min(lv, 20) + Math.min(4, np - 1);   // one more enemy every level (up to 20 + team bonus)
   st.enemies = [];
   // everyone, including anyone who joined mid-game, stands somewhere random on the field
   const span = 1700 + Math.min(lv, 10) * 50 + (np - 1) * 350, pxs = [];
@@ -321,11 +321,21 @@ function spawnLevel(first) {
     Object.assign(p, { x, h: rand(140, 175), f: 1, dead: false, inLevel: true, hp: p.max, rot: 0, vr: 0, dx: 0, dy: 0, vx: 0, vy: 0, stuck: [], headRed: 0, pow: 0, reload: 0, ready: false });
   }
   // enemies: not too close to any player, not on top of each other
-  const xs = [], clear = x => pxs.every(o => Math.abs(o - x) > 330) && xs.every(o => Math.abs(o - x) > 125);
+  // big crowds stand closer together, and every enemy stays within bow range of someone
+  const gap = Math.max(70, 125 - Math.max(0, n - 8) * 5), reach = x => pxs.some(o => Math.abs(o - x) < 2300);
+  const xs = [], clear = x => pxs.every(o => Math.abs(o - x) > 330) && xs.every(o => Math.abs(o - x) > gap) && reach(x);
   for (let i = 0; i < n; i++) {
-    let x = 0, ok = false;
+    let x = 0, ok = false, best = null, bestGap = -1;
     for (let tries = 0; tries < 80 && !ok; tries++) { x = rand(-150, span + 200); ok = clear(x); }
-    if (!ok) x = Math.max(...pxs, ...xs) + 340;
+    if (!ok) {   // crowded: pick the in-range spot with the most room around it
+      for (let tries = 0; tries < 120; tries++) {
+        const o = pxs[Math.floor(Math.random() * pxs.length)] || 0, c = o + (Math.random() < .5 ? -1 : 1) * rand(400, 2250);
+        if (!pxs.every(q => Math.abs(q - c) > 330)) continue;
+        const g = xs.length ? Math.min(...xs.map(q => Math.abs(q - c))) : 1e9;
+        if (g > bestGap) { bestGap = g; best = c; }
+      }
+      x = best !== null ? best : (pxs[0] || 0) + 600;
+    }
     xs.push(x);
   }
   xs.sort((a, b) => a - b);
