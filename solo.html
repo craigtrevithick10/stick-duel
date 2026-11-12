@@ -2999,7 +2999,8 @@ function update(rdt) {
   let lead = null;
   for (const a of st.arrows) if (a.owner === P && (!lead || a.x > lead.x)) lead = a;
   let target = home, speed = 3;
-  if (st.camHome) { target = home; speed = 14; st.camHold = 0; st.camFocus = null; }
+  if (drag && drag.pan) { target = camX; speed = 0; }
+  else if (st.camHome) { target = home; speed = 14; st.camHold = 0; st.camFocus = null; }
   else if (lead) { target = Math.max(home, lead.x - viewW * .5); st.camLast = target; st.camHold = 1.1; speed = 10; }
   else if (st.camFocus && st.camHold > 0) { st.camHold -= rdt; target = Math.max(home, feet(st.camFocus).x - viewW * .55); speed = 4; }
   else if (st.camHold > 0 && !drag) { st.camHold -= rdt; target = st.camLast; speed = 6; }
@@ -3809,8 +3810,9 @@ function drawHUD() {
   if (st.hint && running && !st.banner) {
     const f = feet(st.P), a = .6 + Math.sin(st.t * 4) * .35;
     ctx.globalAlpha = a; ctx.textAlign = 'center'; ctx.font = '700 13px Silkscreen, monospace'; ctx.fillStyle = '#f6eedf';
-    ctx.fillText('PULL BACK & RELEASE', clamp(SX(f.x) + 140, 120, W - 120), H * .3);
-    ctx.fillText('ENEMY IS OFF TO THE RIGHT →', clamp(SX(f.x) + 140, 120, W - 120), H * .3 + 20);
+    ctx.fillText('TOUCH YOUR ARCHER, PULL BACK & RELEASE', clamp(SX(f.x) + 270, 200, W - 200), H * .3);
+    ctx.fillText('SWIPE ANYWHERE ELSE TO LOOK AROUND →', clamp(SX(f.x) + 270, 200, W - 200), H * .3 + 20);
+    ctx.globalAlpha = 1; if (!st.P.dead && !drag) drawGrabRing(st.P);
     ctx.globalAlpha = 1;
   }
 }
@@ -4300,9 +4302,26 @@ function drawZoomNote() {
 function cancelAim() { drag = null; if (st) st.P.pow = 0; }
 
 let drag = null;
+// a touch only starts aiming when it lands on or close to your archer; anywhere else it slides the view
+// (swipe right = look right, swipe left = look left)
+const PAN_DIR = 1, PAN_SPEED = 1.5;
+function nearArcher(e, A) {
+  if (!A || A.dead) return false;
+  const r = cv.getBoundingClientRect(), f = feet(A);
+  const px = e.clientX - r.left, py = e.clientY - r.top;
+  const cx = SX(f.x), cy = SY(f.y - 45);
+  return Math.abs(px - cx) < Math.max(65, 60 * sc) && Math.abs(py - cy) < Math.max(85, 75 * sc);
+}
+function drawGrabRing(A) {
+  const f = feet(A), k = .5 + Math.sin(st.t * 4) * .5;
+  ctx.save(); ctx.strokeStyle = 'rgba(255,210,122,' + (.35 + k * .4) + ')'; ctx.lineWidth = 3; ctx.setLineDash([8, 6]);
+  ctx.beginPath(); ctx.ellipse(SX(f.x), SY(f.y - 45), Math.max(65, 60 * sc) * (.95 + k * .08), Math.max(85, 75 * sc) * (.95 + k * .08), 0, 0, Math.PI * 2); ctx.stroke();
+  ctx.restore();
+}
 cv.addEventListener('pointerdown', e => {
   if (running && !paused && st.placing) { drag = { id: e.pointerId, x: e.clientX, y: e.clientY, cam: camX, moved: false, place: true }; try { cv.setPointerCapture(e.pointerId); } catch (err) {} return; }
-  if (!running || paused || st.P.dead) return;
+  if (!running || paused) return;
+  if (!nearArcher(e, st.P)) { drag = { id: e.pointerId, x: e.clientX, y: e.clientY, cam: camX, moved: false, pan: true }; try { cv.setPointerCapture(e.pointerId); } catch (err) {} return; }
   drag = { id: e.pointerId, x: e.clientX, y: e.clientY };   // the camera only goes home once you actually pull (a tap to split a cluster keeps following it)
   try { cv.setPointerCapture(e.pointerId); } catch (err) {}
 });
@@ -4310,6 +4329,11 @@ cv.addEventListener('pointermove', e => {
   if (!drag || e.pointerId !== drag.id) return;
   const dx = e.clientX - drag.x, dy = e.clientY - drag.y, len = Math.hypot(dx, dy);
   if (drag.place) { if (len > 8) drag.moved = true; if (drag.moved) camX = drag.cam - dx / sc; return; }
+  if (drag.pan) {
+    if (Math.abs(dx) > 10) drag.moved = true;
+    if (drag.moved) { const viewW = W / sc, home = homeCam(); camX = clamp(drag.cam + PAN_DIR * PAN_SPEED * dx / sc, home - viewW * .3, Math.max(home, farX() - viewW * .35)); st.camHome = false; st.camFocus = null; }
+    return;
+  }
   if (st.P.dead) return;
   st.P.pow = clamp(len / 120, 0, 1);
   if (len > 12) st.camHome = true;
@@ -4321,6 +4345,12 @@ cv.addEventListener('pointermove', e => {
 });
 function release(e) {
   if (drag && drag.place) { const d = drag; drag = null; if (!d.moved && e && st && st.placing) finishPlace(toWorld(e)); return; }
+  if (drag && drag.pan) {
+    const d = drag; drag = null; if (!st) return;
+    if (d.moved) { st.camLast = camX; st.camHold = 1e6; st.camFocus = null; return; }   // stay where you looked until you aim again
+    for (const a of st.arrows.filter(a => !a.done && !a.split && a.owner === st.P && hasPk(a, 'cluster'))) splitCluster(a);   // a tap away from the archer still bursts cluster arrows
+    return;
+  }
   const P = st && st.P;
   if (drag && P && !P.dead && running && !paused) {
     const cl = P.pow <= .1 ? st.arrows.filter(a => !a.done && !a.split && a.owner === P && hasPk(a, 'cluster')) : [];
