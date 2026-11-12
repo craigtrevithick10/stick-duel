@@ -421,8 +421,7 @@ function pickGadgetType(exclude, fieldOnly) {
   const opts = [['win', .3], ['fan', .28]];
   if (!fieldOnly) opts.push(['crate', .3], ['hp', .1]);
   if (lv >= 2) opts.push(['bounce', .12]);
-  if (lv >= 3) opts.push(['magnet', .1]);
-  if (lv >= 2 && !has('bell')) opts.push(['bell', .07]);
+  // magnet and bell taken out (2026-11-13): too busy, didn't work well
   if (lv >= 2 && !has('cloud')) opts.push(['cloud', .07]);
   if (lv >= 2 && !has('clock')) opts.push(['clock', .06]);
   if (!fieldOnly && lv >= 3 && !has('link') && !st.linkMade) opts.push(['link', .05]);
@@ -3073,8 +3072,8 @@ function linkSlots(P, i, j) {
   let a = P.quiver[i], b = P.quiver[j];
   if (!a || !b || a === b || a.k2 || b.k2) return;
   if (b.k === 'cluster') [a, b] = [b, a];   // cluster first, so its split arrows carry the other power
-  const rare = k => POWERS[k].ultra || POWERS[k].mega;   // black hole / meteor stay one-offs
-  const q = { k: a.k, k2: b.k, shots: rare(a.k) || rare(b.k) ? Math.min(a.shots, b.shots) : Math.max(a.shots, b.shots) };
+  // a linked arrow gets the SMALLER count of the two: weak pairs keep lots, strong ones get few (black hole / meteor stay one-offs)
+  const q = { k: a.k, k2: b.k, shots: Math.min(a.shots, b.shots) };
   P.quiver = P.quiver.filter(o => o !== a && o !== b); P.quiver.splice(Math.min(i, j), 0, q);
   P.power = q; P.links--; P.linking = false; P.linkA = -1;
   const f = feet(P);

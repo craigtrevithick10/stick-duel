@@ -79,6 +79,15 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 .item .txt{display:flex;flex-direction:column;gap:3px;min-width:0}
 .item.off .ico{font-size:26px;width:34px}
 #shopGP{color:var(--ember)}
+.btn.alt{background:#5d5478;color:var(--bone)}
+.rackmodes{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+.rackmodes button{font:700 13px var(--pixel);letter-spacing:.05em;color:var(--bone);background:rgba(246,238,223,.08);border:2px solid rgba(246,238,223,.25);padding:8px 14px;cursor:pointer}
+.rackmodes button[aria-pressed="true"]{border-color:#7dffe8;color:#7dffe8;background:rgba(125,255,232,.12)}
+.rackmodes button:focus-visible{outline:3px solid var(--ember);outline-offset:2px}
+.shopgrid .item.sel{border-color:#7dffe8;background:rgba(125,255,232,.16);box-shadow:0 0 0 2px rgba(125,255,232,.35)}
+.shopgrid .item.now{border-color:var(--ember)}
+#rackHint{color:#7dffe8;min-height:1.2em}
+@media (max-height:520px){#rackScreen .panel{gap:8px}#rackScreen .title{font-size:24px!important}#rackScreen .shopgrid{max-height:calc(100dvh - 170px)}}
 #clockSvg{width:min(46vh,240px);height:min(46vh,240px);touch-action:none;cursor:grab;max-width:100%}
 </style>
 
@@ -96,6 +105,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
       <h1 class="title">STICK<br><em>DUEL</em></h1>
       <p class="small">Pull back to aim · let go to fire</p>
       <button class="btn" id="playBtn" type="button">FIGHT</button>
+      <button class="btn alt" id="pracBtn" type="button" style="font-size:15px">🎯 PRACTICE RANGE</button>
       <p class="small" id="bestLine">Turn your phone sideways to play</p>
     </div>
   </div>
@@ -136,11 +146,25 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
     </div>
   </div>
 
+  <div class="overlay" id="rackScreen" hidden>
+    <div class="panel" style="width:min(760px,100%);gap:10px">
+      <h2 class="title" style="font-size:clamp(26px,6vw,38px)">ARROW RACK</h2>
+      <div class="rackmodes" role="group" aria-label="Arrow mode">
+        <button type="button" id="rackOne" aria-pressed="true">ONE ARROW</button>
+        <button type="button" id="rackTwo" aria-pressed="false">🔗 LINK TWO</button>
+      </div>
+      <p class="small" id="rackHint">Tap an arrow to load it</p>
+      <div class="shopgrid" id="rackGrid"></div>
+      <button class="btn" id="rackBack" type="button" style="font-size:16px;padding:10px 26px">BACK</button>
+    </div>
+  </div>
+
   <div class="overlay" id="pauseScreen" hidden>
     <div class="panel">
       <h2 class="title" style="font-size:44px">PAUSED</h2>
       <button class="btn" id="resumeBtn" type="button">RESUME</button>
       <button class="btn" id="restartBtn" type="button" style="background:#5d5478;color:var(--bone)">RESTART</button>
+      <button class="btn alt" id="menuBtn" type="button" style="font-size:15px">MAIN MENU</button>
     </div>
   </div>
 
@@ -335,8 +359,7 @@ function pickGadgetType(exclude, fieldOnly) {
   const opts = [['win', .3], ['fan', .28]];
   if (!fieldOnly) opts.push(['crate', .3], ['hp', .1]);
   if (lv >= 2) opts.push(['bounce', .12]);
-  if (lv >= 3) opts.push(['magnet', .1]);
-  if (lv >= 2 && !has('bell')) opts.push(['bell', .07]);
+  // magnet and bell taken out (2026-11-13): too busy, didn't work well
   if (lv >= 2 && !has('cloud')) opts.push(['cloud', .07]);
   if (lv >= 2 && !has('clock')) opts.push(['clock', .06]);
   if (!fieldOnly && lv >= 3 && !has('link') && !st.linkMade) opts.push(['link', .05]);
@@ -891,6 +914,7 @@ function onHit(ar, a, z) {
   if (hasPk(ar, 'boom')) blast(ar.x, ar.y, ar.owner);
 }
 function kill(a, ar, z) {
+  if (a === st.P && st.practice) { a.hp = a.max; text(feet(a).x, feet(a).y - 140, 'OUCH! (NO DYING IN PRACTICE)', '#ff5a4e', 14, 1.4); return; }
   if (a === st.P && st.revive > 0) {
     st.revive--; a.hp = 50; a.hitT = 0;
     text(feet(a).x, feet(a).y - 140, 'SECOND WIND', '#7dff9a', 22, 1.6); ring(feet(a).x, feet(a).y - 50, 90, '#7dff9a', .6, 4); sfx('heal');
@@ -1491,6 +1515,7 @@ function update(rdt) {
     if (E.frozen > 0) { E.frozen -= dt; continue; }
     if (E.stun > 0) { E.stun -= dt; continue; }
     if (E.dead || P.dead || E.rise > 0 || st.nextT > 0) continue;
+    if (E.dummy && !st.dummyFire) continue;
     const edt = dt * (E.slowT > 0 ? E.slowM : 1);
     if (E.kind === 'healer' && !E.aiAim && E.aiT - edt <= 0) {
       const hurt = st.enemies.filter(o => o !== E && !o.dead && o.hp < o.max);
@@ -1557,7 +1582,8 @@ function update(rdt) {
   if (st.nextT <= 0 && !P.dead) {
     if (SOLDIERS) updateAllies(dt);
     updateMarchers(dt);
-    if (st.enemies.every(e => e.dead) && !st.marchQ.length && st.marchers.every(m => m.dead)) clearLevel();
+    if (st.practice) practiceStep(rdt);
+    else if (st.enemies.every(e => e.dead) && !st.marchQ.length && st.marchers.every(m => m.dead)) clearLevel();
   }
   // gadgets ease towards their targets
   for (const g of st.gadgets) {
@@ -1967,6 +1993,8 @@ function drawArcher(a) {
     ctx.beginPath(); ctx.arc(0, -50, 62, 0, 6.283); ctx.stroke(); ctx.restore(); }
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   if (!a.dead) { ctx.fillStyle = 'rgba(40,20,30,.3)'; ctx.beginPath(); ctx.ellipse(2, 1, 20, 4, 0, 0, 6.283); ctx.fill(); }
+  if (a.dummy) drawDummyBody(a);
+  else {
   // headband tails
   const band = a.isP ? '#3fd0c9' : (a.boss ? '#ffd27a' : '#d4322c'), tw = Math.sin(st.t * 7 + a.x) * 3;
   ctx.strokeStyle = band; ctx.lineWidth = 2.6;
@@ -1989,6 +2017,7 @@ function drawArcher(a) {
   ctx.fillStyle = ink; ctx.beginPath(); ctx.arc(0, -84, 10, 0, 6.283); ctx.fill();
   if (a.headRed > 0) { ctx.fillStyle = '#c4141c'; ctx.beginPath(); ctx.arc(ff * 3, -86, 7.5, 0, 6.283); ctx.fill(); }
   ctx.fillStyle = band; ctx.fillRect(-10, -89, 20, 3.5);
+  }
   const ang = a.aim - a.rot, dx = Math.cos(ang), dy = Math.sin(ang);
   const sx = 0, sy = -64, gx = sx + dx * 24, gy = sy + dy * 24;
   const cx = gx - dx * 14, cy = gy - dy * 14, R = 22, sp = 1.05;
@@ -2033,6 +2062,7 @@ function drawArcher(a) {
     for (const s2 of a.stuck) { ctx.save(); ctx.translate(s2.x, s2.y); ctx.rotate(s2.ang); drawArrowShape(24); ctx.restore(); }
     ctx.restore(); return;
   }
+  if (!a.dummy) {
   ctx.strokeStyle = '#dcdcdc'; ctx.lineWidth = 1.1;
   ctx.beginPath(); ctx.moveTo(t1x, t1y); ctx.lineTo(px, py); ctx.lineTo(t2x, t2y); ctx.stroke();
   ctx.strokeStyle = ink; ctx.lineWidth = 3;
@@ -2042,12 +2072,32 @@ function drawArcher(a) {
   ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(px, py); ctx.stroke();
   const loaded = !a.dead && (a.isP && !a.helper ? st.reload <= 0 : a.aiAim !== null);
   if (loaded) { ctx.save(); ctx.translate(px + dx * 36, py + dy * 36); ctx.rotate(ang); drawArrowShape(34, a.isP && st.power ? POWERS[st.power.k].col : null); ctx.restore(); }
+  }
   for (const s of a.stuck) { ctx.save(); ctx.translate(s.x, s.y); ctx.rotate(s.ang); drawArrowShape(24); ctx.restore(); }
   if (a.frozen > 0 && !a.dead) {
     ctx.fillStyle = 'rgba(191,233,255,.45)'; ctx.strokeStyle = 'rgba(230,248,255,.9)'; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(-18, 2); ctx.lineTo(-22, -70); ctx.lineTo(-10, -102); ctx.lineTo(12, -104); ctx.lineTo(22, -66); ctx.lineTo(18, 2); ctx.closePath(); ctx.fill(); ctx.stroke();
   }
   ctx.restore();
+}
+function drawDummyBody(a) {
+  const sack = a.hitT > 0 ? '#e8a07a' : '#d9b87a', edge = '#8a6a3a';
+  ctx.strokeStyle = '#6b4a2a'; ctx.lineWidth = 6;   // post and feet
+  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -40); ctx.stroke();
+  ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(-13, 0); ctx.lineTo(0, -14); ctx.lineTo(13, 0); ctx.stroke();
+  ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(-25, -62); ctx.lineTo(25, -62); ctx.stroke();   // arms
+  ctx.strokeStyle = '#e8c56a'; ctx.lineWidth = 1.6;
+  for (const sd of [-1, 1]) for (let k = -2; k <= 2; k++) { ctx.beginPath(); ctx.moveTo(sd * 24, -62); ctx.lineTo(sd * 32, -62 + k * 3); ctx.stroke(); }
+  ctx.fillStyle = sack; ctx.strokeStyle = edge; ctx.lineWidth = 2;   // sack body
+  ctx.beginPath(); ctx.ellipse(0, -56, 13, 20, 0, 0, 6.283); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = '#6b4a2a'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(-12, -42); ctx.lineTo(12, -42); ctx.stroke();
+  for (const [r, c] of [[8.5, '#e23b2e'], [5.6, '#f6eedf'], [2.6, '#e23b2e']]) { ctx.fillStyle = c; ctx.beginPath(); ctx.arc(0, -58, r, 0, 6.283); ctx.fill(); }   // target
+  ctx.fillStyle = sack; ctx.strokeStyle = edge; ctx.lineWidth = 2;   // sack head
+  ctx.beginPath(); ctx.arc(0, -84, 11, 0, 6.283); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = '#6b4a2a'; ctx.lineWidth = 2;
+  for (const ex of [-4.5, 4.5]) { ctx.beginPath(); ctx.moveTo(ex - 2.2, -88); ctx.lineTo(ex + 2.2, -84); ctx.moveTo(ex + 2.2, -88); ctx.lineTo(ex - 2.2, -84); ctx.stroke(); }
+  ctx.beginPath(); ctx.moveTo(-6, -77); ctx.lineTo(6, -77); ctx.stroke();
+  if (a.headRed > 0) { ctx.fillStyle = 'rgba(196,20,28,.7)'; ctx.beginPath(); ctx.arc(-a.f * 3, -86, 6, 0, 6.283); ctx.fill(); }
 }
 function drawHPBar(a) {
   if (a.dead) return;
@@ -2325,7 +2375,7 @@ function drawHUD() {
   const lx = 18 + ((st.insetA || 0) > .5 ? insetW() + 8 : 0);
   ctx.textAlign = 'left'; ctx.textBaseline = 'top';
   ctx.font = '700 18px Silkscreen, monospace'; ctx.fillStyle = '#ffd27a';
-  ctx.fillText('GP: ' + st.gp, lx, 12);
+  ctx.fillText(st.practice ? 'PRACTICE' : 'GP: ' + st.gp, lx, 12);
   const fr = clamp(st.P.hp / st.P.max, 0, 1);
   ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(lx, 38, 130, 8);
   ctx.fillStyle = fr > .35 ? '#f6eedf' : '#ff5a4e'; ctx.fillRect(lx, 38, 130 * fr, 8);
@@ -2334,7 +2384,7 @@ function drawHUD() {
   if (st.power) {
     const pw = POWERS[st.power.k];
     ctx.font = '700 12px Silkscreen, monospace'; ctx.fillStyle = pw.col;
-    ctx.fillText(powName(st.power) + '  ' + st.power.shots + ' LEFT', lx, 78);
+    ctx.fillText(powName(st.power) + '  ' + (st.practice ? '∞' : st.power.shots + ' LEFT'), lx, 78);
     for (let q = 0; q < Math.min(st.power.shots, 16); q++) { ctx.fillRect(lx + q * 7, 94, 3, 12); ctx.beginPath(); ctx.moveTo(lx + q * 7 - 1.5, 95); ctx.lineTo(lx + q * 7 + 1.5, 90); ctx.lineTo(lx + q * 7 + 4.5, 95); ctx.fill(); }
     ctx.font = '700 10px Silkscreen, monospace';
   }
@@ -2345,7 +2395,7 @@ function drawHUD() {
   // enemy list
   const rx = W - 18 - 52;
   ctx.textAlign = 'right'; ctx.font = '700 12px Silkscreen, monospace'; ctx.fillStyle = '#f6eedf';
-  ctx.fillText('LEVEL ' + st.level + '  ·  ' + alive().length + '/' + st.enemies.length + ' LEFT', rx, 12);
+  ctx.fillText(st.practice ? 'LAST SHOT ' + Math.round(st.shotDmg || 0) + ' DMG  ·  BEST ' + Math.round(st.bestDmg || 0) : 'LEVEL ' + st.level + '  ·  ' + alive().length + '/' + st.enemies.length + ' LEFT', rx, 12);
   st.enemies.forEach((E, i) => {
     const y = 32 + i * 13, ef = clamp(E.hp / E.max, 0, 1);
     ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(rx - 90, y, 90, 6);
@@ -2722,7 +2772,7 @@ function frame(ts) {
   const dt = Math.min(.04, (ts - last) / 1000 || 0); last = ts;
   const portrait = running && H > W && !forcePortrait;
   if ($('rotateScreen').hidden === portrait) show('rotateScreen', portrait);
-  if (running && !paused && !portrait && !(st && (st.shop || st.clockOpen || st.linking))) update(dt);
+  if (running && !paused && !portrait && !(st && (st.shop || st.clockOpen || st.linking || st.rack))) update(dt);
   camY += (camYTarget() - camY) * Math.min(1, dt * 6);
   draw();
   requestAnimationFrame(frame);
@@ -2749,8 +2799,8 @@ function linkSlots(i, j) {
   let a = st.quiver[i], b = st.quiver[j];
   if (!a || !b || a === b || a.k2 || b.k2) return;
   if (b.k === 'cluster') [a, b] = [b, a];   // cluster first, so its split arrows carry the other power
-  const rare = k => POWERS[k].ultra || POWERS[k].mega;   // black hole / meteor stay one-offs
-  const q = { k: a.k, k2: b.k, shots: rare(a.k) || rare(b.k) ? Math.min(a.shots, b.shots) : Math.max(a.shots, b.shots) };
+  // a linked arrow gets the SMALLER count of the two: weak pairs keep lots, strong ones get few (black hole / meteor stay one-offs)
+  const q = { k: a.k, k2: b.k, shots: Math.min(a.shots, b.shots) };
   const at = Math.min(i, j);
   st.quiver = st.quiver.filter(o => o !== a && o !== b); st.quiver.splice(at, 0, q);
   st.power = q; st.links--; st.linking = false; st.linkA = -1;
@@ -2783,6 +2833,16 @@ function drawQuiver() {
   box.classList.toggle('linking', !!(st && st.linking));
   if (box.hidden === on) box.hidden = !on;
   if (!on) return;
+  if (st.practice) {
+    const q = st.power, sig = 'P|' + (q ? q.k + (q.k2 || '') : '') + st.dummyFire;
+    if (sig === quiverSig) return;
+    quiverSig = sig;
+    const ico = q ? (ICON['pw_' + q.k] || '') + (q.k2 ? ICON['pw_' + q.k2] || '' : '') : '➶';
+    box.innerHTML = `<button type="button" data-rack="1" class="on"><i class="qi">${ico}</i><span style="color:${q ? POWERS[q.k].col : '#f6eedf'}">${q ? powShort(q) : 'PLAIN'}</span><small>CHANGE ▲</small></button>`
+      + `<button type="button" data-reset="1"><i class="qi">🎯</i><span>RESET</span><small>DUMMIES</small></button>`
+      + `<button type="button" data-fb="1" class="${st.dummyFire ? 'on' : ''}"><i class="qi">🏹</i><span>SHOOT BACK</span><small>${st.dummyFire ? 'ON' : 'OFF'}</small></button>`;
+    return;
+  }
   const sig = st.quiver.map(o => o.k + (o.k2 || '') + o.shots).join() + '|' + st.quiver.indexOf(st.power) + '|' + st.links + st.linking + st.linkA;
   if (sig === quiverSig) return;
   quiverSig = sig;
@@ -2800,8 +2860,12 @@ function drawQuiver() {
   box.innerHTML = h;
 }
 $('quiver').addEventListener('pointerdown', e => e.stopPropagation());
-$('quiver').addEventListener('click', e => { if (e.target.closest('button[data-link]')) { toggleLink(); return; } const b = e.target.closest('button[data-i]'); if (b) pickSlot(+b.dataset.i); });
-addEventListener('keydown', e => { const n = +e.key; if (running && n >= 1 && n <= 4) pickSlot(n - 2); else if (running && (e.key === 'l' || e.key === 'L')) toggleLink(); });
+$('quiver').addEventListener('click', e => {
+  if (e.target.closest('button[data-rack]')) { openRack(); return; }
+  if (e.target.closest('button[data-reset]')) { resetDummies(); return; }
+  if (e.target.closest('button[data-fb]')) { st.dummyFire = !st.dummyFire; for (const d of st.enemies) if (d.dummy) { d.aiT = st.dummyFire ? rand(1.5, 3.5) : 1e9; d.aiAim = null; } quiverSig = ''; sfx('click'); return; }
+  if (e.target.closest('button[data-link]')) { toggleLink(); return; } const b = e.target.closest('button[data-i]'); if (b) pickSlot(+b.dataset.i); });
+addEventListener('keydown', e => { if (running && st.practice && (e.key === 'a' || e.key === 'A')) { if (st.rack) closeRack(); else openRack(); return; } const n = +e.key; if (running && n >= 1 && n <= 4) pickSlot(n - 2); else if (running && (e.key === 'l' || e.key === 'L')) toggleLink(); });
 
 /* ---------- input ---------- */
 /* ---------- pinch with two fingers (or the mouse wheel) to zoom in and out ---------- */
@@ -2887,7 +2951,8 @@ function release() {
       if ((pk === 'cluster' || pk2 === 'cluster') && (st.splitHints = (st.splitHints || 0) + 1) <= 3) text(feet(P).x, feet(P).y - 150, 'TAP THE SCREEN TO SPLIT IT', '#ffb3f0', 14, 1.6);
       const vol = { alive: st.arrows.length - n0, hits: 0 };
       for (let q = n0; q < st.arrows.length; q++) st.arrows[q].vol = vol;
-      if (st.power && --st.power.shots <= 0) { text(feet(P).x, feet(P).y - 130, powShort(st.power) + ' EMPTY', '#f6eedf', 14, 1); st.quiver = st.quiver.filter(o => o !== st.power); st.power = null; }
+      if (st.practice) st.shotDmg = 0;
+      if (st.power && !st.practice && --st.power.shots <= 0) { text(feet(P).x, feet(P).y - 130, powShort(st.power) + ' EMPTY', '#f6eedf', 14, 1); st.quiver = st.quiver.filter(o => o !== st.power); st.power = null; }
       st.camHome = false;
       st.reload = (pk === 'rapid' || pk2 === 'rapid' ? .2 : .55) * st.reloadMul; st.hint = false; st.lastShot = { p: P.pow, a: P.aim };
     }
@@ -2983,13 +3048,98 @@ $('musicBtn').onclick = () => {
   if (Music.on && running && !paused) Music.start(); else Music.fade();
 };
 
+/* ---------- practice range: straw dummies, any arrow from the rack, unlimited shots ---------- */
+const PRAC_X = [650, 1050, 1500, 1950], PRAC_H = [70, 135, 175, 110];
+const RACK = ['triple', 'fire', 'ice', 'boom', 'heavy', 'rapid', 'pierce', 'homing', 'storm', 'cluster', 'scope', 'slowmo', 'tornado', 'shrink', 'tele', 'meteor', 'blackhole'];
+const RACK_DESC = {
+  plain: 'A normal arrow', triple: '3 arrows at once', fire: 'Sets them on fire', ice: 'Freezes them solid', boom: 'Explodes; 3 hits topple a tower',
+  heavy: 'Hits much harder', rapid: 'Very fast reload', pierce: 'Goes through archers', homing: 'Steers into the nearest archer',
+  storm: 'Lightning jumps between archers', cluster: 'Tap the screen to split it', scope: 'Shows where your arrow will go',
+  slowmo: 'Slows down whoever it hits', tornado: 'A twister that turns arrows round', shrink: 'Each hit shrinks them',
+  tele: 'Tag one; your next arrow moves them there', meteor: 'Rocks rain down. They hit you too!', blackhole: 'Sucks everything in',
+  shield: 'Puts a wall up in front of you'
+};
+function makeDummy(i) {
+  const e = mkArcher(PRAC_X[i], PRAC_H[i], -1, 200, false, 54);
+  e.name = '#' + (i + 1); e.kind = 'dummy'; e.dummy = true; e.slot = i; e.chops = [];
+  e.aiT = st.dummyFire ? rand(1.5, 3.5) : 1e9;
+  return e;
+}
+function setupPractice() {
+  st.practice = true; st.level = 6; st.wind = 0; st.weather = 'clear';
+  st.gadgets = []; st.dirT = undefined; st.tornados = []; st.holes = []; st.showers = []; st.rocks = [];
+  st.enemies = PRAC_X.map((x, i) => makeDummy(i));
+  st.quiver = []; st.power = null; st.links = 0; st.shotDmg = 0; st.bestDmg = 0;
+  st.banner = { t: 'PRACTICE RANGE', sub: 'TAP THE ARROW BUTTON TO PICK ANY ARROW', life: 3 };
+  camX = homeCam();
+}
+function resetDummies() {
+  st.enemies = PRAC_X.map((x, i) => makeDummy(i));
+  st.P.tpTag = null; st.shotDmg = 0;
+  for (const ar of st.arrows) if (ar.owner !== st.P) ar.done = true;
+  sfx('click');
+}
+function practiceStep(rdt) {
+  const P = st.P;
+  if (P.hp < P.max) P.hp = Math.min(P.max, P.hp + 25 * rdt);
+  st.enemies.forEach((e, i) => {
+    // count the damage each shot does (arrows, fire, rocks, blasts all lower hp)
+    const hp = Math.max(0, e.hp);
+    if (e.lastHp !== undefined && hp < e.lastHp) { st.shotDmg = (st.shotDmg || 0) + e.lastHp - hp; st.bestDmg = Math.max(st.bestDmg || 0, st.shotDmg); }
+    e.lastHp = hp;
+    if (e.dead && (e.backT = (e.backT === undefined ? 3 : e.backT) - rdt) <= 0) {   // a new dummy pops up
+      const d = makeDummy(e.slot); st.enemies[i] = d;
+      const f = feet(d); ring(f.x, f.y - 50, 60, '#ffd27a', .5, 3); text(f.x, f.y - 130, 'NEW DUMMY', '#ffd27a', 13, 1);
+    }
+  });
+}
+let rackLink = false, rackA = null;
+function openRack() { if (!st || !st.practice) return; st.rack = true; rackA = null; renderRack(); show('rackScreen', true); sfx('click'); }
+function closeRack() { st.rack = false; show('rackScreen', false); quiverSig = ''; }
+function rackItem(k, extra) {
+  const isPlain = k === 'plain', P = POWERS[k];
+  const name = isPlain ? 'PLAIN' : P.name, col = isPlain ? '#f6eedf' : P.col, ico = isPlain ? '➶' : ICON['pw_' + k] || '';
+  const now = !rackLink && (isPlain ? !st.power : st.power && st.power.k === k && !st.power.k2);
+  return `<button type="button" class="item${rackA === k ? ' sel' : ''}${now ? ' now' : ''}" data-k="${k}"${extra || ''}><i class="ico">${ico}</i><span class="txt"><b style="color:${col}">${name}</b><span>${RACK_DESC[k]}</span></span></button>`;
+}
+function renderRack() {
+  $('rackOne').setAttribute('aria-pressed', String(!rackLink)); $('rackTwo').setAttribute('aria-pressed', String(rackLink));
+  $('rackHint').textContent = !rackLink ? 'Tap an arrow to load it. Unlimited shots.'
+    : rackA ? 'Now tap a second arrow to link with ' + POWERS[rackA].short : 'Tap the first arrow of the pair';
+  let h = '';
+  if (!rackLink) h += rackItem('plain');
+  for (const k of RACK) h += rackItem(k, rackLink && rackA && rackA !== k ? ` aria-label="Link ${POWERS[rackA].short} with ${POWERS[k].short}"` : '');
+  if (!rackLink) h += rackItem('shield');
+  $('rackGrid').innerHTML = h;
+}
+function rackPick(k) {
+  if (!rackLink) {
+    if (k === 'plain') st.power = null;
+    else if (k === 'shield') { st.barrier = { hp: 120, max: 120, hitT: 0 }; text(feet(st.P).x + 60, feet(st.P).y - 150, 'BARRIER UP', '#8fc8ff', 16, 1.4); }
+    else st.power = { k, shots: 99 };
+    sfx('click'); closeRack(); return;
+  }
+  if (!rackA || rackA === k) { rackA = rackA === k ? null : k; sfx('click'); renderRack(); return; }
+  let a = rackA, b = k;
+  if (b === 'cluster') [a, b] = [b, a];   // cluster first, so its split arrows carry the other power
+  st.power = { k: a, k2: b, shots: 99 }; rackA = null;
+  const f = feet(st.P);
+  text(f.x, f.y - 150, 'LINKED: ' + powShort(st.power), '#7dffe8', 18, 1.8); ring(f.x, f.y - 60, 70, '#7dffe8', .6, 3); sfx('heal');
+  closeRack();
+}
+$('rackOne').onclick = () => { rackLink = false; rackA = null; renderRack(); };
+$('rackTwo').onclick = () => { rackLink = true; rackA = null; renderRack(); };
+$('rackBack').onclick = closeRack;
+$('rackGrid').addEventListener('click', e => { const b = e.target.closest('button[data-k]'); if (b) rackPick(b.dataset.k); });
+
 /* ---------- flow ---------- */
-function start() {
+function start(practice) {
   if (!AC) { try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { AC = null; } }
   if (AC && AC.resume) AC.resume().catch(() => {});
   newGame(); running = true; paused = false;
+  if (practice === true) setupPractice();
   Music.start();
-  show('startScreen', false); show('overScreen', false); show('pauseScreen', false); show('shopScreen', false); show('clockScreen', false);
+  show('startScreen', false); show('overScreen', false); show('pauseScreen', false); show('shopScreen', false); show('clockScreen', false); show('rackScreen', false);
 }
 function gameOver() {
   running = false; Music.fade();
@@ -3001,7 +3151,10 @@ function gameOver() {
   show('overScreen', true);
 }
 function setPause(p) { if (!running) return; paused = p; show('pauseScreen', p); if (p) Music.fade(); else if (Music.on) Music.start(); }
-$('playBtn').onclick = start; $('againBtn').onclick = start; $('restartBtn').onclick = start;
+$('playBtn').onclick = () => start(false); $('againBtn').onclick = () => start(false);
+$('pracBtn').onclick = () => start(true);
+$('restartBtn').onclick = () => start(!!(st && st.practice));
+$('menuBtn').onclick = () => { running = false; paused = false; Music.fade(); show('pauseScreen', false); show('rackScreen', false); show('quiver', false); show('startScreen', true); };
 $('resumeBtn').onclick = () => setPause(false);
 $('pauseBtn').onclick = () => setPause(!paused);
 $('portraitBtn').onclick = () => { forcePortrait = true; show('rotateScreen', false); };
