@@ -245,6 +245,13 @@ const POWERS = {
 // linked arrows carry two powers (pk + pk2); these helpers treat both the same
 const hasPk = (ar, k) => !!ar && (ar.pk === k || ar.pk2 === k);
 const pkMul = k => k === 'fire' ? 1.2 : k === 'heavy' ? 1.35 : k === 'slowmo' ? .3 : 1;
+// damage of a (linked) arrow: slow-mo's low damage only counts when it is on its own
+const slowFree = k => k === 'slowmo' ? 1 : pkMul(k);
+const dmgOf = (k, k2) => k2 ? slowFree(k) * slowFree(k2) : pkMul(k);
+// big area powers (twister, black hole, chain lightning) go off once per SHOT, however many arrows
+// the shot turns into (triple, cluster split, windows, piercing). Meteor rocks are shared out instead.
+const shotOf = ar => { const R = ar.root || ar; return R.vol || R; };
+const shotOnce = (ar, k) => { const S = shotOf(ar); S.once = S.once || {}; if (S.once[k]) return false; S.once[k] = true; return true; };
 const powShort = q => q.k2 ? POWERS[q.k].short + '+' + POWERS[q.k2].short : POWERS[q.k].short;
 const powName = q => q.k2 ? powShort(q) : POWERS[q.k].name;
 // a picture for every shop item and arrow type (shop cards and the quiver buttons)
@@ -606,7 +613,7 @@ function gadgetStep(ar, sdt) {
       if (Math.abs(ar.x - g.x) < g.w / 2 && Math.abs(ar.y - g.y) < 30 && g.rain <= 0) { g.rain = 6; g.rainBy = ownerOf(ar.owner); text(g.x, g.y - 40, 'RAIN', '#bfe2ff', 16, 1); sfx('whoosh'); }
       if (g.rain > 0 && Math.abs(ar.x - g.x) < g.w / 2 && ar.y > g.y && hasPk(ar, 'fire')) {
         if (ar.pk === 'fire') { ar.pk = ar.pk2 || null; ar.pk2 = null; } else ar.pk2 = null;
-        ar.col = ar.pk ? POWERS[ar.pk].col : null; ar.dmgMul = pkMul(ar.pk) * pkMul(ar.pk2);
+        ar.col = ar.pk ? POWERS[ar.pk].col : null; ar.dmgMul = (ar.split ? .8 : 1) * dmgOf(ar.pk, ar.pk2);
         for (let q = 0; q < 8; q++) P_(ar.x, ar.y, rand(-40, 40), rand(-120, -40), .6, 4, 'rgba(230,230,240,.7)', 'smoke');
         text(ar.x, ar.y - 14, 'FIZZ', '#bfe2ff', 12, .6);
       }
@@ -707,7 +714,10 @@ function gadgetStep(ar, sdt) {
           g.gone = true; text(g.x, g.y - 60, 'SHATTERED', '#e8f8ff', 16, 1); sfx('glass'); shake(4);
           for (let q = 0; q < 30; q++) P_(g.x + rand(-34, 34), g.y + rand(-40, 40), rand(-160, 160), rand(-120, 120), rand(.5, .9), rand(4, 8), 'rgba(200,235,255,.85)', 'shard');
         }
-        if (g.tint) { ar.pk = g.tint; ar.col = POWERS[g.tint].col; ar.dmgMul = g.tint === 'fire' ? 1.2 : 1; }
+        if (g.tint && !hasPk(ar, g.tint)) {   // tinted glass swaps the power (a linked arrow keeps its first half)
+          if (ar.pk2) ar.pk2 = g.tint; else ar.pk = g.tint;
+          ar.col = POWERS[ar.pk].col; ar.dmgMul = (ar.split ? .8 : 1) * dmgOf(ar.pk, ar.pk2);
+        }
         const sp = Math.hypot(ar.vx, ar.vy), base = Math.atan2(ar.vy, ar.vx);
         for (let k = 1; k < g.mult && st.arrows.length < 140; k++) {
           const off = (k % 2 ? 1 : -1) * Math.ceil(k / 2) * (g.mult > 4 ? .04 : .075);
@@ -755,7 +765,7 @@ function fire(a, ang, v, pk, pk2) {
   for (const an of angs) {
     const dx = Math.cos(an), dy = Math.sin(an);
     st.arrows.push({ x: s.x + dx * 24, y: s.y + dy * 24, sx: s.x + dx * 24, sy: s.y + dy * 24, vx: dx * v, vy: dy * v, owner: a, done: false, via: new Set(),
-      pk, pk2: pk2 || null, dmgMul: pkMul(pk) * pkMul(pk2), col: pk ? POWERS[pk].col : null,
+      pk, pk2: pk2 || null, dmgMul: dmgOf(pk, pk2), col: pk ? POWERS[pk].col : null,
       tpE: tp && an === ang ? tp : null });
   }
   sfx('twang');
@@ -799,23 +809,23 @@ function impactFX(ar, x, y, onBody) {
     for (let k = 0; k < 3; k++) ring(x, y, 30 + k * 22, '#7ad7ff', .5 + k * .25, 2);
     for (let i = 0; i < 14; i++) { const a = i / 14 * 6.283; P_(x, y, Math.cos(a) * 60, Math.sin(a) * 60, .9, 2, '#7ad7ff', 'spark'); }
   } else if (pk === 'tornado') {
-    if (ar.owner.isP) spawnTornado(x, Math.sign(ar.vx) || 1, ownerOf(ar.owner));
+    if (ar.owner.isP && shotOnce(ar, 'tornado')) spawnTornado(x, Math.sign(ar.vx) || 1, ownerOf(ar.owner));
   } else if (pk === 'blackhole') {
-    if (ar.owner.isP) spawnHole(x, Math.min(y, -40), ownerOf(ar.owner));
+    if (ar.owner.isP && shotOnce(ar, 'blackhole')) spawnHole(x, Math.min(y, -40), ownerOf(ar.owner));
   } else if (pk === 'meteor') {
-    if (ar.owner.isP) spawnShower(x, Math.sign(ar.vx) || 1, ownerOf(ar.owner));
+    if (ar.owner.isP) { const n = meteorShare(ar); if (n > 0) spawnShower(x, Math.sign(ar.vx) || 1, ownerOf(ar.owner), n); }
   } else if (pk === 'triple' || pk === 'rapid') {
     ring(x, y, 26, POWERS[pk].col, .3, 2);
     for (let i = 0; i < 10; i++) P_(x, y, rand(-150, 150), rand(-180, 40), rand(.25, .45), 2.2, POWERS[pk].col, 'spark');
   }
-  if (ar.pk2) impactFX(Object.assign({}, ar, { pk: ar.pk2, pk2: null }), x, y, onBody);
+  if (ar.pk2) impactFX(Object.assign({}, ar, { pk: ar.pk2, pk2: null, root: ar.root || ar }), x, y, onBody);
 }
 // cluster arrow bursts into 5 arrows on the same path (players tap the screen to do it)
 function splitCluster(ar) {
   ar.split = true;
   const sp = Math.hypot(ar.vx, ar.vy), base = Math.atan2(ar.vy, ar.vx), other = ar.pk === 'cluster' ? ar.pk2 : ar.pk;
   const col = other ? POWERS[other].col : '#ffb3f0';
-  for (const off of [-.09, -.045, .045, .09]) st.arrows.push({ x: ar.x, y: ar.y, vx: Math.cos(base + off) * sp, vy: Math.sin(base + off) * sp, owner: ar.owner, done: false, via: new Set(ar.via), pk: other || null, pk2: null, split: true, dmgMul: .8 * pkMul(other), col, vol: ar.vol, sx: ar.sx, sy: ar.sy });
+  for (const off of [-.09, -.045, .045, .09]) st.arrows.push({ x: ar.x, y: ar.y, vx: Math.cos(base + off) * sp, vy: Math.sin(base + off) * sp, owner: ar.owner, done: false, via: new Set(ar.via), pk: other || null, pk2: null, split: true, dmgMul: .8 * (other === 'slowmo' ? 1 : pkMul(other)), col, vol: ar.vol, sx: ar.sx, sy: ar.sy });
   if (ar.vol) ar.vol.alive += 4;
   ring(ar.x, ar.y, 34, '#ffb3f0', .35, 2.5);
   for (let q = 0; q < 14; q++) P_(ar.x, ar.y, rand(-140, 140), rand(-140, 140), .35, 2.2, q % 2 ? '#ffb3f0' : col, 'spark');
@@ -935,7 +945,7 @@ function onHit(ar, a, z) {
   }
   if (hasPk(ar, 'ice') && !a.isP) { a.frozen = 3.5; a.aiAim = null; a.pow = 0; text(f.x, f.y - 132, 'FROZEN', '#bfe9ff', 14, .9); }
   if (hasPk(ar, 'fire')) for (let i = 0; i < 8; i++) st.parts.push({ x: ar.x, y: ar.y, vx: rand(-80, 80), vy: rand(-160, 0), life: .5, max: .5, r: 2.4, col: '#ff9a45' });
-  if (hasPk(ar, 'storm') && !a.isP) {
+  if (hasPk(ar, 'storm') && !a.isP && shotOnce(ar, 'storm')) {
     for (const o of st.enemies) {
       if (o === a || o.dead) continue;
       const of = feet(o); o.hp -= 18; o.hitT = .15;
@@ -1002,8 +1012,19 @@ function clearLevel() {
 
 /* ---------- tornado, black hole, toppling, cover ---------- */
 // meteor shower: rocks fall at a slant around where the arrow landed and hurt EVERYONE they hit (the whole team too)
-function spawnShower(x, dir, by) {
-  (st.showers = st.showers || []).push({ x, dir, n: 16, next: .35, by });
+// one meteor shot drops 16 rocks in all: shared between the shot's arrows (triple, cluster, windows), once per arrow
+function meteorShare(ar) {
+  const R = ar.root || ar, S = shotOf(ar);
+  if (R.metDone) return 0;
+  R.metDone = true;
+  if (S.rocks == null) S.rocks = 16;
+  const sib = st.arrows.filter(o => o !== R && !o.done && !o.metDone && hasPk(o, 'meteor') && shotOf(o) === S).length;
+  const n = Math.ceil(S.rocks / (sib + 1));
+  S.rocks -= n;
+  return n;
+}
+function spawnShower(x, dir, by, n = 16) {
+  (st.showers = st.showers || []).push({ x, dir, n, next: .35, by });
   st.flashA = .35; st.flashC = '255,140,60';
   text(x, -260, 'METEOR SHOWER!', '#ff7b3a', 22, 1.8); sfx('void'); shake(6);
 }
