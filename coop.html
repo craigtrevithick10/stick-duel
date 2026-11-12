@@ -4297,8 +4297,7 @@ cv.addEventListener('pointerdown', e => {
     // spotter: drag to look around, tap to mark a spot for the team
     drag = { id: e.pointerId, x: e.clientX, y: e.clientY, cam: camX, moved: false, spec: true };
   } else {
-    drag = { id: e.pointerId, x: e.clientX, y: e.clientY };
-    CAM.home = true;
+    drag = { id: e.pointerId, x: e.clientX, y: e.clientY };   // the camera only goes home once you actually pull (a tap to split a cluster keeps following it)
   }
   try { cv.setPointerCapture(e.pointerId); } catch (err) {}
 });
@@ -4313,6 +4312,7 @@ cv.addEventListener('pointermove', e => {
   const P = st.P;
   if (spectating()) { P.pow = 0; return; }
   P.pow = clamp(len / 120, 0, 1);
+  if (len > 12) CAM.home = true;
   if (len > 6) {
     let a = Math.atan2(-dy, -dx);
     if (a > .7 && a < Math.PI - .7) a = a < Math.PI / 2 ? .7 : Math.PI - .7;
