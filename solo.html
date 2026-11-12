@@ -242,7 +242,17 @@ const rideOf = k => RIDE[k] || [hexRgb(POWERS[k].col), POWERS[k].col, '#ffffff',
 const RIDE_NAME = { fire: 'FIRE', ice: 'ICE', boom: 'BOMB', heavy: 'GIANT', storm: 'THUNDER', slowmo: 'SLOW', shrink: 'SHRINK', tele: 'WARP', homing: 'HUNTER',
   blackhole: 'VOID', tornado: 'WINDY', meteor: 'BURNING', triple: 'TRIPLE', rapid: 'QUICK', pierce: 'SHARP', scope: 'SCOPED', cluster: 'CONFETTI' };
 const RIDE_ON = { fire: 1, ice: 1, slowmo: 1, shrink: 1, boom: 1, storm: 1, heavy: 1 };   // a twister hands these to the arrows it turns round
-const powShort = q => q.k2 ? POWERS[q.k].short + '+' + POWERS[q.k2].short : POWERS[q.k].short;
+// combo arrows: some linked pairs make a special effect of their own (key = both powers, sorted)
+const COMBOS = {
+  'fire+ice': ['STEAM', '#e8f0ff', 'STEAM'], 'boom+fire': ['NAPALM', '#ff7a2e', 'NAPALM'], 'fire+meteor': ['FIRE RAIN', '#ff9a45', 'FIRE RAIN'],
+  'meteor+storm': ['THUNDER METEORS', '#fff36b', 'THUNDER'], 'storm+tornado': ['STORM CELL', '#fff36b', 'STORM CELL'],
+  'blackhole+meteor': ['GRAVITY WELL', '#c79bff', 'GRAVITY'], 'blackhole+tornado': ['WANDERING VOID', '#b07cff', 'WANDER'],
+  'blackhole+tele': ['WORMHOLE', '#d58cff', 'WORMHOLE'], 'blackhole+shrink': ['GIANT SLAYER', '#b6ff5c', 'SLAYER'],
+  'boom+heavy': ['MEGA BOMB', '#ffd27a', 'MEGA BOMB'], 'pierce+storm': ['RAIL LIGHTNING', '#fff36b', 'RAIL ZAP'], 'cluster+meteor': ['STAR BURST', '#ff7b3a', 'STAR BURST']
+};
+const comboKey = (a, b) => a && b ? [a, b].sort().join('+') : null;
+const comboOf = ar => !ar ? null : comboKey(ar.pk, ar.pk2);
+const powShort = q => q.k2 ? (COMBOS[comboKey(q.k, q.k2)] ? '★' + COMBOS[comboKey(q.k, q.k2)][2] : POWERS[q.k].short + '+' + POWERS[q.k2].short) : POWERS[q.k].short;
 const powName = q => q.k2 ? powShort(q) : POWERS[q.k].name;
 // a picture for every shop item and arrow type (shop cards and the quiver buttons)
 const ICON = {
@@ -818,11 +828,19 @@ function impactFX(ar, x, y, onBody) {
     for (let i = 0; i < 10; i++) P_(x, y, rand(-150, 150), rand(-180, 40), rand(.25, .45), 2.2, POWERS[pk].col, 'spark');
   }
   if (ar.pk2) impactFX(Object.assign({}, ar, { pk: ar.pk2, pk2: null, rider: ar.pk, root: ar.root || ar }), x, y, onBody);
+  if (ar.pk2 && !ar.rider) comboImpact(ar, x, y);
 }
 // cluster arrow bursts into 5 arrows on the same path (the player taps the screen to do it)
 function splitCluster(ar) {
   ar.split = true;
   const sp = Math.hypot(ar.vx, ar.vy), base = Math.atan2(ar.vy, ar.vx), other = ar.pk === 'cluster' ? ar.pk2 : ar.pk;
+  if (other === 'meteor' && ar.owner.isP) {   // STAR BURST: the arrow bursts into 5 flaming rocks
+    st.rocks = st.rocks || [];
+    for (const off of [-.09, -.045, 0, .045, .09]) st.rocks.push({ x: ar.x, y: ar.y, vx: Math.cos(base + off) * sp * .9, vy: Math.sin(base + off) * sp * .9, r: 11, spin: rand(0, 6), k: null, star: true, seen: new Set() });
+    ar.done = true; comboText(ar.x, ar.y - 60, 'cluster+meteor');
+    ring(ar.x, ar.y, 40, '#ff7b3a', .4, 3); for (let q = 0; q < 18; q++) P_(ar.x, ar.y, rand(-160, 160), rand(-160, 160), .4, 2.6, q % 2 ? '#ff7b3a' : '#ffd27a', 'flame');
+    sfx('boom'); return;
+  }
   const col = other ? POWERS[other].col : '#ffb3f0';
   for (const off of [-.09, -.045, .045, .09]) st.arrows.push({ x: ar.x, y: ar.y, vx: Math.cos(base + off) * sp, vy: Math.sin(base + off) * sp, owner: ar.owner, done: false, via: new Set(ar.via), pk: other || null, pk2: null, split: true, dmgMul: .8 * (other === 'slowmo' ? 1 : pkMul(other)), col, vol: ar.vol, sx: ar.sx, sy: ar.sy });
   if (ar.vol) ar.vol.alive += 4;
@@ -831,7 +849,12 @@ function splitCluster(ar) {
   sfx('click');
 }
 function blast(x, y, owner, rider) {
+  if (rider === 'heavy' && owner && owner.isP) return megaBomb(x, y, owner);
   const RB = rider ? rideOf(rider) : null;
+  if (rider === 'fire' && owner && owner.isP) {   // NAPALM: a ring of fire that keeps burning
+    comboText(x, y - 90, 'boom+fire');
+    for (let i = 0; i < 9; i++) { const a = i / 9 * 6.283; burnPatch(x + Math.cos(a) * 62, Math.min(-4, y + Math.sin(a) * 34), st.P, 4.5); }
+  }
   for (let i = 0; i < 26; i++) st.parts.push({ x, y, vx: rand(-260, 260), vy: rand(-300, 80), life: rand(.3, .6), max: .6, r: rand(2, 4), col: RB ? (i % 2 ? RB[1] : RB[2]) : i % 3 ? '#ff9a45' : '#ffd27a' });
   shake(9); sfx('boom');
   if (RB) {
@@ -1025,6 +1048,130 @@ function clearLevel() {
 }
 
 /* ---------- tornado, black hole, toppling, cover ---------- */
+/* ---------- combo arrows (linked pairs with an effect of their own) ---------- */
+function comboText(x, y, key) { const C = COMBOS[key]; if (C) { text(x, y, '★ ' + C[0] + '!', C[1], 21, 1.6, 1); sfx('heal'); } }
+const isRail = ar => !!ar.pk2 && hasPk(ar, 'pierce') && hasPk(ar, 'storm');
+function railTrack(ar) {
+  const R = ar.rail = ar.rail || [{ x: ar.sx ?? ar.x, y: ar.sy ?? ar.y }], L = R[R.length - 1];
+  if (Math.hypot(ar.x - L.x, ar.y - L.y) > 45) R.push({ x: ar.x, y: ar.y });
+}
+// a much bigger blast (mega bomb, gravity well): hurts enemies in a wide ring and cracks their towers
+function megaBlast(x, y, owner, s) {
+  const by = st.P, r = 85 * s;
+  glow(x, y, 150 * s, 'rgba(255,200,110,', .5); ring(x, y, r * 1.15, '#ffd27a', .6, 7); ring(x, y, r * .7, '#ff7a45', .45, 5); ring(x, y, r * .4, '#ffffff', .3, 3);
+  st.flashA = .5; st.flashC = '255,220,150'; shake(15); sfx('boom');
+  for (let i = 0; i < 40; i++) { const a = rand(0, 6.283), v = rand(150, 420) * s; P_(x, y, Math.cos(a) * v, Math.sin(a) * v - 80, rand(.4, .9), rand(3, 6), ['#ff9a45', '#ffd27a', '#ff5a2e'][i % 3], 'flame'); }
+  for (let i = 0; i < 16; i++) P_(x + rand(-40, 40), y + rand(-40, 40), rand(-160, 160), rand(-220, -40), rand(.8, 1.4), rand(6, 10), 'rgba(70,55,60,.8)', 'smoke');
+  for (const a of st.enemies) {
+    if (a.dead) continue;
+    const f = feet(a), d = Math.hypot(f.x - x, f.y - 55 - y);
+    if (d < r) {
+      const dmg = Math.round(46 * Math.min(s, 2.4) * (1 - d / (r * 1.3)));
+      a.hp -= dmg; a.hitT = .15; if (by) a.lastBy = by;
+      text(f.x, f.y - 104, '-' + dmg, '#ffd27a', 20, 1);
+      if (a.hp <= 0) kill(a, { vx: f.x - x || 1, owner: by }, 'body');
+    }
+  }
+  for (const e of st.enemies) {
+    if (e.dead || e.ship || e.walker || e.flyer || e.hydra || !e.chops) continue;
+    if (Math.abs(e.x - x) < r && y > -e.h - 140) chopPillar(e, { x: e.x, y: clamp(y, -e.h + 12, -14), owner: by });
+  }
+}
+// MEGA BOMB (heavy + boom): a bigger blast that knocks the nearest archer off their tower
+function megaBomb(x, y, owner) {
+  const by = st.P;
+  comboText(x, y - 90, 'boom+heavy');
+  let best = null, bd = 150;
+  for (const e of st.enemies) {
+    if (e.dead || e.boss || e.ship || e.walker || e.flyer || e.hydra || e.topple || !e.chops) continue;
+    const d = Math.abs(e.x - x); if (d < bd && y > -e.h - 170) { bd = d; best = e; }
+  }
+  if (best) { text(best.x, -best.h - 170, 'KNOCKED OFF!', '#ffd27a', 18, 1.4); toppleCastle(best, -best.h * .45); }
+  megaBlast(x, y, owner, 1.6);
+}
+// STEAM (fire + ice): a cloud enemies can't see out of
+function spawnSteam(x, y) { (st.steams = st.steams || []).push({ x, y, life: 4.2, r: 150 }); comboText(x, y - 110, 'fire+ice'); sfx('whoosh'); }
+// a burning patch from napalm / fire rain: burns enemies that stand in it
+function burnPatch(x, y, by, life) { st.fires.push({ x, y, life, burnE: 1, by }); }
+function comboStep(dt) {
+  for (const S of st.steams || []) {
+    S.life -= dt;
+    for (let q = 0; q < 2; q++) { const a = rand(0, 6.283), r = Math.sqrt(Math.random()) * S.r; P_(S.x + Math.cos(a) * r, S.y + Math.sin(a) * r * .6, rand(-20, 20), rand(-30, 5), rand(.7, 1.2), rand(10, 18), 'rgba(235,242,255,.32)', 'smoke'); }
+    for (const E of st.enemies) {
+      if (E.dead || E.boss) continue;
+      const f = feet(E);
+      if (Math.hypot(f.x - S.x, (f.y - 60 - S.y) * 1.4) < S.r) { if (!(E.blind > 0)) text(f.x, f.y - 140, "CAN'T SEE!", '#e8f0ff', 13, .9); E.blind = .35; E.aiAim = null; E.pow = 0; }
+    }
+  }
+  if (st.steams) st.steams = st.steams.filter(S => S.life > 0);
+  for (const F of st.fires) {
+    if (!F.burnE) continue;
+    for (const E of st.enemies) { if (E.dead) continue; const f = feet(E); if (Math.abs(f.x - F.x) < 50 && Math.abs(f.y - 30 - F.y) < 70) infuse(E, 'fire', F.by); }
+  }
+}
+// everything a combo does when the arrow lands (called once, after both powers have gone off)
+function comboImpact(ar, x, y) {
+  const key = comboOf(ar);
+  if (!key || !COMBOS[key] || !ar.owner || !ar.owner.isP) return;
+  if (key === 'fire+ice' && shotOnce(ar, 'steam')) spawnSteam(x, Math.min(y, -40));
+  if (key === 'pierce+storm' && shotOnce(ar, 'rail')) railZap(ar, x, y);
+  if (!key.includes('blackhole')) return;
+  const B = st.holes[st.holes.length - 1], fresh = B && B.max - B.life < .05;
+  if (!fresh || !shotOnce(ar, 'hole' + key)) return;
+  comboText(B.x, B.y - 100, key);
+  if (key === 'blackhole+tornado') { const T = st.tornados[st.tornados.length - 1]; if (T && T.t < .05) { B.tw = T; B.life = B.max = T.life; } }
+  if (key === 'blackhole+tele') B.worm = 1;
+  if (key === 'blackhole+shrink') B.slayer = 1;
+  if (key === 'blackhole+meteor') { B.well = 1; B.fed = 0; B.life = B.max = 5; }
+}
+// RAIL LIGHTNING (pierce + zap): lightning runs down the arrow's whole path and hits everyone near it
+function railZap(ar, x, y) {
+  const by = st.P, P = (ar.rail || [{ x: ar.sx ?? x, y: ar.sy ?? y }]).concat([{ x, y }]);
+  for (let i = 1; i < P.length; i++) st.bolts.push({ x1: P[i - 1].x, y1: P[i - 1].y, x2: P[i].x, y2: P[i].y, life: .5, col: '#fff36b' });
+  st.flashA = .35; st.flashC = '255,250,190'; sfx('zap'); comboText(x, y - 100, 'pierce+storm');
+  for (const E of st.enemies) {
+    if (E.dead) continue;
+    const f = feet(E), cx = f.x, cy = f.y - 55;
+    if (!P.some(p => Math.hypot(p.x - cx, p.y - cy) < 75)) continue;
+    E.hp -= 20; E.hitT = .15; if (by) E.lastBy = by;
+    st.bolts.push({ x1: cx + rand(-30, 30), y1: cy - 70, x2: cx, y2: cy, life: .4, col: '#ffffff' });
+    text(f.x, f.y - 104, '-20', '#fff36b', 16, .9);
+    if (E.hp <= 0) kill(E, { vx: ar.vx || 1, owner: by }, 'body');
+  }
+}
+// STORM CELL (zap + twister): the twister throws lightning at enemies near it
+function comboTwister(T, dt) {
+  if (T.k !== 'storm' || (T.zapT = (T.zapT || .4) - dt) > 0) return;
+  T.zapT = .7;
+  const by = st.P;
+  let best = null, bd = 380;
+  for (const E of st.enemies) { if (E.dead) continue; const d = Math.abs(feet(E).x - T.x); if (d < bd) { bd = d; best = E; } }
+  if (!best) return;
+  const f = feet(best);
+  st.bolts.push({ x1: T.x, y1: -230, x2: f.x, y2: f.y - 60, life: .35, col: '#fff36b' }); sfx('zap');
+  best.hp -= 12; best.hitT = .12; if (by) best.lastBy = by;
+  text(f.x, f.y - 104, '-12', '#fff36b', 15, .8);
+  if (best.hp <= 0) kill(best, { vx: T.dir, owner: by }, 'body');
+}
+// black hole combos: wandering void, wormhole, giant slayer, gravity well
+function comboHole(B, dt) {
+  if (B.tw) { if (B.tw.life > 0) { B.x = B.tw.x; B.y += (-150 - B.y) * Math.min(1, dt * 2); } else B.tw = null; }
+  if (B.worm === 1 && B.max - B.life > .6) {
+    B.worm = 2;
+    const by = st.P, tag = by && by.tpTag;
+    let E = tag ? st.enemies.find(e => e.id === tag && !e.dead) : null;
+    if (!E) { let bd = 1e9; for (const e of st.enemies) { if (e.dead || e.hydra) continue; const f = feet(e), d = Math.hypot(f.x - B.x, f.y - 50 - B.y); if (d > 300 && d < bd) { bd = d; E = e; } } }
+    if (by) by.tpTag = null;
+    if (E) {
+      const f = feet(E);
+      st.bolts.push({ x1: B.x, y1: B.y, x2: f.x, y2: f.y - 60, life: .6, col: '#d58cff' });
+      text(f.x, f.y - 150, 'WORMHOLE!', '#d58cff', 18, 1.4); sfx('void');
+      if (E.boss || E.hydra || E.ship) { const d = Math.round(E.max * .35); E.hp -= d; E.hitT = .2; text(f.x, f.y - 120, '-' + d, '#d58cff', 20, 1.2); if (E.hp <= 0) kill(E, { vx: 1, owner: by }, 'body'); }
+      else { E.hp = 0; kill(E, { vx: (B.x - f.x) * 2, owner: by }, 'body'); swallow(E, B); }
+    }
+  }
+}
+const slayable = (E, B) => !E.boss || (B.slayer && E.shrink >= .2 && !E.hydra && !E.ship);
 /* ---------- clone arrow: whatever it hits gets a copy (objects pop up somewhere else; archers come over to your side) ---------- */
 const CLONE_COL = '#4fe3c1', CLONE_MAX = 2;
 const MIRROR_KINDS = { archer: 1, crossbow: 1, mage: 1, healer: 1, dummy: 1 };
@@ -1199,7 +1346,7 @@ function meteorHit(R) {
   if (RK) {
     glow(x, y, 120 * rad, 'rgba(' + RK[0] + ',', .4); ring(x, y, 90 * rad, RK[1], .45, 5); ring(x, y, 55 * rad, RK[2], .3, 3);
     for (let i = 0; i < 16; i++) P_(x, y, rand(-220, 220), rand(-280, -20), rand(.4, .9), rand(2.5, 5), i % 2 ? RK[1] : RK[2], RK[3]);
-    if (R.k === 'fire' && y > -12) st.fires.push({ x, y: -2, life: 2 });
+    if (R.k === 'fire') burnPatch(x, Math.min(-2, y), st.P, 3);   // FIRE RAIN: burning patches where the rocks land
   } else { glow(x, y, 120, 'rgba(255,140,60,', .35); ring(x, y, 90, '#ffb347', .45, 5); ring(x, y, 55, '#ff5a2e', .3, 3); }
   if (!RK) for (let i = 0; i < 18; i++) P_(x, y, rand(-200, 200), rand(-260, -20), rand(.4, .9), rand(2.5, 5), ['#ff9a45', '#ffd27a', '#ff5a2e'][i % 3], 'flame');
   for (let i = 0; i < 8; i++) P_(x, y, rand(-120, 120), rand(-160, -30), rand(.6, 1.1), rand(4, 7), 'rgba(70,55,60,.8)', 'smoke');
@@ -1215,6 +1362,11 @@ function meteorHit(R) {
     }
   }
   if (R.k) for (const a of st.enemies) { if (a.dead) continue; const f = feet(a); if (Math.hypot(f.x - x, f.y - 55 - y) < 95 * rad) infuse(a, R.k, st.P, R.seen); }
+  if (R.k === 'storm') {   // THUNDER METEORS: each rock zaps the nearest enemy
+    let best = null, bd = 520;
+    for (const a of st.enemies) { if (a.dead) continue; const f = feet(a), d = Math.hypot(f.x - x, f.y - 55 - y); if (d < bd) { bd = d; best = a; } }
+    if (best) { const f = feet(best); st.bolts.push({ x1: x, y1: y, x2: f.x, y2: f.y - 60, life: .35, col: '#fff36b' }); best.hp -= 12; best.hitT = .12; text(f.x, f.y - 104, '-12', '#fff36b', 15, .8); if (best.hp <= 0) kill(best, { vx: 1, owner: st.P }, 'body'); }
+  }
   for (const e of st.enemies) {
     if (e.dead || e.ship) continue;
     if (e.cover && Math.abs(e.x - e.pw / 2 + 4 - x) < 70 && Math.abs(-e.h - 29 - y) < 80) damageCover(e, 2);
@@ -1235,7 +1387,7 @@ function updateMeteors(dt) {
   }
   st.showers = st.showers.filter(S => S.n > 0);
   for (const R of st.rocks) {
-    R.vy += G * .3 * dt; R.x += R.vx * dt; R.y += R.vy * dt; R.spin += dt * 6;
+    R.vy += G * (R.star ? 1 : .3) * dt; R.x += R.vx * dt; R.y += R.vy * dt; R.spin += dt * 6;
     if (Math.random() < .8) P_(R.x, R.y, rand(-30, 30), rand(-60, 0), rand(.25, .45), rand(2, 4), R.k ? (Math.random() < .5 ? rideOf(R.k)[1] : rideOf(R.k)[2]) : Math.random() < .5 ? '#ff9a45' : '#ffd27a', R.k ? rideOf(R.k)[3] : 'flame');
     let hit = R.y >= 0;
     for (const a of [st.P, ...st.helpers, ...st.enemies]) {
@@ -1266,8 +1418,10 @@ function drawMeteors() {
   }
 }
 function updateVortices(dt) {
+  comboStep(dt);
   for (const T of st.tornados) {
     T.t += dt; T.life -= dt; twisterSteer(T); T.x += T.dir * (T.k === 'rapid' ? 200 : 120) * dt;
+    comboTwister(T, dt);
     for (const E of st.enemies) {
       if (E.dead) continue;
       const f = feet(E);
@@ -1291,12 +1445,13 @@ function updateVortices(dt) {
   }
   st.tornados = st.tornados.filter(T => T.life > 0);
   for (const B of st.holes) {
+    comboHole(B, dt);
     B.life -= dt; B.r = Math.min(B.k === 'heavy' ? 48 : 34, B.r + 80 * dt);
     if (B.life < .4) B.r *= .9;
     for (const E of st.enemies) {
       if (E.dead) continue;
       const f = feet(E), d = Math.hypot(f.x - B.x, f.y - 50 - B.y);
-      if (d < (B.k === 'heavy' ? 150 : 110) && !E.boss) { E.hp = 0; kill(E, { vx: (B.x - f.x) * 2, owner: st.P }, 'body'); swallow(E, B); text(f.x, f.y - 120, 'SWALLOWED', '#b07cff', 16, 1.2); continue; }
+      if (d < (B.k === 'heavy' ? 150 : 110) && slayable(E, B)) { E.hp = 0; kill(E, { vx: (B.x - f.x) * 2, owner: st.P }, 'body'); swallow(E, B); text(f.x, f.y - 120, 'SWALLOWED', '#b07cff', 16, 1.2); continue; }
       if (d < 300) { infuse(E, B.k, st.P, B.hitE); if (E.dead) continue; const k = 1 - d / 300; E.hp -= 40 * k * dt; E.hitT = .05; if (E.hp <= 0) kill(E, { vx: (B.x - f.x) * 2, owner: st.P }, 'body'); }
     }
     for (const ar of st.arrows) {
@@ -1317,11 +1472,12 @@ function updateVortices(dt) {
     }
     if (st.rocks && st.rocks.length) st.rocks = st.rocks.filter(R => {   // and falling rocks
       const dx = B.x - R.x, dy = B.y - R.y, d = Math.hypot(dx, dy);
-      if (d < 28) { for (let q = 0; q < 6; q++) P_(R.x, R.y, rand(-50, 50), rand(-50, 50), .3, 2, '#ffb347', 'spark'); return false; }
-      if (d < 320) { const f = 4000 * (1 - d / 320); R.vx += dx / d * f * dt; R.vy += dy / d * f * dt; }
+      if (d < (B.well ? 50 : 28)) { for (let q = 0; q < 6; q++) P_(R.x, R.y, rand(-50, 50), rand(-50, 50), .3, 2, '#ffb347', 'spark'); if (B.well) { B.fed++; B.r = Math.min(70, B.r + 3); } return false; }
+      const pr = B.well ? 800 : 320; if (d < pr) { const f = (B.well ? 12000 : 4000) * (1 - d / pr); R.vx += dx / d * f * dt; R.vy += dy / d * f * dt; if (B.well) { R.vx *= 1 - dt * 1.5; R.vy *= 1 - dt * 1.5; } }
       return true;
     });
     for (let q = 0; q < 3; q++) { const a = rand(0, 6.283), r = rand(70, 180); P_(B.x + Math.cos(a) * r, B.y + Math.sin(a) * r, -Math.cos(a) * r * 2 + Math.sin(a) * 140, -Math.sin(a) * r * 2 - Math.cos(a) * 140, .45, rand(1.6, 2.6), B.k ? (Math.random() < .5 ? rideOf(B.k)[1] : rideOf(B.k)[2]) : Math.random() < .5 ? '#b07cff' : '#ffffff', B.k ? rideOf(B.k)[3] : 'spark'); }
+    if (B.life <= 0 && B.well && B.fed > 0) { text(B.x, B.y - 120, 'GRAVITY WELL × ' + B.fed, '#c79bff', 20, 1.5, 1); megaBlast(B.x, B.y, st.P, 1 + Math.min(B.fed, 16) * .1); }
     if (B.life <= 0) { if (B.k === 'boom') blast(B.x, B.y, st.P, null); ring(B.x, B.y, 160, B.k ? rideOf(B.k)[1] : '#b07cff', .6, 5); st.flashA = .3; st.flashC = '200,160,255'; }
   }
   st.holes = st.holes.filter(B => B.life > 0);
@@ -2525,6 +2681,7 @@ function update(rdt) {
     if (E.slowT > 0) { E.slowT -= dt; if (E.slowT <= 0) { E.slowM = 1; if (!E.dead) text(feet(E).x, feet(E).y - 130, 'SPEED BACK', '#7ad7ff', 12, .8); } }
     if (E.frozen > 0) { E.frozen -= dt; continue; }
     if (E.stun > 0) { E.stun -= dt; continue; }
+    if (E.blind > 0) { E.blind -= dt; continue; }
     if (E.dead || P.dead || E.rise > 0 || st.nextT > 0) continue;
     if (E.dummy && !st.dummyFire) continue;
     const edt = dt * (E.slowT > 0 ? E.slowM : 1);
@@ -2637,6 +2794,7 @@ function update(rdt) {
     for (let i = 0; i < steps && !ar.done; i++) {
       if (ar.ret) { returnStep(ar, sdt); continue; }
       ar.vx += st.wind * sdt; ar.vy += G * sdt; ar.x += ar.vx * sdt; ar.y += ar.vy * sdt;
+      if (ar.pk2 && isRail(ar)) railTrack(ar);
       if (ar.portT > 0) ar.portT -= sdt;
       if (ar.bounceT > 0) ar.bounceT -= sdt;
       if (hasPk(ar, 'homing') && ar.owner === P) {
