@@ -399,53 +399,80 @@ function spawnLevel(first) {
 }
 
 /* ---------- gadgets: fans, windows, health ---------- */
-function spawnGadgets() {
-  st.gadgets = [];
-  const far = farX(), L = fieldL() - 100, count = Math.min(5 + st.players.length, 2 + Math.floor(st.level / 2) + st.players.length - 1);
-  const spots = [];
-  const ok = (x, y) => spots.every(s => Math.abs(s.x - x) > 200 || Math.abs(s.y - y) > 170);
-  for (let i = 0; i < count; i++) {
-    let x = 0, y = 0;
-    for (let tries = 0; tries < 30; tries++) {
-      x = rand(L + 260, far - 120);
-      y = rand(Math.max(-300, topY() + 115), -140);
-      if (ok(x, y)) break;
-    }
-    spots.push({ x, y });
-    const lv = st.level, has = t => st.gadgets.some(q => q.type === t);
-    let type = 'win';
-    if (i > 0) {
-      const opts = [['win', .32], ['fan', .3]];
-      if (lv >= 2) opts.push(['bounce', .13]);
-      if (lv >= 3) opts.push(['magnet', .1]);
-      if (lv >= 2 && !has('bell')) opts.push(['bell', .08]);
-      if (lv >= 2 && !has('cloud')) opts.push(['cloud', .08]);
-      if (lv >= 2 && !has('clock')) opts.push(['clock', .07]);
-      let r = Math.random() * opts.reduce((a, o) => a + o[1], 0);
-      for (const o of opts) { r -= o[1]; if (r <= 0) { type = o[0]; break; } }
-    }
-    const base = { id: ++uid, type, x, y, tx: x, ty: y, flash: 0, hold: 0, relocT: rand(8, 13), cutF: rand(.15, .85), zapT: 1 };
-    if (type === 'win') {
-      const tint = lv >= 2 && Math.random() < .4 ? ['fire', 'ice', 'boom'][Math.floor(Math.random() * 3)] : null;
-      const cracked = lv >= 2 && Math.random() < .25;
-      st.gadgets.push(Object.assign(base, { mult: (Math.random() < .7 ? 2 : 3) + (cracked ? 1 : 0) + st.winBonus, tint, cracked, left: 3 }));
-    } else if (type === 'fan') {
-      const ang = [0, Math.PI / 2, Math.PI, -Math.PI / 2, -Math.PI / 4, Math.PI * .75][Math.floor(Math.random() * 6)];
-      st.gadgets.push(Object.assign(base, { ang, tang: ang, spin: 0, boost: 1, reverse: lv >= 3 && Math.random() < .28 }));
-    } else if (type === 'bounce') {
-      const ang = rand(-.9, .9);
-      st.gadgets.push(Object.assign(base, { ang, tang: ang }));
-    } else if (type === 'magnet') {
-      st.gadgets.push(Object.assign(base, { spin: 0 }));
-    } else if (type === 'bell') {
-      st.gadgets.push(Object.assign(base, { cd: 0, swing: 0 }));
-    } else if (type === 'clock') {
-      st.gadgets.push(Object.assign(base, { spin: 0 }));
-    } else {
-      const cx = rand(L + (far - L) * .3, far - 40), cy = rand(Math.max(-310, topY() + 40), -230);
-      st.gadgets.push(Object.assign(base, { x: cx, y: cy, tx: cx, ty: cy, w: rand(150, 210), rain: 0, ph: rand(0, 6) }));
-    }
+const gadgetCap = () => Math.min(9, 4 + Math.floor(st.level / 3) + Math.floor((st.players.length - 1) / 2));   // most things in the level at once (portals not counted)
+const gLeft = () => fieldL() + 160;
+const FIRST_WIN = () => null;
+const EXTRA_PICKUPS = () => Math.floor((st.players.length - 1) / 2);
+/* ---------- gadgets: only a few at once; during the level they move, vanish, or get swapped for something new ---------- */
+// a free spot away from every other gadget
+function gadgetSpot(type, near) {
+  const far = farX(), L = gLeft();
+  let x = 0, y = 0;
+  for (let tries = 0; tries < 40; tries++) {
+    x = near ? rand(near[0], near[1]) : rand(L + 100, Math.max(L + 200, far - 120));
+    y = type === 'cloud' ? rand(Math.max(-310, topY() + 40), -230) : rand(Math.max(-310, topY() + 60), -140);
+    if (st.gadgets.every(o => o.gone || Math.abs(o.tx - x) > 200 || Math.abs(o.ty - y) > 170)) break;
   }
+  return { x, y };
+}
+// weighted pick of what can turn up at this level (bell, cloud, clock and LINK only one at a time)
+function pickGadgetType(exclude, fieldOnly) {
+  const lv = st.level, has = t => st.gadgets.some(q => !q.gone && q.type === t);
+  const opts = [['win', .3], ['fan', .28]];
+  if (!fieldOnly) opts.push(['crate', .3], ['hp', .1]);
+  if (lv >= 2) opts.push(['bounce', .12]);
+  if (lv >= 3) opts.push(['magnet', .1]);
+  if (lv >= 2 && !has('bell')) opts.push(['bell', .07]);
+  if (lv >= 2 && !has('cloud')) opts.push(['cloud', .07]);
+  if (lv >= 2 && !has('clock')) opts.push(['clock', .06]);
+  if (!fieldOnly && lv >= 3 && !has('link') && !st.linkMade) opts.push(['link', .05]);
+  // the more of a thing there already is, the less likely another one turns up
+  const list = opts.filter(o => o[0] !== exclude).map(o => [o[0], o[1] * Math.pow(.45, st.gadgets.filter(q => !q.gone && q.type === o[0]).length)]);
+  let r = Math.random() * list.reduce((a, o) => a + o[1], 0);
+  for (const o of list) { r -= o[1]; if (r <= 0) return o[0]; }
+  return list[0][0];
+}
+function makeGadget(type, x, y) {
+  const lv = st.level;
+  if (type === 'crate') {
+    const keys = Object.keys(POWERS), wts = keys.map(k => POWERS[k].mega ? .02 : POWERS[k].ultra ? .07 : POWERS[k].rare ? .3 : 1);
+    let r = Math.random() * wts.reduce((a, b) => a + b, 0), pk = keys[0];
+    for (let q = 0; q < keys.length; q++) { r -= wts[q]; if (r <= 0) { pk = keys[q]; break; } }
+    return { id: ++uid, type, x, y, tx: x, ty: y, pk, bob: rand(0, 6) };
+  }
+  if (type === 'hp') return { id: ++uid, type, x, y, tx: x, ty: y, amt: Math.random() < .7 ? 20 : 35, bob: rand(0, 6) };
+  if (type === 'link') { st.linkMade = true; return { id: ++uid, type, x, y, tx: x, ty: y, bob: rand(0, 6) }; }
+  const base = { id: ++uid, type, x, y, tx: x, ty: y, flash: 0, hold: 0, relocT: rand(8, 13), cutF: rand(.15, .85), zapT: 1 };
+  if (type === 'win') {
+    const tint = lv >= 2 && Math.random() < .4 ? ['fire', 'ice', 'boom'][Math.floor(Math.random() * 3)] : null;
+    const cracked = lv >= 2 && Math.random() < .25;
+    return Object.assign(base, { mult: (Math.random() < .7 ? 2 : 3) + (cracked ? 1 : 0) + st.winBonus, tint, cracked, left: 3 });
+  }
+  if (type === 'fan') {
+    const ang = [0, Math.PI / 2, Math.PI, -Math.PI / 2, -Math.PI / 4, Math.PI * .75][Math.floor(Math.random() * 6)];
+    return Object.assign(base, { ang, tang: ang, spin: 0, boost: 1, reverse: lv >= 3 && Math.random() < .28 });
+  }
+  if (type === 'bounce') { const ang = rand(-.9, .9); return Object.assign(base, { ang, tang: ang }); }
+  if (type === 'magnet' || type === 'clock') return Object.assign(base, { spin: 0 });
+  if (type === 'bell') return Object.assign(base, { cd: 0, swing: 0 });
+  return Object.assign(base, { w: rand(150, 210), rain: 0, ph: rand(0, 6) });   // cloud
+}
+function addGadget(type, near) {
+  const p = gadgetSpot(type, near), g = makeGadget(type, p.x, p.y);
+  st.gadgets.push(g);
+  return g;
+}
+function spawnGadgets() {
+  st.gadgets = []; st.linkMade = false; st.dirT = rand(6, 9);
+  const far = farX(), cap = gadgetCap();
+  addGadget('win', FIRST_WIN());   // always one window to start
+  for (let i = 0; i < 1 + st.extraCrates + EXTRA_PICKUPS(); i++) addGadget('crate');
+  for (let i = 0; i < (Math.random() < .5 ? 1 : 0) + st.extraHp + EXTRA_PICKUPS(); i++) addGadget('hp');
+  if (st.level >= 3 && Math.random() < .3) addGadget('link');
+  // then field gadgets up to the limit for this level (at least 2); more turn up during the level
+  let field = 1;
+  for (let guard = 0; (st.gadgets.length < cap || field < 2) && guard < 20; guard++) { addGadget(pickGadgetType(null, true)); field++; }
+  const L = fieldL() - 100;
   // portal pair (from level 2)
   if (st.level >= 2 && Math.random() < .6) {
     const pid = ++uid;
@@ -455,31 +482,37 @@ function spawnGadgets() {
     st.gadgets.push({ id: pid + .5, type: 'portal', side: 1, x: bx, y: by, tx: bx, ty: by, spin: 0, pair: pid, jumpT: rand(8, 11), popT: 0 });
     st.gadgets[st.gadgets.length - 2].pair = pid + .5;
   }
-  // health pickups: rare, out in the open
-  const hn = (Math.random() < .65 ? 1 : (Math.random() < .5 ? 2 : 0)) + st.extraHp + Math.floor((st.players.length - 1) / 2);
-  for (let i = 0; i < hn; i++) {
-    let x = 0, y = 0;
-    for (let tries = 0; tries < 30; tries++) { x = rand(L + 350, far - 120); y = rand(Math.max(-320, topY() + 40), -150); if (ok(x, y)) break; }
-    spots.push({ x, y });
-    st.gadgets.push({ id: ++uid, type: 'hp', x, y, tx: x, ty: y, amt: Math.random() < .7 ? 20 : 35, bob: rand(0, 6) });
+}
+// during the level: every 5-9 s one thing changes — it moves, vanishes, gets swapped, or something new turns up
+const SLIDERS = { fan: 1, win: 1, bounce: 1, magnet: 1 };
+function poof(g) {
+  ring(g.x, g.y, 48, '#f6eedf', .4, 3);
+  for (let i = 0; i < 16; i++) P_(g.x + rand(-14, 14), g.y + rand(-14, 14), rand(-120, 120), rand(-140, 40), rand(.3, .6), rand(2.5, 4.5), 'rgba(230,225,240,.8)', 'smoke');
+  sfx('whoosh');
+}
+function popIn(g, label) {
+  g.appearT = .6;
+  ring(g.x, g.y, 60, '#ffd27a', .5, 3);
+  for (let i = 0; i < 14; i++) P_(g.x, g.y, rand(-160, 160), rand(-160, 60), .5, 2.2, '#ffd27a', 'spark');
+  text(g.x, g.y - 46, label || 'NEW!', '#ffd27a', 13, 1);
+}
+function updateDirector(dt) {
+  for (const g of st.gadgets) if (g.appearT > 0) g.appearT = Math.max(0, g.appearT - dt);
+  if (st.nextT > 0 || st.dirT === undefined) return;
+  if ((st.dirT -= dt) > 0) return;
+  st.dirT = rand(5, 9);
+  const live = st.gadgets.filter(g => !g.gone && g.type !== 'portal');
+  const free = live.filter(g => !g.falling && !(g.hold > 0) && !(g.rain > 0) && !(g.appearT > 0) && !(g.type === 'clock' && st.clockPending));
+  const cap = gadgetCap(), r = Math.random();
+  if ((live.length < cap && r < .3) || !free.length) { if (live.length <= cap) popIn(addGadget(pickGadgetType())); return; }
+  const g = free[Math.floor(Math.random() * free.length)];
+  if (r < .55) {   // it moves
+    if (SLIDERS[g.type]) { relocate(g); return; }   // slides across on its rope
+    poof(g); const p = gadgetSpot(g.type); g.x = g.tx = p.x; g.y = g.ty = p.y; popIn(g, 'MOVED'); return;
   }
-  const cn = (Math.random() < .75 ? 1 : 2) + st.extraCrates + (st.players.length - 1);
-  for (let i = 0; i < cn; i++) {
-    let x = 0, y = 0;
-    for (let tries = 0; tries < 30; tries++) { x = rand(L + 320, far - 120); y = rand(Math.max(-320, topY() + 40), -150); if (ok(x, y)) break; }
-    spots.push({ x, y });
-    const keys = Object.keys(POWERS), wts = keys.map(k => POWERS[k].mega ? .02 : POWERS[k].ultra ? .07 : POWERS[k].rare ? .3 : 1);
-    let r = Math.random() * wts.reduce((a, b) => a + b, 0), pk = keys[0];
-    for (let q = 0; q < keys.length; q++) { r -= wts[q]; if (r <= 0) { pk = keys[q]; break; } }
-    st.gadgets.push({ id: ++uid, type: 'crate', x, y, tx: x, ty: y, pk, bob: rand(0, 6) });
-  }
-  // LINK target: rare, from level 3. Whoever hits it earns one link (join two arrow types into one)
-  if (st.level >= 3 && Math.random() < .3) {
-    let x = 0, y = 0;
-    for (let tries = 0; tries < 30; tries++) { x = rand(L + 400, far - 120); y = rand(Math.max(-320, topY() + 40), -170); if (ok(x, y)) break; }
-    spots.push({ x, y });
-    st.gadgets.push({ id: ++uid, type: 'link', x, y, tx: x, ty: y, bob: rand(0, 6) });
-  }
+  if (r < .82) { poof(g); g.gone = true; popIn(addGadget(pickGadgetType(g.type))); return; }   // swapped for something else
+  if (live.length > 2) { poof(g); g.gone = true; text(g.x, g.y - 30, 'GONE', '#f6eedf', 12, .8); }   // vanishes, nothing replaces it
+  else popIn(addGadget(pickGadgetType()));
 }
 const topY = () => -337; // fixed in co-op so every screen agrees where the ropes and weak spots are
 const attachY = g => g.y - (g.type === 'fan' ? 30 : 33);
@@ -523,7 +556,7 @@ function relocate(g) {
   const far = farX();
   let x = 0, y = 0;
   for (let tries = 0; tries < 20; tries++) {
-    x = rand(fieldL() + 120, far - 140); y = rand(topY() + 100, -150);
+    x = rand(fieldL() + 120, far - 140); y = rand(Math.max(-310, topY() + 100), -150);
     if (st.gadgets.every(o => o === g || Math.abs(o.tx - x) > 190 || Math.abs(o.ty - y) > 160)) break;
   }
   g.tx = x; g.ty = y;
@@ -1706,6 +1739,7 @@ function update(rdt) {
       else if (st.nextT <= 0) { g.relocT -= dt; if (g.relocT <= 0) relocate(g); }
     }
   }
+  updateDirector(dt);
   st.gadgets = st.gadgets.filter(g => !g.gone);
 
   // arrows
@@ -2620,7 +2654,7 @@ function draw() {
   if (!st) return;
   const shx = st.shake > .3 ? rand(-st.shake, st.shake) : 0, shy = st.shake > .3 ? rand(-st.shake, st.shake) : 0;
   ctx.translate(shx, shy);
-  for (const g of st.gadgets) drawGadget(g);
+  for (const g of st.gadgets) { if (g.appearT > 0) ctx.globalAlpha = Math.max(.05, 1 - g.appearT / .6); drawGadget(g); ctx.globalAlpha = 1; }
   for (const h of st.helpers) drawPillar(h);
   for (const p of st.players) if (p.inLevel) drawPillar(p);
   for (const e of st.enemies) drawPillar(e);
