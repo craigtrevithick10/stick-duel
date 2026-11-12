@@ -800,6 +800,7 @@ function fire(a, ang, v, pk, pk2) {
       pk, pk2: pk2 || null, dmgMul: dmgOf(pk, pk2), col: pk ? POWERS[pk].col : null,
       tpE: tp && an === ang ? tp : null });
   }
+  a.fireT = st.t;
   sfx('twang');
 }
 function P_(x, y, vx, vy, life, r, col, kind) { if (st.parts.length < 700) st.parts.push({ x, y, vx, vy, life, max: life, r, col, kind }); }
@@ -914,7 +915,7 @@ function blood(x, y, vx, vy, n) {
   for (let i = 0; i < n && st.parts.length < 450; i++)
     st.parts.push({ x, y, vx: vx * rand(.05, .25) + rand(-90, 90), vy: vy * rand(.05, .2) + rand(-160, 40), life: rand(.5, 1), max: 1, r: rand(1.4, 3) });
 }
-function text(x, y, t, col, size, life = 1) { st.texts.push({ x, y, t, col, size, life, max: life }); }
+function text(x, y, t, col, size, life = 1, pop = 0) { st.texts.push({ x, y, t, col, size, life, max: life, pop }); }
 function shake(v) { if (!reduceMotion) st.shake = Math.max(st.shake, v); }
 
 // teleport arrow: the archer it tagged is sent to wherever the shooter's next arrow lands
@@ -938,21 +939,45 @@ function teleportTo(id, x, y) {
   text(f.x, f.y - 130, 'TELEPORTED!', '#d58cff', 16, 1.1);
   sfx('whoosh');
 }
+// about to land a headshot? time slows for a moment so you see it go in
+function headshotSlowmo() {
+  for (const ar of st.arrows) {
+    if (ar.done || ar.hsSeen || ar.ret || !ar.owner || !ar.owner.isP || ar.owner.helper) continue;
+    let x = ar.x, y = ar.y, vx = ar.vx, vy = ar.vy;
+    for (let i = 0; i < 28 && !ar.hsSeen; i++) {   // small steps, like the real hit test
+      const h = .0036 * (ar.tm || 1); vx += st.wind * h; vy += G * h; x += vx * h; y += vy * h;
+      for (const E of st.enemies) {
+        if (E.dead || E.topple || (ar.hit && ar.hit.has(E))) continue;
+        const z = zone(E, x, y);
+        if (z) { ar.hsSeen = true; if (z === 'head') st.slow = Math.max(st.slow, .45); break; }
+      }
+    }
+  }
+}
+// your headshot lands: flash, sparks, shake and a big sign
+function headshotFX(ar, a) {
+  const x = ar.x, y = ar.y;
+  ring(x, y, 95, '#ffffff', .4, 5); ring(x, y, 60, '#ffd27a', .35, 3); glow(x, y, 90, 'rgba(255,240,200,', .3);
+  for (let i = 0; i < 18; i++) { const an = rand(0, 6.283), sp = rand(160, 380); P_(x, y, Math.cos(an) * sp, Math.sin(an) * sp - 80, rand(.35, .6), rand(2, 3.4), i % 3 ? '#ffd27a' : '#ffffff', 'spark'); }
+  st.flashA = Math.max(st.flashA || 0, .22); st.flashC = '255,250,235';
+  shake(12);
+  const f = feet(a); text(f.x, f.y - 128, 'HEADSHOT!', '#ffd27a', 28, 1.4, 1);
+}
 function onHit(ar, a, z) {
   const base = z === 'head' ? 48 : z === 'body' ? 26 : 15;
   const sp = ownerOf(ar.owner);
   const dmg = Math.round(base * rand(.9, 1.15) * (ar.dmgMul || 1) * (sp ? sp.up.dmgBoost : 1) * (a.up && a.up.armour ? 1 - a.up.armour : 1));
-  a.hp -= dmg; a.hitT = .12;
+  a.hp -= dmg; a.hitT = .12; a.flinchT = st.t;
   const p = toLocal(a, ar.x, ar.y);
   a.stuck.push({ x: p.x, y: p.y, ang: Math.atan2(ar.vy, ar.vx) - a.rot });
   if (a.stuck.length > 14) a.stuck.shift();
   if (hasPk(ar, 'pierce') && !a.isP) { (ar.hit = ar.hit || new Set()).add(a); } else ar.done = true;
   blood(ar.x, ar.y, ar.vx, ar.vy, z === 'head' ? 22 : 12);
   const f = feet(a);
-  if (z === 'head') { a.headRed = 1; text(f.x, f.y - 120, 'HEADSHOT', '#ff5a4e', 22, 1.2); if (!a.isP && sp) sp.heads++; }
+  if (z === 'head') { a.headRed = 1; if (a.isP || !ar.owner || !ar.owner.isP) text(f.x, f.y - 120, 'HEADSHOT', '#ff5a4e', 22, 1.2); if (!a.isP && sp) sp.heads++; }
   text(f.x + rand(-14, 14), f.y - 100, '-' + dmg, a.isP ? '#ff5a4e' : '#f6eedf', 18, .9);
   if (a.isP && !a.helper && sp && sp !== a) text(f.x, f.y - 140, 'FRIENDLY FIRE!', sp.col, 15, 1.2);
-  shake(z === 'head' ? 8 : 4);
+  if (z === 'head' && !a.isP && ar.owner && ar.owner.isP) headshotFX(ar, a); else shake(z === 'head' ? 8 : 4);
   sfx(z === 'head' ? 'head' : 'hit');
   if (!a.isP && sp) { const g = Math.round(dmg * .5); sp.gp += g; sp.earned += g; a.lastBy = sp; }
   if (!a.isP && ar.vol) ar.vol.hits++;
@@ -1742,6 +1767,7 @@ function update(rdt) {
   st.gadgets = st.gadgets.filter(g => !g.gone);
 
   // arrows
+  headshotSlowmo();
   for (const ar of st.arrows) {
     if (ar.done) continue;
     const steps = 4, sdt = dt * (ar.tm || 1) / steps;
@@ -1934,27 +1960,49 @@ for (let i = 0; i < 9; i++) CLOUDS.push({ x: rand(0, 1.6), y: rand(.12, .42), w:
 const BIRDS = [];
 for (let i = 0; i < 5; i++) BIRDS.push({ x: rand(0, 1), y: rand(.15, .35), v: rand(14, 26), ph: rand(0, 6) });
 
+/* ---------- sky: each level gets its own time of day (sunset, dusk, dawn, day), fading over when the level changes ---------- */
+const hexC = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+const SKY_PALS = [
+  { name: 'sunset', sky: ['#141c38', '#3e3766', '#a0587a', '#ea8a5e', '#f9cf86'], sunY: .6, sun: '#fff0c4', g1: '#ffe6aa', g2: '#ffcd8c', g3: '#ffaa6e', ray: '#ffdca0', cl1: '#ffd6c8', cl2: '#f0a0aa', lay: [['#c48aa0', '#9c6a8a'], ['#8f6290', '#6c4a73'], ['#5a3f6e', '#3a2850']], tree: '#2a1c3c', haze: '#ffbeaa', ember: '#ffd696', stars: 1, sunA: 1 },
+  { name: 'dusk', sky: ['#060a20', '#18204a', '#38386e', '#6e4c80', '#b8707a'], sunY: .8, sun: '#ffd2a0', g1: '#ffb48c', g2: '#e88a7a', g3: '#a05a78', ray: '#e8a0a0', cl1: '#a898c8', cl2: '#6a5a96', lay: [['#6a5a8e', '#4e4272'], ['#463a68', '#332a52'], ['#2a2246', '#1c1632']], tree: '#150f26', haze: '#a08cc8', ember: '#c8b4ff', stars: 1.4, sunA: .8 },
+  { name: 'dawn', sky: ['#2b3a6e', '#6e6fae', '#c98fb5', '#f7b6a8', '#ffe3c2'], sunY: .7, sun: '#fff6e0', g1: '#fff0dc', g2: '#ffd6c8', g3: '#f0b4c0', ray: '#ffe6dc', cl1: '#ffe6f0', cl2: '#e6b4d2', lay: [['#a99ac4', '#8a7aa8'], ['#7c6a9e', '#5e4f80'], ['#4c3f6c', '#322850']], tree: '#2a2244', haze: '#ffd2dc', ember: '#fff0dc', stars: .45, sunA: 1 },
+  { name: 'day', sky: ['#3d6fbe', '#6a9ce0', '#9cc4ee', '#cfe2f2', '#f3ecd6'], sunY: .2, sun: '#fffbea', g1: '#fffaf0', g2: '#fff4d6', g3: '#ffeac0', ray: '#fffae6', cl1: '#ffffff', cl2: '#dce8f8', lay: [['#93abcc', '#7690b4'], ['#6e84a8', '#57698c'], ['#4e5878', '#363d5a']], tree: '#2a2c44', haze: '#eef2ff', ember: '#ffffff', stars: 0, sunA: .9 },
+].map(p => { const o = { name: p.name }; for (const k in p) if (k !== 'name') o[k] = typeof p[k] === 'string' ? hexC(p[k]) : Array.isArray(p[k]) ? p[k].map(v => Array.isArray(v) ? v.map(hexC) : hexC(v)) : p[k]; return o; });
+const mixV = (a, b, u) => typeof a === 'number' ? a + (b - a) * u : a.map((v, i) => mixV(v, b[i], u));
+const rgba = (c, al = 1) => `rgba(${Math.round(c[0])},${Math.round(c[1])},${Math.round(c[2])},${al})`;
+const SKY = { lv: null, from: null, to: null, t0: 0 };
+function skyPal() {
+  const lv = st ? st.level : 1, to = SKY_PALS[(Math.max(1, lv) - 1) % SKY_PALS.length], now = performance.now();
+  if (SKY.lv === null) { SKY.lv = lv; SKY.from = SKY.to = to; }
+  if (lv !== SKY.lv) { SKY.from = skyNow(now); SKY.to = to; SKY.t0 = now; SKY.lv = lv; }
+  return skyNow(now);
+}
+function skyNow(now) {
+  const u = clamp((now - SKY.t0) / 1800, 0, 1);
+  if (u >= 1 || SKY.from === SKY.to) return SKY.to;
+  const o = {}; for (const k in SKY.to) o[k] = k === 'name' ? SKY.to.name : mixV(SKY.from[k], SKY.to[k], u); return o;
+}
 function drawBG() {
-  const t = st ? st.t : 0;
+  const t = st ? st.t : 0, SP = skyPal();
   const g = ctx.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, '#141c38'); g.addColorStop(.3, '#3e3766'); g.addColorStop(.55, '#a0587a'); g.addColorStop(.78, '#ea8a5e'); g.addColorStop(1, '#f9cf86');
+  [0, .3, .55, .78, 1].forEach((o, i) => g.addColorStop(o, rgba(SP.sky[i])));
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-  for (const s2 of STARS) { ctx.globalAlpha = .35 + .35 * Math.sin(t * 1.5 + s2.p); ctx.fillStyle = '#fff6e6'; ctx.fillRect(s2.x * W, s2.y * H, s2.r, s2.r); }
+  for (const s2 of STARS) { ctx.globalAlpha = Math.min(1, (.35 + .35 * Math.sin(t * 1.5 + s2.p)) * SP.stars); if (!SP.stars) continue; ctx.fillStyle = '#fff6e6'; ctx.fillRect(s2.x * W, s2.y * H, s2.r, s2.r); }
   ctx.globalAlpha = 1;
   // sun with slow rays
-  const sx = W * .72 - camX * sc * .03, sy = H * .6;
+  const sx = W * .72 - camX * sc * .03, sy = H * SP.sunY;
   ctx.save(); ctx.translate(sx, sy); ctx.rotate(t * .02);
   for (let k = 0; k < 10; k++) {
     ctx.rotate(Math.PI / 5);
     const rg = ctx.createLinearGradient(0, 0, H * 1.1, 0);
-    rg.addColorStop(0, 'rgba(255,220,160,.10)'); rg.addColorStop(1, 'rgba(255,220,160,0)');
+    rg.addColorStop(0, rgba(SP.ray, .10)); rg.addColorStop(1, rgba(SP.ray, 0));
     ctx.fillStyle = rg; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(H * 1.1, -H * .09); ctx.lineTo(H * 1.1, H * .09); ctx.fill();
   }
   ctx.restore();
   const sg = ctx.createRadialGradient(sx, sy, 0, sx, sy, H * .55);
-  sg.addColorStop(0, 'rgba(255,230,170,.95)'); sg.addColorStop(.1, 'rgba(255,205,140,.6)'); sg.addColorStop(1, 'rgba(255,170,110,0)');
+  sg.addColorStop(0, rgba(SP.g1, .95 * SP.sunA)); sg.addColorStop(.1, rgba(SP.g2, .6 * SP.sunA)); sg.addColorStop(1, rgba(SP.g3, 0));
   ctx.fillStyle = sg; ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = '#fff0c4'; ctx.beginPath(); ctx.arc(sx, sy, H * .065, 0, 6.283); ctx.fill();
+  ctx.fillStyle = rgba(SP.sun); ctx.beginPath(); ctx.arc(sx, sy, H * .065, 0, 6.283); ctx.fill();
   // clouds
   for (const c of CLOUDS) {
     const span = W * 1.6 + c.w * 2;
@@ -1962,7 +2010,7 @@ function drawBG() {
     for (const [px, py, pr] of c.puffs) {
       const r = c.w * pr * .5;
       const cg = ctx.createRadialGradient(cx + px * c.w, cy + py * c.w - r * .3, 0, cx + px * c.w, cy + py * c.w, r);
-      cg.addColorStop(0, 'rgba(255,214,200,.42)'); cg.addColorStop(1, 'rgba(240,160,170,0)');
+      cg.addColorStop(0, rgba(SP.cl1, .42)); cg.addColorStop(1, rgba(SP.cl2, 0));
       ctx.fillStyle = cg; ctx.beginPath(); ctx.arc(cx + px * c.w, cy + py * c.w, r, 0, 6.283); ctx.fill();
     }
   }
@@ -1973,15 +2021,15 @@ function drawBG() {
     ctx.beginPath(); ctx.moveTo(bx - 6, by - f); ctx.quadraticCurveTo(bx - 3, by - 2, bx, by); ctx.quadraticCurveTo(bx + 3, by - 2, bx + 6, by - f); ctx.stroke();
   }
   // mountain layers with haze
-  for (const L of LAYERS) {
-    const off = camX * sc * L.par, topY = H * L.base - L.amp;
+  for (let li = 0; li < LAYERS.length; li++) {
+    const L = LAYERS[li], off = camX * sc * L.par, topY = H * L.base - L.amp;
     const mg = ctx.createLinearGradient(0, topY, 0, H);
-    mg.addColorStop(0, L.top); mg.addColorStop(.6, L.col);
+    mg.addColorStop(0, rgba(SP.lay[li][0])); mg.addColorStop(.6, rgba(SP.lay[li][1]));
     ctx.fillStyle = mg; ctx.beginPath(); ctx.moveTo(0, H);
     for (let px = -L.step; px <= W + L.step; px += L.step / 2) ctx.lineTo(px, H * L.base - ridge(L, px + off) * L.amp);
     ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
     if (L.trees) {
-      ctx.fillStyle = '#2a1c3c';
+      ctx.fillStyle = rgba(SP.tree);
       const startI = Math.floor((off - 40) / 22);
       for (let k = startI; k < startI + W / 22 + 4; k++) {
         if (hash(k) < .45) continue;
@@ -1990,11 +2038,11 @@ function drawBG() {
       }
     }
     const fg = ctx.createLinearGradient(0, H * L.base, 0, H * L.base + 60);
-    fg.addColorStop(0, 'rgba(255,190,170,.14)'); fg.addColorStop(1, 'rgba(255,190,170,0)');
+    fg.addColorStop(0, rgba(SP.haze, .14)); fg.addColorStop(1, rgba(SP.haze, 0));
     ctx.fillStyle = fg; ctx.fillRect(0, H * L.base, W, 60);
   }
   // embers
-  ctx.fillStyle = 'rgba(255,214,150,.6)';
+  ctx.fillStyle = rgba(SP.ember, .6);
   for (const s2 of SPECKS) {
     const y = H - ((s2.y * H + t * s2.v * 1.5) % H), x = (((s2.x * W - camX * sc * .5 + Math.sin(t + s2.y * 9) * 8) % W) + W) % W;
     ctx.fillRect(x, y, s2.r, s2.r);
@@ -2156,6 +2204,35 @@ function bandCol(a) {
 }
 // a player's arrows have a shaft in that player's colour (helpers use their owner's colour)
 const shaftCol = o => !o || !o.isP ? null : o.helper ? (o.owner && o.owner.col) || null : o.col || null;
+// glowing path behind your own arrows: follows the whole flight, then fades after about a second
+const TRAILS = new Map();
+function trackTrails() {
+  const now = performance.now() / 1000;
+  for (const ar of st.arrows) {
+    if (ar.done || !ar.owner || !ar.owner.isP || ar.owner.helper || ar.magic) continue;
+    if (!ar.tid) ar.tid = ++uid;
+    let T = TRAILS.get(ar.tid);
+    if (!T) { T = { pts: [], col: ar.col || '#ffffff' }; TRAILS.set(ar.tid, T); }
+    const L = T.pts[T.pts.length - 1];
+    if (!L || Math.hypot(ar.x - L.x, ar.y - L.y) > 9) T.pts.push({ x: ar.x, y: ar.y, t: now });
+  }
+}
+function drawTrails() {
+  const now = performance.now() / 1000, LIFE = 1.1;
+  ctx.lineCap = 'round';
+  for (const [id, T] of TRAILS) {
+    T.pts = T.pts.filter(p => now - p.t < LIFE);
+    if (!T.pts.length) { TRAILS.delete(id); continue; }
+    ctx.strokeStyle = T.col; ctx.fillStyle = T.col;
+    for (let i = 1; i < T.pts.length; i++) {
+      const p = T.pts[i], q = T.pts[i - 1], k = 1 - (now - p.t) / LIFE;
+      ctx.globalAlpha = k * .75; ctx.lineWidth = (.8 + k * 3) * sc;
+      ctx.beginPath(); ctx.moveTo(SX(q.x), SY(q.y)); ctx.lineTo(SX(p.x), SY(p.y)); ctx.stroke();
+      if (i % 5 === 0) { ctx.globalAlpha = k; ctx.beginPath(); ctx.arc(SX(p.x) + (hash(i + id) - .5) * 10 * sc, SY(p.y) + (hash(i * 3 + id) - .5) * 10 * sc, 1.4 * sc, 0, 6.283); ctx.fill(); }
+    }
+  }
+  ctx.globalAlpha = 1;
+}
 function drawArrowShape(len, col, shaft) {
   ctx.lineCap = 'butt';
   ctx.strokeStyle = 'rgba(20,10,20,.55)'; ctx.lineWidth = shaft ? 4.4 : 3.6;
@@ -2172,6 +2249,14 @@ function drawArcher(a) {
   if (SX(f.x) < -80 || SX(f.x) > W + 80) return;
   ctx.save();
   ctx.translate(SX(f.x), SY(f.y)); ctx.scale(sc * sizeOf(a), sc * sizeOf(a)); ctx.rotate(a.rot);
+  if (!a.dead && !a.dummy && !a.topple) {   // alive: breathes, leans back after a shot, rocks back when hit
+    const tf = st.t - (a.fireT === undefined ? -9 : a.fireT), th = st.t - (a.flinchT === undefined ? -9 : a.flinchT);
+    let lean = 0;
+    if (tf >= 0 && tf < 1) lean += .14 * Math.exp(-tf * 5);
+    if (th >= 0 && th < 1.2) lean += .3 * Math.exp(-th * 4) * Math.cos(th * 9);
+    if (lean) ctx.rotate(-(a.f || 1) * lean);
+    ctx.scale(1, 1 + Math.sin(st.t * 2.2 + a.x * .013) * .018);
+  }
   const ink = a.hitT > 0 ? '#5a1010' : '#141414', ff = a.f;
   if (!a.dead && isTagged(a)) { ctx.save(); ctx.strokeStyle = '#d58cff'; ctx.lineWidth = 2.5; ctx.setLineDash([7, 6]); ctx.lineDashOffset = -st.t * 40;
     ctx.beginPath(); ctx.arc(0, -50, 62, 0, 6.283); ctx.stroke(); ctx.restore(); }
@@ -2666,6 +2751,7 @@ function draw() {
   for (const e of st.enemies) drawArcher(e);
   for (const m of st.marchers) drawMarcher(m);
   for (const a of st.allies) drawMarcher(a);
+  trackTrails(); drawTrails();
   for (const ar of st.arrows) {
     ctx.save(); ctx.translate(SX(ar.x), SY(ar.y)); ctx.scale(sc, sc); ctx.rotate(Math.atan2(ar.vy, ar.vx));
     const tg = ctx.createLinearGradient(-36, 0, -110, 0);
@@ -2754,7 +2840,7 @@ function draw() {
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   for (const t of st.texts) {
     ctx.globalAlpha = clamp(t.life / t.max * 1.8, 0, 1);
-    ctx.font = `700 ${t.size}px Silkscreen, monospace`;
+    ctx.font = `700 ${t.pop ? Math.round(t.size * (1 + .8 * Math.exp(-(t.max - t.life) * 9))) : t.size}px Silkscreen, monospace`;
     ctx.fillStyle = 'rgba(20,10,30,.7)'; ctx.fillText(t.t, SX(t.x) + 1, SY(t.y) + 2);
     ctx.fillStyle = t.col; ctx.fillText(t.t, SX(t.x), SY(t.y));
   }
@@ -3653,7 +3739,7 @@ function netTick(rdt) {
   m.pl = st.players.map(packA); m.en = st.enemies.map(packA); m.hp = st.helpers.map(packA);
   m.gd = st.gadgets.map(g => pack(g, SKIP_G));
   m.pin = st.pinned.map(p => ({ x: p.x, y: p.y, ang: p.ang, col: p.col, gid: p.g ? p.g.id : 0 }));
-  m.ar = st.arrows.filter(a => !a.done).map(a => ({ x: a.x, y: a.y, vx: a.vx, vy: a.vy, o: a.owner ? a.owner.id : 0, col: a.col, pk: a.pk, pk2: a.pk2, split: a.split, magic: a.magic, tm: a.tm }));
+  m.ar = st.arrows.filter(a => !a.done).map(a => ({ tid: a.tid || (a.owner && a.owner.isP && !a.owner.helper ? (a.tid = ++uid) : 0), x: a.x, y: a.y, vx: a.vx, vy: a.vy, o: a.owner ? a.owner.id : 0, col: a.col, pk: a.pk, pk2: a.pk2, split: a.split, magic: a.magic, tm: a.tm }));
   m.rk = (st.rocks || []).map(R => ({ x: R.x, y: R.y, vx: R.vx, vy: R.vy, r: R.r, spin: R.spin }));
   m.tn = st.tornados.map(T => pack(T, new Set(['hitG', 'by'])));
   m.bh = st.holes.map(B => pack(B, new Set(['by'])));
