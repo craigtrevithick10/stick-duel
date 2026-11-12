@@ -61,6 +61,10 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 .item[disabled]{opacity:.4;cursor:default}
 .item:not([disabled]):active{transform:translateY(1px)}
 .item:focus-visible{outline:3px solid var(--ember);outline-offset:2px}
+.shopgrid .item{flex-direction:row;align-items:center;gap:10px}
+.item .ico{font-size:34px;font-style:normal;line-height:1;flex:none;width:44px;text-align:center}
+.item .txt{display:flex;flex-direction:column;gap:3px;min-width:0}
+.item.off .ico{font-size:26px;width:34px}
 #shopGP{color:var(--ember)}
 #clockSvg{width:min(46vh,240px);height:min(46vh,240px);touch-action:none;cursor:grab;max-width:100%}
 </style>
@@ -170,6 +174,14 @@ const POWERS = {
   shrink: { name: 'SHRINK ARROWS', short: 'SHRINK', col: '#b6ff5c', shots: 6 },
   tele:   { name: 'TELEPORT ARROWS', short: 'TELEPORT', col: '#d58cff', shots: 4 },
   blackhole:{ name: 'BLACK HOLE', short: 'VOID',   col: '#b07cff', shots: 1, ultra: true }
+};
+// a picture for every shop item and arrow type (shop cards and the quiver buttons)
+const ICON = {
+  hp: '❤️', dmg: '🗡️', barrier: '🧱', reload: '⏱️', quiver: '🏹', crates: '📦', medkits: '🩹', aim: '📏',
+  armour: '🛡️', leech: '🧛', revive: '💨', glass: '🪟', helper: '🤝',
+  pw_triple: '🔱', pw_fire: '🔥', pw_ice: '❄️', pw_boom: '💥', pw_heavy: '🪨', pw_rapid: '⏩', pw_pierce: '📌',
+  pw_homing: '🎯', pw_storm: '⚡', pw_cluster: '🎆', pw_scope: '🔭', pw_slowmo: '🐢', pw_tornado: '🌪️',
+  pw_shrink: '🤏', pw_tele: '🌀', pw_blackhole: '🕳️', pw_shield: '🧱'
 };
 
 let W = 0, H = 0, DPR = 1, sc = 1, camX = 0, camY = 0, scBase = 1, zoom = 1, forcePortrait = false;
@@ -2451,19 +2463,19 @@ function renderShop() {
     const b = document.createElement('button'); b.type = 'button'; b.className = 'item'; b.id = 'shop_' + o.id;
     const pr = priceOf(o), sold = (o.once && st.shopSold[o.id]) || (o.max && (st.shopBuys[o.id] || 0) >= o.max);
     b.disabled = sold || st.gp < pr;
-    b.innerHTML = `<b style="color:${o.col || 'var(--bone)'}">${o.name}</b><span>${o.desc}</span><span class="cost">${sold ? 'BOUGHT' : pr + ' GP'}</span>`;
+    b.innerHTML = `<i class="ico">${ICON[o.id] || ''}</i><div class="txt"><b style="color:${o.col || 'var(--bone)'}">${o.name}</b><span>${o.desc}</span><span class="cost">${sold ? 'BOUGHT' : pr + ' GP'}</span></div>`;
     b.onclick = () => { if (st.gp < pr || sold) return; st.gp -= pr; st.shopBuys[o.id] = (st.shopBuys[o.id] || 0) + 1; st.shopSold[o.id] = true; o.buy(o); sfx('heal'); renderShop(); };
     g.appendChild(b);
   }
   const have = new Set(shopOffers.map(o => o.id));
-  drawOffShelf(g, shopCatalog().filter(o => !have.has(o.id)).map(o => ({ name: o.name, desc: o.desc, why: shopWhyNot(o) })));
+  drawOffShelf(g, shopCatalog().filter(o => !have.has(o.id)).map(o => ({ id: o.id, name: o.name, desc: o.desc, why: shopWhyNot(o) })));
 }
 function drawOffShelf(g, list) {
   if (!list.length) return;
   const h = document.createElement('p'); h.className = 'shophead'; h.textContent = 'NOT ON SALE THIS VISIT'; g.appendChild(h);
   for (const o of list) {
     const b = document.createElement('button'); b.type = 'button'; b.className = 'item off'; b.disabled = true; b.tabIndex = -1;
-    b.innerHTML = `<b>${o.name}</b><span>${o.desc}</span><span class="cost">${o.why}</span>`;
+    b.innerHTML = `<i class="ico">${ICON[o.id] || ''}</i><div class="txt"><b>${o.name}</b><span>${o.desc}</span><span class="cost">${o.why}</span></div>`;
     g.appendChild(b);
   }
 }
