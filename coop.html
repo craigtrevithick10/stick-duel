@@ -41,6 +41,12 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 #quiver button small{font:700 11px var(--pixel);color:var(--bone)}
 #quiver button.on{border-color:var(--ember);background:rgba(242,166,90,.28);box-shadow:0 0 0 2px rgba(242,166,90,.35)}
 #quiver button.empty{opacity:.3;cursor:default}
+#quiver{flex-wrap:wrap;justify-content:center}
+#quiver .qhint{flex-basis:100%;text-align:center;font:700 11px var(--pixel);color:#7dffe8;letter-spacing:.06em;text-shadow:0 1px 3px #000;margin-bottom:2px}
+#quiver button.link{border-color:#7dffe8;color:#7dffe8}
+#quiver button.pickme{border-color:#7dffe8;animation:qpulse .8s ease-in-out infinite alternate}
+#quiver.linking button[data-i="-1"]{opacity:.3}
+@keyframes qpulse{to{box-shadow:0 0 0 3px rgba(125,255,232,.45)}}
 #quiver .qi{font-size:20px;font-style:normal;line-height:1}
 @media (max-width:700px){#quiver button{min-width:52px;padding:5px 5px 4px;font-size:10px}}
 #pauseBtn:focus-visible,#musicBtn:focus-visible,.btn:focus-visible{outline:3px solid var(--blood);outline-offset:3px}
@@ -233,15 +239,21 @@ const POWERS = {
   tornado:{ name: 'TORNADO',     short: 'TWISTER', col: '#d6e4f0', shots: 3 },
   shrink: { name: 'SHRINK ARROWS', short: 'SHRINK', col: '#b6ff5c', shots: 6 },
   tele:   { name: 'TELEPORT ARROWS', short: 'TELEPORT', col: '#d58cff', shots: 4 },
+  meteor: { name: 'METEOR SHOWER', short: 'METEOR', col: '#ff7b3a', shots: 1, mega: true },
   blackhole:{ name: 'BLACK HOLE', short: 'VOID',   col: '#b07cff', shots: 1, ultra: true }
 };
+// linked arrows carry two powers (pk + pk2); these helpers treat both the same
+const hasPk = (ar, k) => !!ar && (ar.pk === k || ar.pk2 === k);
+const pkMul = k => k === 'fire' ? 1.2 : k === 'heavy' ? 1.35 : k === 'slowmo' ? .3 : 1;
+const powShort = q => q.k2 ? POWERS[q.k].short + '+' + POWERS[q.k2].short : POWERS[q.k].short;
+const powName = q => q.k2 ? powShort(q) : POWERS[q.k].name;
 // a picture for every shop item and arrow type (shop cards and the quiver buttons)
 const ICON = {
   hp: '❤️', dmg: '🗡️', barrier: '🧱', reload: '⏱️', quiver: '🏹', crates: '📦', medkits: '🩹', aim: '📏',
   armour: '🛡️', leech: '🧛', revive: '💨', glass: '🪟', helper: '🤝',
   pw_triple: '🔱', pw_fire: '🔥', pw_ice: '❄️', pw_boom: '💥', pw_heavy: '🪨', pw_rapid: '⏩', pw_pierce: '📌',
   pw_homing: '🎯', pw_storm: '⚡', pw_cluster: '🎆', pw_scope: '🔭', pw_slowmo: '🐢', pw_tornado: '🌪️',
-  pw_shrink: '🤏', pw_tele: '🌀', pw_blackhole: '🕳️', pw_shield: '🧱'
+  pw_shrink: '🤏', pw_tele: '🌀', pw_blackhole: '🕳️', pw_meteor: '☄️', pw_shield: '🧱'
 };
 
 let W = 0, H = 0, DPR = 1, sc = 1, camX = 0, camY = 0, scBase = 1, zoom = 1, forcePortrait = false;
@@ -256,7 +268,7 @@ const CAM = { home: false, hold: 0, last: 0, focus: null, insetA: 0 };
 let hintOn = true;
 function mkPlayer(r) {
   const p = mkArcher(0, rand(140, 175), 1, 100, true, 72);
-  return Object.assign(p, { pid: r.id, name: r.name, col: r.col, gp: 0, kills: 0, heads: 0, earned: 0, combo: 0, reload: 0, power: null, quiver: [], barrier: null, bside: 1,
+  return Object.assign(p, { pid: r.id, name: r.name, col: r.col, gp: 0, kills: 0, heads: 0, earned: 0, combo: 0, reload: 0, power: null, quiver: [], links: 0, linking: false, linkA: -1, barrier: null, bside: 1,
     lastShot: null, shopBuys: {}, shopSold: {}, offers: [], ready: false, inLevel: true, pingT: 0,
     up: { reloadMul: 1, extraShots: 0, armour: 0, leech: 0, revive: 0, dmgBoost: 1, longAim: false } });
 }
@@ -370,7 +382,7 @@ function spawnLevel(first) {
     Object.assign(h, { x: o.x - o.bside * (72 + k * 52), h: Math.max(40, o.h - 22 - k * 16), f: o.bside, dx: 0, dy: 0, rot: 0, hp: h.max, stuck: [], aiAim: null, aiT: 2 });
   }
   st.marchers = []; if (SOLDIERS) buildMarchQueue(); else st.marchQ = []; st.allies = []; st.allyQ = 0; st.gateCD = Math.min(st.gateCD, 3);
-  st.tornados = []; st.holes = []; st.timeScale = 1;
+  st.tornados = []; st.holes = []; st.showers = []; st.rocks = []; st.timeScale = 1;
   const wr = Math.random();
   st.weather = lv < 3 || bossLv ? 'clear' : wr < .45 ? 'clear' : wr < .63 ? 'night' : wr < .82 ? 'storm' : 'fog';
   if (st.weather === 'storm') { st.wind = Math.round(rand(-120, 120)); st.windT = st.wind; st.stormT = rand(2.5, 4); }
@@ -449,10 +461,17 @@ function spawnGadgets() {
     let x = 0, y = 0;
     for (let tries = 0; tries < 30; tries++) { x = rand(L + 320, far - 120); y = rand(Math.max(-320, topY() + 40), -150); if (ok(x, y)) break; }
     spots.push({ x, y });
-    const keys = Object.keys(POWERS), wts = keys.map(k => POWERS[k].ultra ? .07 : POWERS[k].rare ? .3 : 1);
+    const keys = Object.keys(POWERS), wts = keys.map(k => POWERS[k].mega ? .02 : POWERS[k].ultra ? .07 : POWERS[k].rare ? .3 : 1);
     let r = Math.random() * wts.reduce((a, b) => a + b, 0), pk = keys[0];
     for (let q = 0; q < keys.length; q++) { r -= wts[q]; if (r <= 0) { pk = keys[q]; break; } }
     st.gadgets.push({ id: ++uid, type: 'crate', x, y, tx: x, ty: y, pk, bob: rand(0, 6) });
+  }
+  // LINK target: rare, from level 3. Whoever hits it earns one link (join two arrow types into one)
+  if (st.level >= 3 && Math.random() < .3) {
+    let x = 0, y = 0;
+    for (let tries = 0; tries < 30; tries++) { x = rand(L + 400, far - 120); y = rand(Math.max(-320, topY() + 40), -170); if (ok(x, y)) break; }
+    spots.push({ x, y });
+    st.gadgets.push({ id: ++uid, type: 'link', x, y, tx: x, ty: y, bob: rand(0, 6) });
   }
 }
 const topY = () => -337; // fixed in co-op so every screen agrees where the ropes and weak spots are
@@ -541,6 +560,19 @@ function gadgetStep(ar, sdt) {
       }
       continue;
     }
+    if (g.type === 'link') {
+      if (!g.gone && ar.owner.isP && Math.abs(ar.x - g.x) < 18 && Math.abs(ar.y - (g.y + Math.sin(st.t * 2 + g.bob) * 6)) < 18) {
+        const P = ownerOf(ar.owner);
+        if (!P) continue;
+        g.gone = true; ar.done = true; P.links = (P.links || 0) + 1;
+        text(g.x, g.y - 30, 'LINK ARROWS!', '#7dffe8', 20, 1.6);
+        text(feet(P).x, feet(P).y - 150, 'TAP 🔗 LINK TO JOIN 2 ARROW TYPES', '#7dffe8', 14, 2.2);
+        for (let k = 0; k < 2; k++) ring(g.x, g.y, 50 + k * 30, '#7dffe8', .5 + k * .2, 3);
+        for (let i = 0; i < 24; i++) P_(g.x, g.y, rand(-200, 200), rand(-220, 80), .7, 2.6, i % 2 ? '#7dffe8' : '#ffffff', 'spark');
+        sfx('bell'); return;
+      }
+      continue;
+    }
     if (g.type === 'crate') {
       if (!g.gone && ar.owner.isP && Math.abs(ar.x - g.x) < 15 && Math.abs(ar.y - (g.y + Math.sin(st.t * 2 + g.bob) * 6)) < 15) {
         const P = ownerOf(ar.owner);
@@ -572,8 +604,9 @@ function gadgetStep(ar, sdt) {
     if (g.falling) continue;
     if (g.type === 'cloud') {
       if (Math.abs(ar.x - g.x) < g.w / 2 && Math.abs(ar.y - g.y) < 30 && g.rain <= 0) { g.rain = 6; g.rainBy = ownerOf(ar.owner); text(g.x, g.y - 40, 'RAIN', '#bfe2ff', 16, 1); sfx('whoosh'); }
-      if (g.rain > 0 && Math.abs(ar.x - g.x) < g.w / 2 && ar.y > g.y && ar.pk === 'fire') {
-        ar.pk = null; ar.col = null; ar.dmgMul = 1;
+      if (g.rain > 0 && Math.abs(ar.x - g.x) < g.w / 2 && ar.y > g.y && hasPk(ar, 'fire')) {
+        if (ar.pk === 'fire') { ar.pk = ar.pk2 || null; ar.pk2 = null; } else ar.pk2 = null;
+        ar.col = ar.pk ? POWERS[ar.pk].col : null; ar.dmgMul = pkMul(ar.pk) * pkMul(ar.pk2);
         for (let q = 0; q < 8; q++) P_(ar.x, ar.y, rand(-40, 40), rand(-120, -40), .6, 4, 'rgba(230,230,240,.7)', 'smoke');
         text(ar.x, ar.y - 14, 'FIZZ', '#bfe2ff', 12, .6);
       }
@@ -678,7 +711,7 @@ function gadgetStep(ar, sdt) {
         const sp = Math.hypot(ar.vx, ar.vy), base = Math.atan2(ar.vy, ar.vx);
         for (let k = 1; k < g.mult && st.arrows.length < 140; k++) {
           const off = (k % 2 ? 1 : -1) * Math.ceil(k / 2) * (g.mult > 4 ? .04 : .075);
-          st.arrows.push({ x: ar.x, y: ar.y, vx: Math.cos(base + off) * sp, vy: Math.sin(base + off) * sp, owner: ar.owner, done: false, via: new Set(ar.via), pk: ar.pk, dmgMul: ar.dmgMul, col: ar.col, vol: ar.vol, magic: ar.magic, sx: ar.sx, sy: ar.sy });
+          st.arrows.push({ x: ar.x, y: ar.y, vx: Math.cos(base + off) * sp, vy: Math.sin(base + off) * sp, owner: ar.owner, done: false, via: new Set(ar.via), pk: ar.pk, pk2: ar.pk2, split: ar.split, dmgMul: ar.dmgMul, col: ar.col, vol: ar.vol, magic: ar.magic, sx: ar.sx, sy: ar.sy });
           if (ar.vol) ar.vol.alive++;
         }
         text(g.x, g.y - 64, '×' + g.mult, ar.owner.isP ? '#9fe8ff' : '#ff5a4e', 18, .7);
@@ -713,16 +746,16 @@ function solve(from, tx, ty, flat) {
   }
   return { e: bestE, v: bestV };
 }
-function fire(a, ang, v, pk) {
-  const s = shoulder(a);
-  const angs = pk === 'triple' ? [ang - .06, ang, ang + .06] : [ang];
-  if (pk === 'heavy') v *= 1.18;
+function fire(a, ang, v, pk, pk2) {
+  const s = shoulder(a), has = k => pk === k || pk2 === k;
+  const angs = has('triple') ? [ang - .06, ang, ang + .06] : [ang];
+  if (has('heavy')) v *= 1.18;
   const tp = a.tpTag || null; a.tpTag = null;
   v *= sizeOf(a);
   for (const an of angs) {
     const dx = Math.cos(an), dy = Math.sin(an);
     st.arrows.push({ x: s.x + dx * 24, y: s.y + dy * 24, sx: s.x + dx * 24, sy: s.y + dy * 24, vx: dx * v, vy: dy * v, owner: a, done: false, via: new Set(),
-      pk, dmgMul: pk === 'fire' ? 1.2 : pk === 'heavy' ? 1.35 : pk === 'slowmo' ? .3 : 1, col: pk ? POWERS[pk].col : null,
+      pk, pk2: pk2 || null, dmgMul: pkMul(pk) * pkMul(pk2), col: pk ? POWERS[pk].col : null,
       tpE: tp && an === ang ? tp : null });
   }
   sfx('twang');
@@ -769,10 +802,28 @@ function impactFX(ar, x, y, onBody) {
     if (ar.owner.isP) spawnTornado(x, Math.sign(ar.vx) || 1, ownerOf(ar.owner));
   } else if (pk === 'blackhole') {
     if (ar.owner.isP) spawnHole(x, Math.min(y, -40), ownerOf(ar.owner));
+  } else if (pk === 'meteor') {
+    if (ar.owner.isP) spawnShower(x, Math.sign(ar.vx) || 1, ownerOf(ar.owner));
   } else if (pk === 'triple' || pk === 'rapid') {
     ring(x, y, 26, POWERS[pk].col, .3, 2);
     for (let i = 0; i < 10; i++) P_(x, y, rand(-150, 150), rand(-180, 40), rand(.25, .45), 2.2, POWERS[pk].col, 'spark');
   }
+  if (ar.pk2) impactFX(Object.assign({}, ar, { pk: ar.pk2, pk2: null }), x, y, onBody);
+}
+// cluster arrow bursts into 5 arrows on the same path (players tap the screen to do it)
+function splitCluster(ar) {
+  ar.split = true;
+  const sp = Math.hypot(ar.vx, ar.vy), base = Math.atan2(ar.vy, ar.vx), other = ar.pk === 'cluster' ? ar.pk2 : ar.pk;
+  const col = other ? POWERS[other].col : '#ffb3f0';
+  for (const off of [-.09, -.045, .045, .09]) st.arrows.push({ x: ar.x, y: ar.y, vx: Math.cos(base + off) * sp, vy: Math.sin(base + off) * sp, owner: ar.owner, done: false, via: new Set(ar.via), pk: other || null, pk2: null, split: true, dmgMul: .8 * pkMul(other), col, vol: ar.vol, sx: ar.sx, sy: ar.sy });
+  if (ar.vol) ar.vol.alive += 4;
+  ring(ar.x, ar.y, 34, '#ffb3f0', .35, 2.5);
+  for (let q = 0; q < 14; q++) P_(ar.x, ar.y, rand(-140, 140), rand(-140, 140), .35, 2.2, q % 2 ? '#ffb3f0' : col, 'spark');
+  sfx('click');
+}
+// host: player P tapped the screen, so their cluster arrows in the air burst
+function splitFor(P) {
+  for (const a of st.arrows.filter(a => !a.done && !a.split && a.owner === P && hasPk(a, 'cluster'))) splitCluster(a);
 }
 function blast(x, y, owner) {
   for (let i = 0; i < 26; i++) st.parts.push({ x, y, vx: rand(-260, 260), vy: rand(-300, 80), life: rand(.3, .6), max: .6, r: rand(2, 4), col: i % 3 ? '#ff9a45' : '#ffd27a' });
@@ -853,7 +904,7 @@ function onHit(ar, a, z) {
   const p = toLocal(a, ar.x, ar.y);
   a.stuck.push({ x: p.x, y: p.y, ang: Math.atan2(ar.vy, ar.vx) - a.rot });
   if (a.stuck.length > 14) a.stuck.shift();
-  if (ar.pk === 'pierce' && !a.isP) { (ar.hit = ar.hit || new Set()).add(a); } else ar.done = true;
+  if (hasPk(ar, 'pierce') && !a.isP) { (ar.hit = ar.hit || new Set()).add(a); } else ar.done = true;
   blood(ar.x, ar.y, ar.vx, ar.vy, z === 'head' ? 22 : 12);
   const f = feet(a);
   if (z === 'head') { a.headRed = 1; text(f.x, f.y - 120, 'HEADSHOT', '#ff5a4e', 22, 1.2); if (!a.isP && sp) sp.heads++; }
@@ -865,26 +916,26 @@ function onHit(ar, a, z) {
   if (!a.isP && ar.vol) ar.vol.hits++;
   if (!a.isP && sp && ar.owner === sp && sp.up.leech) sp.hp = Math.min(sp.max, sp.hp + sp.up.leech);
   impactFX(ar, ar.x, ar.y, true);
-  if (ar.pk === 'fire' && !a.isP) { a.burn = 3.5; text(f.x, f.y - 132, 'BURNING', '#ff9a45', 14, .9); }
-  if (ar.pk === 'slowmo' && !a.isP) {
+  if (hasPk(ar, 'fire') && !a.isP) { a.burn = 3.5; text(f.x, f.y - 132, 'BURNING', '#ff9a45', 14, .9); }
+  if (hasPk(ar, 'slowmo') && !a.isP) {
     a.slowM = a.slowT > 0 ? Math.max(.04, a.slowM * .5) : .4; a.slowT = 4.5;
     text(f.x, f.y - 132, 'SLOWED ×' + (1 / a.slowM).toFixed(a.slowM < .1 ? 0 : 1), '#7ad7ff', 14, 1.1);
     for (let k = 0; k < 2; k++) ring(f.x, f.y - 60, 60 + k * 30, '#7ad7ff', .6 + k * .2, 2.5);
   }
-  if (ar.pk === 'shrink') {
+  if (hasPk(ar, 'shrink')) {
     a.shrink = Math.min(.5, Math.round(((a.shrink || 0) + .1) * 10) / 10); a.shrinkT = 7;
     text(f.x, f.y - 132, 'SHRUNK · POWER ' + Math.round(sizeOf(a) * 100) + '%', '#b6ff5c', 14, 1.1);
     for (let k = 0; k < 10; k++) P_(f.x + rand(-20, 20), f.y - rand(10, 90), rand(-40, 40), rand(-60, 20), .5, 2.2, '#b6ff5c', 'spark');
     ring(f.x, f.y - 50, 55, '#b6ff5c', .5, 2.5);
   }
-  if (ar.pk === 'tele' && !a.isP && ar.owner) {
+  if (hasPk(ar, 'tele') && !a.isP && ar.owner) {
     ar.owner.tpTag = a.id;
     text(f.x, f.y - 150, 'TAGGED: NEXT ARROW SENDS THEM THERE', '#d58cff', 13, 1.6);
     ring(f.x, f.y - 50, 60, '#d58cff', .6, 3);
   }
-  if (ar.pk === 'ice' && !a.isP) { a.frozen = 3.5; a.aiAim = null; a.pow = 0; text(f.x, f.y - 132, 'FROZEN', '#bfe9ff', 14, .9); }
-  if (ar.pk === 'fire') for (let i = 0; i < 8; i++) st.parts.push({ x: ar.x, y: ar.y, vx: rand(-80, 80), vy: rand(-160, 0), life: .5, max: .5, r: 2.4, col: '#ff9a45' });
-  if (ar.pk === 'storm' && !a.isP) {
+  if (hasPk(ar, 'ice') && !a.isP) { a.frozen = 3.5; a.aiAim = null; a.pow = 0; text(f.x, f.y - 132, 'FROZEN', '#bfe9ff', 14, .9); }
+  if (hasPk(ar, 'fire')) for (let i = 0; i < 8; i++) st.parts.push({ x: ar.x, y: ar.y, vx: rand(-80, 80), vy: rand(-160, 0), life: .5, max: .5, r: 2.4, col: '#ff9a45' });
+  if (hasPk(ar, 'storm') && !a.isP) {
     for (const o of st.enemies) {
       if (o === a || o.dead) continue;
       const of = feet(o); o.hp -= 18; o.hitT = .15;
@@ -896,7 +947,7 @@ function onHit(ar, a, z) {
     sfx('zap');
   }
   if (a.hp <= 0) kill(a, ar, z);
-  if (ar.pk === 'boom') blast(ar.x, ar.y, ar.owner);
+  if (hasPk(ar, 'boom')) blast(ar.x, ar.y, ar.owner);
 }
 function kill(a, ar, z) {
   if (a.up && a.up.revive > 0) {
@@ -950,6 +1001,74 @@ function clearLevel() {
 }
 
 /* ---------- tornado, black hole, toppling, cover ---------- */
+// meteor shower: rocks fall at a slant around where the arrow landed and hurt EVERYONE they hit (the whole team too)
+function spawnShower(x, dir, by) {
+  (st.showers = st.showers || []).push({ x, dir, n: 16, next: .35, by });
+  st.flashA = .35; st.flashC = '255,140,60';
+  text(x, -260, 'METEOR SHOWER!', '#ff7b3a', 22, 1.8); sfx('void'); shake(6);
+}
+function meteorHit(R) {
+  const x = R.x, y = R.y, by = R.by || null;
+  glow(x, y, 120, 'rgba(255,140,60,', .35); ring(x, y, 90, '#ffb347', .45, 5); ring(x, y, 55, '#ff5a2e', .3, 3);
+  for (let i = 0; i < 14; i++) P_(x, y, rand(-200, 200), rand(-260, -20), rand(.4, .9), rand(2.5, 5), ['#ff9a45', '#ffd27a', '#ff5a2e'][i % 3], 'flame');
+  for (let i = 0; i < 6; i++) P_(x, y, rand(-120, 120), rand(-160, -30), rand(.6, 1.1), rand(4, 7), 'rgba(70,55,60,.8)', 'smoke');
+  shake(6); sfx('boom');
+  for (const a of [...st.players.filter(inPlay), ...st.helpers, ...st.enemies]) {
+    if (a.dead) continue;
+    const f = feet(a), d = Math.hypot(f.x - x, f.y - 55 - y);
+    if (d < 95) {
+      const dmg = Math.round(34 * (1 - d / 125) * (a.isP && a.up ? 1 - (a.up.armour || 0) : 1));
+      a.hp -= dmg; a.hitT = .12;
+      if (!a.isP && by) a.lastBy = by;
+      text(f.x, f.y - 104, '-' + dmg, a.isP ? '#ff5a4e' : '#ffd27a', 18, .9);
+      if (a.hp <= 0) kill(a, { vx: f.x - x || 1, owner: by }, 'body');
+    }
+  }
+  for (const e of st.enemies) {
+    if (e.dead || e.ship) continue;
+    if (e.cover && Math.abs(e.x - e.pw / 2 + 4 - x) < 70 && Math.abs(-e.h - 29 - y) < 80) damageCover(e, 2);
+    if (e.chops && Math.abs(x - e.x) < e.pw / 2 + 14 && y > -e.h - 12 && y < -8) chopPillar(e, { x, y, owner: by });   // cracks towers
+  }
+  for (const m of st.marchers) { if (m.dead) continue; const d = Math.hypot(m.x - x, -50 * m.s - y); if (d < 100) hurtMarcher(m, 40 * (1 - d / 125)); }
+}
+function updateMeteors(dt) {
+  st.showers = st.showers || []; st.rocks = st.rocks || [];
+  for (const S of st.showers) {
+    S.next -= dt;
+    while (S.next <= 0 && S.n > 0) {
+      S.n--; S.next += rand(.07, .2);
+      const tx = S.x + rand(-240, 240), y0 = topY() - 120, slant = rand(.28, .42), sp = rand(780, 920);
+      const ang = Math.atan(slant), hgt = -y0;
+      st.rocks.push({ x: tx - S.dir * hgt * slant, y: y0, vx: S.dir * Math.sin(ang) * sp, vy: Math.cos(ang) * sp, r: rand(7, 12), spin: rand(0, 6), by: S.by });
+    }
+  }
+  st.showers = st.showers.filter(S => S.n > 0);
+  for (const R of st.rocks) {
+    R.vy += G * .3 * dt; R.x += R.vx * dt; R.y += R.vy * dt; R.spin += dt * 6;
+    let hit = R.y >= 0;
+    for (const a of [...st.players.filter(inPlay), ...st.helpers, ...st.enemies]) {
+      if (hit || a.dead) break;
+      const f = feet(a);
+      if (Math.hypot(f.x - R.x, f.y - 50 - R.y) < 34) hit = true;
+      else if (!a.ship && !a.topple && Math.abs(R.x - a.x) < a.pw / 2 && R.y > -a.h) hit = true;   // lands on a tower
+    }
+    if (hit) { R.done = true; meteorHit(R); }
+  }
+  st.rocks = st.rocks.filter(R => !R.done);
+}
+function drawMeteors() {
+  for (const R of st.rocks || []) {
+    const x = SX(R.x), y = SY(R.y), r = R.r * sc, sp = Math.hypot(R.vx, R.vy) || 1, ux = R.vx / sp, uy = R.vy / sp;
+    if (Math.random() < .8) LP_(R.x, R.y, rand(-30, 30), rand(-60, 0), rand(.25, .45), rand(2, 4), Math.random() < .5 ? '#ff9a45' : '#ffd27a', 'flame');
+    const tg = ctx.createLinearGradient(x, y, x - ux * 90 * sc, y - uy * 90 * sc);
+    tg.addColorStop(0, 'rgba(255,170,80,.9)'); tg.addColorStop(1, 'rgba(255,90,40,0)');
+    ctx.strokeStyle = tg; ctx.lineWidth = r * 1.6; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - ux * 90 * sc, y - uy * 90 * sc); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,150,60,.35)'; ctx.beginPath(); ctx.arc(x, y, r * 2, 0, 6.283); ctx.fill();
+    ctx.fillStyle = '#4a3226'; ctx.beginPath(); ctx.arc(x, y, r, 0, 6.283); ctx.fill();
+    ctx.fillStyle = '#ff9a45'; ctx.beginPath(); ctx.arc(x + Math.cos(R.spin) * r * .4, y + Math.sin(R.spin) * r * .4, r * .35, 0, 6.283); ctx.fill();
+  }
+}
 function spawnTornado(x, dir, by) {
   st.tornados.push({ x, dir, life: 4.5, max: 4.5, t: 0, hitG: new Set(), by });
   text(x, -120, 'TORNADO!', '#d6e4f0', 18, 1.2); sfx('whoosh');
@@ -1053,8 +1172,8 @@ function coverHit(ar) {
     if (Math.abs(ar.x - x) < 6 && ar.y > top && ar.y < -e.h) {
       ar.done = true;
       impactFX(ar, ar.x, ar.y, false);
-      damageCover(e, ar.pk === 'boom' ? 3 : 1);
-      if (ar.pk === 'boom') blast(ar.x, ar.y, ar.owner);
+      damageCover(e, hasPk(ar, 'boom') ? 3 : 1);
+      if (hasPk(ar, 'boom')) blast(ar.x, ar.y, ar.owner);
       if (e.cover) st.pinned.push({ x: ar.x, y: ar.y, ang: Math.atan2(ar.vy, ar.vx), col: ar.col });
       return true;
     }
@@ -1277,21 +1396,21 @@ function onMarcherHit(ar, m, z) {
     ar.done = true;
     for (let i = 0; i < 8; i++) P_(ar.x, ar.y, rand(20, 180), rand(-160, 20), .35, 2.2, '#e8e8f0', 'spark');
     text(m.x, -110 * m.s, 'BLOCKED', '#c9ccd6', 12, .7); sfx('thud');
-    if (ar.pk === 'boom') blast(ar.x, ar.y, ar.owner);
+    if (hasPk(ar, 'boom')) blast(ar.x, ar.y, ar.owner);
     return;
   }
   const base = z === 'head' ? 48 : z === 'body' ? 26 : 15;
   const p = mLocal(m, ar.x, ar.y);
   m.stuck.push({ x: p.x, y: p.y, ang: Math.atan2(ar.vy, ar.vx) });
-  if (ar.pk === 'pierce') (ar.mhit = ar.mhit || new Set()).add(m); else ar.done = true;
+  if (hasPk(ar, 'pierce')) (ar.mhit = ar.mhit || new Set()).add(m); else ar.done = true;
   blood(ar.x, ar.y, ar.vx, ar.vy, z === 'head' ? 14 : 8);
   impactFX(ar, ar.x, ar.y, true);
   if (z === 'head') text(m.x, -128 * m.s, 'HEADSHOT', '#ff5a4e', 14, .9);
-  if (ar.pk === 'fire') m.burn = 3.5;
-  if (ar.pk === 'ice') m.frozen = 4;
+  if (hasPk(ar, 'fire')) m.burn = 3.5;
+  if (hasPk(ar, 'ice')) m.frozen = 4;
   hurtMarcher(m, base * rand(.9, 1.15) * (ar.dmgMul || 1), ar);
   sfx(z === 'head' ? 'head' : 'hit');
-  if (ar.pk === 'boom') blast(ar.x, ar.y, ar.owner);
+  if (hasPk(ar, 'boom')) blast(ar.x, ar.y, ar.owner);
 }
 function updateMarchers(dt) {
   st.marchT += dt;
@@ -1400,10 +1519,10 @@ function shipStep(E, dt) {
   if (E.h > ceil + 4) E.h -= (E.h - ceil) * Math.min(1, dt * 2);
 }
 function hitBalloon(E, ar) {
-  const S = E.ship, d = ar.pk === 'boom' ? 30 : 8;
+  const S = E.ship, d = hasPk(ar, 'boom') ? 30 : 8;
   E.hp -= d; E.hitT = .1;
   const by = ownerOf(ar.owner); if (by) E.lastBy = by;
-  S.leak = Math.min(LEAK_MAX, S.leak + (ar.pk === 'boom' ? 2 : 1));
+  S.leak = Math.min(LEAK_MAX, S.leak + (hasPk(ar, 'boom') ? 2 : 1));
   text(ar.x, ar.y - 10, 'BALLOON -' + d, '#ffd27a', 14, .8);
   if (S.leak >= LEAK_MAX && !S.sinking) {
     S.sinking = true; S.vx = 0; S.vh = 0;
@@ -1434,12 +1553,13 @@ function playerFire(P, aim, pow) {
   if (!running || !st || st.shop || !inPlay(P) || P.reload > 0 || !(pow > .1)) return;
   aim = clamp(aim, -Math.PI, Math.PI); pow = clamp(pow, 0, 1);
   P.aim = aim; P.f = Math.cos(aim) < 0 ? -1 : 1;
-  const pk = P.power ? P.power.k : null, n0 = st.arrows.length;
-  fire(P, aim, 300 + pow * 1100, pk);
+  const pk = P.power ? P.power.k : null, pk2 = P.power ? P.power.k2 || null : null, n0 = st.arrows.length;
+  fire(P, aim, 300 + pow * 1100, pk, pk2);
+  if ((pk === 'cluster' || pk2 === 'cluster') && (P.splitHints = (P.splitHints || 0) + 1) <= 3) text(feet(P).x, feet(P).y - 150, 'TAP THE SCREEN TO SPLIT IT', '#ffb3f0', 14, 1.6);
   const vol = { alive: st.arrows.length - n0, hits: 0, by: P };
   for (let q = n0; q < st.arrows.length; q++) st.arrows[q].vol = vol;
-  if (P.power && --P.power.shots <= 0) { text(feet(P).x, feet(P).y - 130, POWERS[P.power.k].short + ' EMPTY', '#f6eedf', 14, 1); P.quiver = (P.quiver || []).filter(o => o !== P.power); P.power = null; }
-  P.reload = (pk === 'rapid' ? .2 : .55) * P.up.reloadMul; P.lastShot = { p: pow, a: aim }; P.pow = 0;
+  if (P.power && --P.power.shots <= 0) { text(feet(P).x, feet(P).y - 130, powShort(P.power) + ' EMPTY', '#f6eedf', 14, 1); P.quiver = (P.quiver || []).filter(o => o !== P.power); P.power = null; }
+  P.reload = (pk === 'rapid' || pk2 === 'rapid' ? .2 : .55) * P.up.reloadMul; P.lastShot = { p: pow, a: aim }; P.pow = 0;
 }
 function doPing(P, x, y) {
   if (!st || P.pingT > st.t) return;
@@ -1545,6 +1665,7 @@ function update(rdt) {
     }
   }
   updateVortices(dt);
+  updateMeteors(dt);
   updateWeather(dt);
   if (st.nextT <= 0 && st.overT <= 0 && anyAlive && st.enemies.every(e => e.dead)) clearLevel();
   // gadgets ease towards their targets
@@ -1576,7 +1697,7 @@ function update(rdt) {
       ar.vx += st.wind * sdt; ar.vy += G * sdt; ar.x += ar.vx * sdt; ar.y += ar.vy * sdt;
       if (ar.portT > 0) ar.portT -= sdt;
       if (ar.bounceT > 0) ar.bounceT -= sdt;
-      if (ar.pk === 'homing' && ar.owner.isP && !ar.owner.helper) {
+      if (hasPk(ar, 'homing') && ar.owner.isP && !ar.owner.helper) {
         let tg = null, bd = 520;
         const hd = Math.sign(ar.vx) || 1;
         for (const E of st.enemies) { if (E.dead) continue; const f = feet(E), d = Math.hypot(f.x - ar.x, f.y - 60 - ar.y); if (d < bd && (f.x - ar.x) * hd > -40) { bd = d; tg = f; } }
@@ -1588,14 +1709,7 @@ function update(rdt) {
           if (Math.random() < .2) st.parts.push({ x: ar.x, y: ar.y, vx: 0, vy: 0, life: .3, max: .3, r: 2, col: '#ff8ad8' });
         }
       }
-      if (ar.pk === 'cluster' && !ar.split && ar.vy > 0) {
-        ar.split = true;
-        const sp = Math.hypot(ar.vx, ar.vy), base = Math.atan2(ar.vy, ar.vx);
-        for (const off of [-.28, -.14, .14, .28]) st.arrows.push({ x: ar.x, y: ar.y, vx: Math.cos(base + off) * sp, vy: Math.sin(base + off) * sp, owner: ar.owner, done: false, via: new Set(ar.via), pk: null, dmgMul: .8, col: '#ffb3f0', vol: ar.vol, sx: ar.sx, sy: ar.sy });
-        if (ar.vol) ar.vol.alive += 4;
-        for (let q = 0; q < 10; q++) st.parts.push({ x: ar.x, y: ar.y, vx: rand(-120, 120), vy: rand(-120, 120), life: .3, max: .3, r: 2, col: '#ffb3f0' });
-        sfx('click');
-      }
+      if (hasPk(ar, 'cluster') && !ar.split && !ar.owner.isP && ar.vy > 0) splitCluster(ar);
       gadgetStep(ar, sdt);
       if (ar.done) break;
       if (ar.owner.isP) {
@@ -1635,7 +1749,7 @@ function update(rdt) {
           if (!B || !inPlay(p)) continue;
           const bx = barrierX(p);
           if (Math.abs(ar.x - bx) < 7 && ar.y > barrierTop(p) && ar.y < barrierBot(p)) {
-            const dmg = ar.pk === 'boom' ? 40 : 20;
+            const dmg = hasPk(ar, 'boom') ? 40 : 20;
             B.hp -= dmg; B.hitT = .15; ar.done = true; blocked = true;
             text(bx, ar.y - 14, '-' + dmg, '#8fc8ff', 14, .7);
             for (let q = 0; q < 12; q++) st.parts.push({ x: ar.x, y: ar.y, vx: rand(20, 200) * -p.bside, vy: rand(-160, 60), life: .4, max: .4, r: 2.2, col: '#8fc8ff' });
@@ -1661,7 +1775,7 @@ function update(rdt) {
           if (!a.ship) st.pinned.push({ x: ar.x, y: ar.y, ang: Math.atan2(ar.vy, ar.vx), col: ar.col });
           for (let q = 0; q < 6; q++) st.parts.push({ x: ar.x, y: ar.y, vx: rand(-80, 80), vy: rand(-120, -20), life: .35, max: .35, r: 2, col: '#e8d3ac' });
           impactFX(ar, ar.x, ar.y, false);
-          if (ar.pk === 'boom') { if (ar.owner.isP) chopPillar(a, ar); blast(ar.x, ar.y, ar.owner); } else sfx('thud');
+          if (hasPk(ar, 'boom')) { if (ar.owner.isP) chopPillar(a, ar); blast(ar.x, ar.y, ar.owner); } else sfx('thud');
           break;
         }
       }
@@ -1670,7 +1784,7 @@ function update(rdt) {
         st.pinned.push({ x: ar.x, y: -2, ang: Math.atan2(ar.vy, ar.vx), col: ar.col });
         for (let q = 0; q < 6; q++) st.parts.push({ x: ar.x, y: -2, vx: rand(-80, 80), vy: rand(-140, -30), life: .4, max: .4, r: 2, col: '#6a5470' });
         impactFX(ar, ar.x, -2, false);
-        if (ar.pk === 'boom') blast(ar.x, ar.y, ar.owner); else sfx('thud');
+        if (hasPk(ar, 'boom')) blast(ar.x, ar.y, ar.owner); else sfx('thud');
       }
       if (ar.x < -900 || ar.x > farX() + 1200) ar.done = true;
     }
@@ -2160,6 +2274,18 @@ function drawGadget(g) {
     ctx.fillStyle = '#7dff9a'; ctx.fillText('+' + g.amt, x, by + r + 4);
     return;
   }
+  if (g.type === 'link') {
+    const by = y + Math.sin(st.t * 2 + g.bob) * 6 * sc, r = 16 * sc, pulse = .5 + .5 * Math.sin(st.t * 4);
+    ctx.fillStyle = `rgba(125,255,232,${.15 + .15 * pulse})`; ctx.beginPath(); ctx.arc(x, by, r * 2.1, 0, 6.283); ctx.fill();
+    ctx.fillStyle = '#123a3a'; ctx.beginPath(); ctx.arc(x, by, r + 3 * sc, 0, 6.283); ctx.fill();
+    ctx.strokeStyle = '#7dffe8'; ctx.lineWidth = 3.5 * sc;
+    ctx.save(); ctx.translate(x, by); ctx.rotate(-.6);
+    for (const o of [-1, 1]) { ctx.beginPath(); ctx.ellipse(o * 6 * sc, 0, 8 * sc, 4.5 * sc, 0, 0, 6.283); ctx.stroke(); }
+    ctx.restore();
+    ctx.font = '700 10px Silkscreen, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.fillStyle = '#7dffe8'; ctx.fillText('LINK', x, by + r + 6);
+    return;
+  }
   if (g.type === 'crate') {
     const pw = POWERS[g.pk], by = y + Math.sin(st.t * 2 + g.bob) * 6 * sc, r = 15 * sc;
     ctx.fillStyle = pw.col + '33'; ctx.beginPath(); ctx.arc(x, by, r * 1.9, 0, 6.283); ctx.fill();
@@ -2290,7 +2416,7 @@ function drawPreview() {
   let x = s.x + Math.cos(P.aim) * 24, y = s.y + Math.sin(P.aim) * 24, vx = Math.cos(P.aim) * v, vy = Math.sin(P.aim) * v;
   const dt = 1 / 60;
   ctx.fillStyle = P.reload > 0 ? 'rgba(20,20,20,.3)' : 'rgba(255,255,255,.85)';
-  const scope = P.power && P.power.k === 'scope', N = scope ? 160 : P.up.longAim ? 55 : 22;
+  const scope = P.power && (P.power.k === 'scope' || P.power.k2 === 'scope'), N = scope ? 160 : P.up.longAim ? 55 : 22;
   for (let i = 0; i < N; i++) {
     for (let k = 0; k < 2; k++) { vx += st.wind * dt; vy += G * dt; x += vx * dt; y += vy * dt; }
     if (y > 0) break;
@@ -2368,7 +2494,7 @@ function drawHUD() {
   if (P.power) {
     const pw = POWERS[P.power.k];
     ctx.font = '700 12px Silkscreen, monospace'; ctx.fillStyle = pw.col;
-    ctx.fillText(pw.name + '  ' + P.power.shots + ' LEFT', lx, 78);
+    ctx.fillText(powName(P.power) + '  ' + P.power.shots + ' LEFT', lx, 78);
     for (let q = 0; q < Math.min(P.power.shots, 16); q++) { ctx.fillRect(lx + q * 7, 94, 3, 12); ctx.beginPath(); ctx.moveTo(lx + q * 7 - 1.5, 95); ctx.lineTo(lx + q * 7 + 1.5, 90); ctx.lineTo(lx + q * 7 + 4.5, 95); ctx.fill(); }
     ctx.font = '700 10px Silkscreen, monospace';
   }
@@ -2491,18 +2617,22 @@ function draw() {
     const tg = ctx.createLinearGradient(-36, 0, -110, 0);
     tg.addColorStop(0, ar.col || shaftCol(ar.owner) || 'rgba(255,255,255,.55)'); tg.addColorStop(1, 'rgba(255,255,255,0)');
     ctx.strokeStyle = tg; ctx.lineWidth = 2; ctx.globalAlpha = .6; ctx.beginPath(); ctx.moveTo(-36, 0); ctx.lineTo(-110, 0); ctx.stroke(); ctx.globalAlpha = 1;
-    if (ar.pk === 'fire' && Math.random() < .6) LP_(ar.x, ar.y, rand(-30, 30), rand(-60, 0), .3, 2.2, '#ff9a45');
+    if (hasPk(ar, 'fire') && Math.random() < .6) LP_(ar.x, ar.y, rand(-30, 30), rand(-60, 0), .3, 2.2, '#ff9a45');
     if (ar.magic) {
       ctx.fillStyle = 'rgba(255,140,60,.35)'; ctx.beginPath(); ctx.arc(0, 0, 14, 0, 6.283); ctx.fill();
       ctx.fillStyle = '#ffd27a'; ctx.beginPath(); ctx.arc(0, 0, 7, 0, 6.283); ctx.fill();
       if (Math.random() < .7) LP_(ar.x, ar.y, rand(-30, 30), rand(-60, 0), .35, 3, Math.random() < .5 ? '#ff9a45' : '#ff5a2e', 'flame');
       ctx.restore(); continue;
     }
-    if (ar.pk === 'blackhole' && Math.random() < .5) LP_(ar.x, ar.y, rand(-20, 20), rand(-20, 20), .4, 2, '#b07cff', 'spark');
-    if (ar.pk === 'tornado' && Math.random() < .5) LP_(ar.x, ar.y, rand(-40, 40), rand(-40, 40), .3, 2, '#d6e4f0', 'spark');
+    if (hasPk(ar, 'blackhole') && Math.random() < .5) LP_(ar.x, ar.y, rand(-20, 20), rand(-20, 20), .4, 2, '#b07cff', 'spark');
+    if (hasPk(ar, 'tornado') && Math.random() < .5) LP_(ar.x, ar.y, rand(-40, 40), rand(-40, 40), .3, 2, '#d6e4f0', 'spark');
+    if (hasPk(ar, 'meteor') && Math.random() < .7) LP_(ar.x, ar.y, rand(-30, 30), rand(-50, 10), .35, 2.6, Math.random() < .5 ? '#ff7b3a' : '#ffd27a', 'flame');
+    if (hasPk(ar, 'cluster') && !ar.split && ar.owner === st.P) { ctx.strokeStyle = '#ffb3f0'; ctx.lineWidth = 2; ctx.globalAlpha = .5 + .5 * Math.sin(st.t * 16); ctx.beginPath(); ctx.arc(0, 0, 13, 0, 6.283); ctx.stroke(); ctx.globalAlpha = 1; }
+    if (ar.pk2 && ar.pk2 !== 'cluster') { ctx.fillStyle = POWERS[ar.pk2].col; ctx.beginPath(); ctx.arc(-20, 0, 4, 0, 6.283); ctx.fill(); }
     drawArrowShape(34, ar.col, shaftCol(ar.owner)); ctx.restore();
   }
   drawVortices();
+  drawMeteors();
   for (const g of st.gadgets) if (g.type === 'cloud') drawCloud(g);
   const ps = Math.max(.8, sc);
   for (const p of st.parts) {
@@ -2689,10 +2819,11 @@ const SHOP_POOL = [
   { id: 'glass', name: 'GLASS MASTER', desc: 'Windows start +1 arrow (whole team)', base: 100, w: .5, max: 3, buy: () => { st.winBonus++; } },
   { id: 'helper', name: 'HELPER ARCHER', desc: '', base: 150, w: .35, once: true, helper: true, buy: (o, P) => { addHelper(P, o.kind); } },
   { id: 'pw_blackhole', name: 'BLACK HOLE', desc: '1 black hole arrow', base: 220, w: .08, once: true, col: '#b07cff', buy: (o, P) => { givePower(P, 'blackhole', 1 + Math.floor(P.up.extraShots / 2)); } },
+  { id: 'pw_meteor', name: 'METEOR SHOWER', desc: '1 arrow: rocks rain down where it lands. They hit everyone, your team too!', base: 320, w: .03, once: true, col: '#ff7b3a', buy: (o, P) => { givePower(P, 'meteor', 1); } },
 ];
 function makeOffers(P) {
   const pool = SHOP_POOL.filter(o => !(o.max && (P.shopBuys[o.id] || 0) >= o.max) && !(o.helper && st.helpers.filter(h => h.owner === P && !h.dead).length >= 2));
-  const keys = Object.keys(POWERS).filter(k => k !== 'shield' && k !== 'blackhole');
+  const keys = Object.keys(POWERS).filter(k => k !== 'shield' && k !== 'blackhole' && k !== 'meteor');
   for (const k of keys) pool.push({ id: 'pw_' + k, name: POWERS[k].name, desc: (POWERS[k].shots + P.up.extraShots) + ' arrows to start the level', base: 35, w: .45, once: true, col: POWERS[k].col,
     buy: (o, P2) => { givePower(P2, k, POWERS[k].shots + P2.up.extraShots); } });
   // weighted pick of 6: not everything shows up every visit
@@ -2714,7 +2845,7 @@ function makeOffers(P) {
 // every item the armoury can ever sell (the ones not on sale this visit are shown greyed out)
 function shopCatalog(P) {
   const all = SHOP_POOL.map(o => o.helper ? Object.assign({}, o, { name: 'HELPER ARCHER', desc: 'Stands beside you and shoots at random enemies', col: P.col }) : o);
-  for (const k of Object.keys(POWERS)) if (k !== 'shield' && k !== 'blackhole')
+  for (const k of Object.keys(POWERS)) if (k !== 'shield' && k !== 'blackhole' && k !== 'meteor')
     all.push({ id: 'pw_' + k, name: POWERS[k].name, desc: (POWERS[k].shots + P.up.extraShots) + ' arrows to start the level', col: POWERS[k].col });
   return all;
 }
@@ -2869,7 +3000,7 @@ const QUIVER_SLOTS = 3;
 // host only: add arrows of type k to player P
 function givePower(P, k, n) {
   P.quiver = P.quiver || [];
-  let q = P.quiver.find(o => o.k === k);
+  let q = P.quiver.find(o => o.k === k && !o.k2);
   if (q) q.shots += n;
   else {
     if (P.quiver.length >= QUIVER_SLOTS) {   // full: the type with the fewest arrows left is dropped
@@ -2882,41 +3013,76 @@ function givePower(P, k, n) {
   }
   P.power = q;   // a new pickup is loaded straight away
 }
+// host only: join two of P's quiver slots into one arrow that does both (uses one link)
+function linkSlots(P, i, j) {
+  let a = P.quiver[i], b = P.quiver[j];
+  if (!a || !b || a === b || a.k2 || b.k2) return;
+  if (b.k === 'cluster') [a, b] = [b, a];   // cluster first, so its split arrows carry the other power
+  const rare = k => POWERS[k].ultra || POWERS[k].mega;   // black hole / meteor stay one-offs
+  const q = { k: a.k, k2: b.k, shots: rare(a.k) || rare(b.k) ? Math.min(a.shots, b.shots) : Math.max(a.shots, b.shots) };
+  P.quiver = P.quiver.filter(o => o !== a && o !== b); P.quiver.splice(Math.min(i, j), 0, q);
+  P.power = q; P.links--; P.linking = false; P.linkA = -1;
+  const f = feet(P);
+  text(f.x, f.y - 150, 'LINKED: ' + powShort(q), '#7dffe8', 18, 1.8);
+  ring(f.x, f.y - 60, 70, '#7dffe8', .6, 3); sfx('heal');
+}
+function linkTap(P, i) {
+  const q = (P.quiver || [])[i];
+  if (!q || q.k2) return;
+  if (P.linkA < 0 || P.linkA === i) { P.linkA = P.linkA === i ? -1 : i; return; }
+  linkSlots(P, P.linkA, i);
+}
+function toggleLink(P) {
+  if (!P || !P.links) return;
+  if (P.linking) { P.linking = false; P.linkA = -1; return; }
+  if ((P.quiver || []).filter(o => !o.k2).length < 2) { text(feet(P).x, feet(P).y - 150, 'NEED 2 ARROW TYPES TO LINK', '#7dffe8', 14, 1.6); return; }
+  P.linking = true; P.linkA = -1;
+}
 // host only: load slot i for player P (-1 = plain arrows)
 function pickSlot(P, i) {
   if (!P) return;
+  if (P.linking) { if (i >= 0) linkTap(P, i); return; }
   const q = i >= 0 ? (P.quiver || [])[i] : null;
   if (i >= 0 && !q) return;
   P.power = q;
 }
 // guests get copies of the objects, so the loaded slot is matched by arrow type
-const loadedSlot = P => P.power ? (P.quiver || []).findIndex(o => o.k === P.power.k) : -1;
+const loadedSlot = P => P.power ? (P.quiver || []).findIndex(o => o.k === P.power.k && (o.k2 || null) === (P.power.k2 || null)) : -1;
 function tapSlot(i) {
   if (!st || !st.P) return;
   sfx('click', true);
   if (isHost()) pickSlot(st.P, i);
-  else { const q = i >= 0 ? (st.P.quiver || [])[i] : null; st.P.power = q || null; sendHost({ t: 'pick', i }); }
+  else { if (!st.P.linking) { const q = i >= 0 ? (st.P.quiver || [])[i] : null; st.P.power = q || null; } sendHost({ t: 'pick', i }); }
+}
+function tapLink() {
+  if (!st || !st.P) return;
+  sfx('click', true);
+  if (isHost()) toggleLink(st.P); else sendHost({ t: 'link' });
 }
 let quiverSig = '';
 function drawQuiver() {
   const box = $('quiver'), on = !!(running && st && st.P && !st.shop && !st.clockOpen && inPlay(st.P));
   if (box.hidden === on) box.hidden = !on;
   if (!on) return;
-  const Q = st.P.quiver || [], sel = loadedSlot(st.P);
-  const sig = Q.map(o => o.k + o.shots).join() + '|' + sel;
+  const Q = st.P.quiver || [], sel = loadedSlot(st.P), L = !!st.P.linking, LA = st.P.linkA == null ? -1 : st.P.linkA, LN = st.P.links || 0;
+  box.classList.toggle('linking', L);
+  const sig = Q.map(o => o.k + (o.k2 || '') + o.shots).join() + '|' + sel + '|' + LN + L + LA;
   if (sig === quiverSig) return;
   quiverSig = sig;
-  let h = `<button type="button" data-i="-1" class="${sel < 0 ? 'on' : ''}"><i class="qi">➶</i><span>PLAIN</span><small>∞</small></button>`;
+  let h = L ? `<div class="qhint">LINKING: TAP 2 ARROW TYPES TO JOIN THEM</div>` : '';
+  h += `<button type="button" data-i="-1" class="${sel < 0 && !L ? 'on' : ''}"${L ? ' disabled' : ''}><i class="qi">➶</i><span>PLAIN</span><small>∞</small></button>`;
   for (let i = 0; i < QUIVER_SLOTS; i++) {
     const o = Q[i];
-    h += o ? `<button type="button" data-i="${i}" class="${sel === i ? 'on' : ''}"><i class="qi">${ICON['pw_' + o.k] || ''}</i><span style="color:${POWERS[o.k].col}">${POWERS[o.k].short}</span><small>×${o.shots}</small></button>`
+    const cls = L ? (LA === i ? 'on' : o && o.k2 ? 'empty' : 'pickme') : sel === i ? 'on' : '';
+    h += o ? `<button type="button" data-i="${i}" class="${cls}"${L && o.k2 ? ' disabled' : ''}><i class="qi">${ICON['pw_' + o.k] || ''}${o.k2 ? ICON['pw_' + o.k2] || '' : ''}</i><span style="color:${POWERS[o.k].col}">${powShort(o)}</span><small>×${o.shots}</small></button>`
            : `<button type="button" class="empty" disabled><i class="qi">·</i><span>EMPTY</span><small>—</small></button>`;
   }
+  if (LN) h += `<button type="button" data-link="1" class="link${L ? ' on' : ''}"><i class="qi">🔗</i><span>${L ? 'CANCEL' : 'LINK'}</span><small>×${LN}</small></button>`;
   box.innerHTML = h;
 }
 $('quiver').addEventListener('pointerdown', e => e.stopPropagation());
-$('quiver').addEventListener('click', e => { const b = e.target.closest('button[data-i]'); if (b) tapSlot(+b.dataset.i); });
-addEventListener('keydown', e => { const n = +e.key; if (running && n >= 1 && n <= 4 && !(e.target && e.target.tagName === 'INPUT')) tapSlot(n - 2); });
+$('quiver').addEventListener('click', e => { if (e.target.closest('button[data-link]')) { tapLink(); return; } const b = e.target.closest('button[data-i]'); if (b) tapSlot(+b.dataset.i); });
+addEventListener('keydown', e => { if (e.target && e.target.tagName === 'INPUT') return; const n = +e.key; if (running && n >= 1 && n <= 4) tapSlot(n - 2); else if (running && (e.key === 'l' || e.key === 'L')) tapLink(); });
 
 /* ---------- input ---------- */
 /* ---------- pinch with two fingers (or the mouse wheel) to zoom in and out ---------- */
@@ -3021,7 +3187,9 @@ function release(e) {
     return;
   }
   const P = st.P;
-  if (inPlay(P) && P.pow > .1 && P.reload <= 0) {
+  if (inPlay(P) && !(P.pow > .1)) {   // a tap (no pull) bursts your cluster arrows in the air
+    if (isHost()) splitFor(P); else sendHost({ t: 'split' });
+  } else if (inPlay(P) && P.pow > .1 && P.reload <= 0) {
     if (isHost()) playerFire(P, P.aim, P.pow);
     else { sendHost({ t: 'fire', a: P.aim, p: P.pow }); P.reload = .3; P.lastShot = { p: P.pow, a: P.aim }; }
     CAM.home = false; hintOn = false;
@@ -3241,6 +3409,8 @@ function onGuestMsg(c, raw) {
   else if (m.t === 'ping') { const x = num(m.x), y = num(m.y); if (x !== null && y !== null) doPing(P, x, clamp(y, -400, 0)); }
   else if (m.t === 'buy') shopBuy(P, String(m.id));
   else if (m.t === 'pick') { const i = num(m.i); if (i !== null) pickSlot(P, Math.round(i)); }
+  else if (m.t === 'split') { if (inPlay(P)) splitFor(P); }
+  else if (m.t === 'link') toggleLink(P);
   else if (m.t === 'ready') setReady(P);
   else if (m.t === 'clock') { if (st.clockOpen && st.clockBy === P.id) setTime(num(m.v) || 1); }
 }
@@ -3330,7 +3500,7 @@ function onHostMsg(raw) {
   else if (m.t === 'over') showOver(m);
 }
 function guestState() {
-  return { players: [], helpers: [], enemies: [], arrows: [], gadgets: [], pinned: [], parts: [], texts: [], rings: [], glows: [], bolts: [], fires: [], tornados: [], holes: [],
+  return { players: [], helpers: [], enemies: [], arrows: [], gadgets: [], pinned: [], parts: [], texts: [], rings: [], glows: [], bolts: [], fires: [], tornados: [], holes: [], rocks: [], showers: [],
     marchers: [], allies: [], marchQ: [], level: 1, t: 0, wind: 0, weather: 'clear', timeScale: 1, slow: 0, shake: 0, flashA: 0, flashC: '255,255,255', banner: null,
     nextT: 0, overT: 0, shop: false, clockOpen: false, clockBy: null, P: SPEC_P };
 }
@@ -3360,7 +3530,7 @@ function applySnap(m) {
   if (drag && !drag.spec && inPlay(st.P)) { st.P.aim = NET.myAim; st.P.pow = NET.myPow; st.P.f = Math.cos(st.P.aim) < 0 ? -1 : 1; }
   st.pinned = (m.pin || []).map(p => Object.assign(p, { g: p.gid ? NET.gads.get(p.gid) || null : null }));
   st.arrows = (m.ar || []).map(a => Object.assign(a, { owner: NET.objs.get(a.o) || { isP: false }, bx: a.x, by: a.y, bvx: a.vx, bvy: a.vy }));
-  st.tornados = m.tn || []; st.holes = m.bh || []; st.fires = m.fi || [];
+  st.tornados = m.tn || []; st.holes = m.bh || []; st.fires = m.fi || []; st.rocks = m.rk || [];
   const fx = m.fx || {};
   for (const p of fx.p || []) if (st.parts.length < 900) st.parts.push({ x: p[0], y: p[1], vx: p[2], vy: p[3], life: p[4], max: p[5], r: p[6], col: p[7], kind: p[8] || undefined });
   for (const r of fx.r || []) st.rings.push(r);
@@ -3429,7 +3599,8 @@ function netTick(rdt) {
   m.pl = st.players.map(packA); m.en = st.enemies.map(packA); m.hp = st.helpers.map(packA);
   m.gd = st.gadgets.map(g => pack(g, SKIP_G));
   m.pin = st.pinned.map(p => ({ x: p.x, y: p.y, ang: p.ang, col: p.col, gid: p.g ? p.g.id : 0 }));
-  m.ar = st.arrows.filter(a => !a.done).map(a => ({ x: a.x, y: a.y, vx: a.vx, vy: a.vy, o: a.owner ? a.owner.id : 0, col: a.col, pk: a.pk, magic: a.magic, tm: a.tm }));
+  m.ar = st.arrows.filter(a => !a.done).map(a => ({ x: a.x, y: a.y, vx: a.vx, vy: a.vy, o: a.owner ? a.owner.id : 0, col: a.col, pk: a.pk, pk2: a.pk2, split: a.split, magic: a.magic, tm: a.tm }));
+  m.rk = (st.rocks || []).map(R => ({ x: R.x, y: R.y, vx: R.vx, vy: R.vy, r: R.r, spin: R.spin }));
   m.tn = st.tornados.map(T => pack(T, new Set(['hitG', 'by'])));
   m.bh = st.holes.map(B => pack(B, new Set(['by'])));
   m.fi = st.fires.map(f => ({ x: f.x, y: f.y, life: f.life }));
