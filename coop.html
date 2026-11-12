@@ -332,7 +332,7 @@ function spawnLevel(first) {
   const lv = st.level, np = Math.max(1, st.players.length), n = Math.min(lv, 20) + Math.min(4, np - 1);   // one more enemy every level (up to 20 + team bonus)
   st.enemies = [];
   // everyone, including anyone who joined mid-game, stands somewhere random on the field
-  const span = 1700 + Math.min(lv, 10) * 50 + (np - 1) * 350, pxs = [];
+  const span = 2100 + Math.min(lv, 10) * 50 + (np - 1) * 450, pxs = [];
   for (const p of st.players) {
     let x = 0;
     for (let tries = 0; tries < 60; tries++) { x = rand(0, span); if (pxs.every(o => Math.abs(o - x) > 170)) break; }
@@ -341,7 +341,7 @@ function spawnLevel(first) {
   }
   // enemies: not too close to any player, not on top of each other
   // big crowds stand closer together, and every enemy stays within bow range of someone
-  const gap = Math.max(70, 125 - Math.max(0, n - 8) * 5), reach = x => pxs.some(o => Math.abs(o - x) < 2300);
+  const gap = Math.max(80, 170 - Math.max(0, n - 8) * 6), reach = x => pxs.some(o => Math.abs(o - x) < 2300);
   const xs = [], clear = x => pxs.every(o => Math.abs(o - x) > 330) && xs.every(o => Math.abs(o - x) > gap) && reach(x);
   for (let i = 0; i < n; i++) {
     let x = 0, ok = false, best = null, bestGap = -1;
@@ -399,7 +399,7 @@ function spawnLevel(first) {
 }
 
 /* ---------- gadgets: fans, windows, health ---------- */
-const gadgetCap = () => Math.min(9, 4 + Math.floor(st.level / 3) + Math.floor((st.players.length - 1) / 2));   // most things in the level at once (portals not counted)
+const gadgetCap = () => Math.min(7, 3 + Math.floor(st.level / 4) + Math.floor((st.players.length - 1) / 2));   // most things in the level at once (portals not counted)
 const gLeft = () => fieldL() + 160;
 const FIRST_WIN = () => null;
 const EXTRA_PICKUPS = () => Math.floor((st.players.length - 1) / 2);
@@ -411,7 +411,7 @@ function gadgetSpot(type, near) {
   for (let tries = 0; tries < 40; tries++) {
     x = near ? rand(near[0], near[1]) : rand(L + 100, Math.max(L + 200, far - 120));
     y = type === 'cloud' ? rand(Math.max(-310, topY() + 40), -230) : rand(Math.max(-310, topY() + 60), -140);
-    if (st.gadgets.every(o => o.gone || Math.abs(o.tx - x) > 200 || Math.abs(o.ty - y) > 170)) break;
+    if (st.gadgets.every(o => o.gone || Math.abs(o.tx - x) > 320 || Math.abs(o.ty - y) > 190)) break;
   }
   return { x, y };
 }
@@ -471,7 +471,7 @@ function spawnGadgets() {
   if (st.level >= 3 && Math.random() < .3) addGadget('link');
   // then field gadgets up to the limit for this level (at least 2); more turn up during the level
   let field = 1;
-  for (let guard = 0; (st.gadgets.length < cap || field < 2) && guard < 20; guard++) { addGadget(pickGadgetType(null, true)); field++; }
+  for (let guard = 0; st.gadgets.length < cap && guard < 20; guard++) { addGadget(pickGadgetType(null, true)); field++; }
   const L = fieldL() - 100;
   // portal pair (from level 2)
   if (st.level >= 2 && Math.random() < .6) {
@@ -557,7 +557,7 @@ function relocate(g) {
   let x = 0, y = 0;
   for (let tries = 0; tries < 20; tries++) {
     x = rand(fieldL() + 120, far - 140); y = rand(Math.max(-310, topY() + 100), -150);
-    if (st.gadgets.every(o => o === g || Math.abs(o.tx - x) > 190 || Math.abs(o.ty - y) > 160)) break;
+    if (st.gadgets.every(o => o === g || Math.abs(o.tx - x) > 300 || Math.abs(o.ty - y) > 180)) break;
   }
   g.tx = x; g.ty = y;
   if (g.type === 'fan') g.tang = FAN_ANGS[Math.floor(Math.random() * FAN_ANGS.length)];

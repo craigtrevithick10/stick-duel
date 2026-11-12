@@ -258,25 +258,37 @@ function spawnLevel(first) {
   const lv = st.level, n = Math.min(lv, 6);
   st.enemies = [];
   // each archer gets its own random spot: some close, some far
-  const xs = [], maxX = 1700 + Math.min(lv, 10) * 50;
+  const xs = [], maxX = 2000 + Math.min(lv, 10) * 35;   // furthest spot stays inside bow range
   for (let i = 0; i < n; i++) {
-    let x = 0;
-    for (let tries = 0; tries < 40; tries++) {
+    let x = 0, best = 0, bestGap = -1;   // if no spot is clear, take the one with the most room
+    for (let tries = 0; tries < 60; tries++) {
       const r = Math.random();
-      x = r < .3 ? rand(520, 820) : r < .65 ? rand(820, 1250) : rand(1250, maxX);
-      if (xs.every(o => Math.abs(o - x) > 120)) break;
+      x = r < .3 ? rand(560, 950) : r < .65 ? rand(950, 1550) : rand(1550, maxX);
+      const g = xs.length ? Math.min(...xs.map(o => Math.abs(o - x))) : 1e9;
+      if (g > bestGap) { bestGap = g; best = x; }
+      if (g > 200) break;
     }
-    xs.push(x);
+    xs.push(best);
   }
   xs.sort((a, b) => a - b);
   const bossLv = lv % 5 === 0;
+  // the boss ship stays within 1700 and gets its own clear spot
+  if (bossLv && xs[n - 1] > 1700) {
+    let bx = 1700, bestGap = -1;
+    for (let tries = 0; tries < 60; tries++) {
+      const c = rand(800, 1700), g = Math.min(...xs.slice(0, n - 1).map(o => Math.abs(o - c)), 1e9);
+      if (g > bestGap) { bestGap = g; bx = c; }
+      if (g > 200) break;
+    }
+    xs[n - 1] = bx; const b = xs.pop(); xs.sort((a, c) => a - c); xs.push(b);
+  }
   for (let i = 0; i < n; i++) {
     const boss = bossLv && i === n - 1;
     const hp = Math.round((50 + lv * 8) * (boss ? 1.8 : 1));
     const e = mkArcher(xs[i], rand(60, 205), -1, hp, false, 54);
     e.name = boss ? 'BOSS' : NAMES[(lv * 3 + i) % NAMES.length];
     e.boss = boss; e.chops = []; e.kind = 'archer';
-    if (boss) { const bx = Math.min(xs[i], 1400); e.ship = { baseX: bx, ph: rand(0, 6), tx: bx, th: 120, vx: 0, vh: 0, wT: 0, leak: 0, puffT: 0, sinking: false, down: false }; e.x = bx; e.h = rand(110, 130); e.pw = 70; }
+    if (boss) { const bx = Math.min(xs[i], 1700); e.ship = { baseX: bx, ph: rand(0, 6), tx: bx, th: 120, vx: 0, vh: 0, wT: 0, leak: 0, puffT: 0, sinking: false, down: false }; e.x = bx; e.h = rand(110, 130); e.pw = 70; }
     else if (lv >= 3) {
       const r = Math.random();
       if (lv >= 5 && n >= 2 && r < .14 && !st.enemies.some(o => o.kind === 'healer')) e.kind = 'healer';
@@ -301,7 +313,7 @@ function spawnLevel(first) {
 }
 
 /* ---------- gadgets: fans, windows, health ---------- */
-const gadgetCap = () => Math.min(7, 4 + Math.floor(st.level / 3));   // most things in the level at once (portals not counted)
+const gadgetCap = () => Math.min(5, 3 + Math.floor(st.level / 4));   // most things in the level at once (portals not counted)
 const gLeft = () => 120;
 const FIRST_WIN = () => [300, 560];
 const EXTRA_PICKUPS = () => 0;
@@ -313,7 +325,7 @@ function gadgetSpot(type, near) {
   for (let tries = 0; tries < 40; tries++) {
     x = near ? rand(near[0], near[1]) : rand(L + 100, Math.max(L + 200, far - 120));
     y = type === 'cloud' ? rand(Math.max(-310, topY() + 40), -230) : rand(Math.max(-310, topY() + 60), -140);
-    if (st.gadgets.every(o => o.gone || Math.abs(o.tx - x) > 200 || Math.abs(o.ty - y) > 170)) break;
+    if (st.gadgets.every(o => o.gone || Math.abs(o.tx - x) > 320 || Math.abs(o.ty - y) > 190)) break;
   }
   return { x, y };
 }
@@ -373,7 +385,7 @@ function spawnGadgets() {
   if (st.level >= 3 && Math.random() < .3) addGadget('link');
   // then field gadgets up to the limit for this level (at least 2); more turn up during the level
   let field = 1;
-  for (let guard = 0; (st.gadgets.length < cap || field < 2) && guard < 20; guard++) { addGadget(pickGadgetType(null, true)); field++; }
+  for (let guard = 0; st.gadgets.length < cap && guard < 20; guard++) { addGadget(pickGadgetType(null, true)); field++; }
   // portal pair (from level 2)
   if (st.level >= 2 && Math.random() < .6) {
     const pid = ++uid;
@@ -458,7 +470,7 @@ function relocate(g) {
   let x = 0, y = 0;
   for (let tries = 0; tries < 20; tries++) {
     x = rand(220, far - 140); y = rand(Math.max(-310, topY() + 100), -150);
-    if (st.gadgets.every(o => o === g || Math.abs(o.tx - x) > 190 || Math.abs(o.ty - y) > 160)) break;
+    if (st.gadgets.every(o => o === g || Math.abs(o.tx - x) > 300 || Math.abs(o.ty - y) > 180)) break;
   }
   g.tx = x; g.ty = y;
   if (g.type === 'fan') g.tang = FAN_ANGS[Math.floor(Math.random() * FAN_ANGS.length)];
