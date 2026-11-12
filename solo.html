@@ -1769,7 +1769,7 @@ function bossStep(E, dt) {
     if (C.t >= C.dur) { E.bc = null; bossAttack(E, C); E.bossT = E.rage ? rand(7, 10) : rand(10, 14); E.aiT = Math.max(E.aiT, 1.5); }
     return true;
   }
-  if (E.hydra) { if ((E.bossT -= dt) <= 0) startCharge(E); return true; }
+  if (E.hydra) { if (!(E.rearT > 0) && (E.bossT -= dt) <= 0) startCharge(E); return true; }
   if (E.btype === 'giant') {
     giantStep(E, dt);
     if (!E.swingT && !E.throwP && (E.bossT -= dt) <= 0) startCharge(E);
@@ -2050,9 +2050,42 @@ function newHead(e, a) {
 const hydraRoot = E => { const f = feet(E); return { x: f.x + 70 * E.f, y: f.y - 118 }; };
 const hydraHeart = E => { const f = feet(E); return { x: f.x + 90 * E.f, y: f.y - 96 }; };   // on the front of the chest, just under the necks
 const hydraBody = E => { const f = feet(E); return { x: f.x, y: f.y - 75, rx: 100, ry: 52 }; };
+// hit the tip of its tail and it rears up on its back legs and roars, which shows its heart
+const hydraPivot = E => { const f = feet(E); return { x: f.x - 50 * E.f, y: f.y - 40 }; };   // back hip
+const hydraTip = E => { const f = feet(E); return { x: f.x - 263 * E.f, y: f.y - 46 + (E.dead ? 0 : Math.sin(st.t * 1.6) * 14) }; };
+function hydraTurn(E, x, y, back) {   // body's own frame -> world (back: world -> body frame) while it rears up
+  const A = (E.rearA || 0) * -E.f * (back ? -1 : 1);
+  if (!A) return { x, y };
+  const p = hydraPivot(E), dx = x - p.x, dy = y - p.y, c = Math.cos(A), s = Math.sin(A);
+  return { x: p.x + dx * c - dy * s, y: p.y + dx * s + dy * c };
+}
+function hydraTx(E) {   // tip the canvas the same way for drawing
+  const A = (E.rearA || 0) * -E.f;
+  if (!A) return;
+  const p = hydraPivot(E), px = SX(p.x), py = SY(p.y);
+  ctx.translate(px, py); ctx.rotate(A); ctx.translate(-px, -py);
+}
+function tailHit(E, ar) {
+  ar.done = true;
+  const T = hydraTip(E);
+  for (let q = 0; q < 12; q++) P_(T.x, T.y, rand(-140, 140), rand(-180, -20), .45, 2.4, '#ffd27a', 'spark');
+  impactFX(ar, ar.x, ar.y, false);
+  if (E.rearT > 0 || E.tailCD > 0) { text(T.x, T.y - 26, E.rearT > 0 ? 'ROARING!' : 'TAIL', '#b8d8a0', 12, .8); sfx('thud'); return; }
+  E.rearT = 4;
+  for (const h of E.heads) h.br = 0;
+  if (E.bc) stopCharge(E, ar.owner);
+  text(T.x, T.y - 30, 'TAIL HIT!', '#ffd27a', 16, 1.1);
+  text(hydraHeart(E).x, feet(E).y - 250, 'ROAAAR!', '#ff5a4e', 28, 1.6, true);
+  text(hydraHeart(E).x, feet(E).y - 222, 'THE HEART IS OPEN!', '#f6eedf', 13, 1.8);
+  shake(14); sfx('boom');
+}
 function headGeom(E, h) {
   const R = hydraRoot(E), t = st.t, m = -E.f;   // m = 1 when it faces left
-  let a = h.a + .13 * Math.sin(t * 1.25 + h.ph), L = (h.L + 12 * Math.sin(t * 1.7 + h.ph * 1.3)) * (h.t > 0 ? .45 : .35 + .65 * h.g);
+  let a = h.a + .13 * Math.sin(t * 1.25 + h.ph);
+  const rr = Math.min(1, (E.rearA || 0) / .55);
+  if (h.t <= 0) { const s = Math.max(0, Math.sin(t * 1.15 + h.ph * 2)); a += (-3.55 - a) * s ** 6 * (1 - rr); }   // each neck swings down in front of the heart now and then
+  a += (-1.05 - .15 * Math.sin(h.ph * 3) - a) * rr;   // rearing up: necks thrown back, roaring
+  let L = (h.L + 12 * Math.sin(t * 1.7 + h.ph * 1.3)) * (h.t > 0 ? .45 : .35 + .65 * h.g);
   if (E.dead) { a = 2.55 + .2 * Math.sin(h.ph); L = h.L * .9; }
   const ca = Math.cos(a) * m, sa = Math.sin(a), cb = Math.cos(a + .55) * m, sb = Math.sin(a + .55);
   return { R, cx: R.x + cb * L * .55, cy: R.y + sb * L * .55, hx: R.x + ca * L, hy: R.y + sa * L };
@@ -2068,6 +2101,13 @@ function neckHit(g, x, y, w) {
 }
 function hydraStep(E, dt, charging) {
   E.hp = E.hpLock;   // nothing but a heart shot hurts it
+  if (E.tailCD > 0) E.tailCD -= dt;
+  E.rearA = (E.rearA || 0) + ((E.rearT > 0 && !E.dead ? .55 : 0) - (E.rearA || 0)) * Math.min(1, dt * (E.rearT > 0 ? 5 : 2.5));
+  if (E.rearT > 0) {
+    const was = Math.ceil(E.rearT); E.rearT -= dt;
+    if (E.rearT > 0 && Math.ceil(E.rearT) < was) { shake(5); sfx('thud'); }
+    if (E.rearT <= 0) { E.rearT = 0; E.tailCD = 4; if (!E.bc && !E.dead) startCharge(E); }   // comes down angry: all heads attack
+  }
   const n = E.heads.length;
   for (let i = 0; i < E.heads.length; i++) {
     const h = E.heads[i];
@@ -2089,7 +2129,7 @@ function hydraStep(E, dt, charging) {
     }
     if (h.br > 0) { h.br -= dt; if (h.br <= 0) { h.br = 0; hydraBreath(E, h, 0); } }
   }
-  if (!charging && (E.fireT -= dt) <= 0) {
+  if (!charging && !(E.rearT > 0) && (E.fireT -= dt) <= 0) {
     const ready = E.heads.filter(h => h.t <= 0 && h.g >= 1 && h.br <= 0);
     if (ready.length) ready[Math.floor(Math.random() * ready.length)].br = .7;
     E.fireT = rand(2.6, 4.2) * (E.rage ? .75 : 1) / (1 + (n - 3) * .08);
@@ -2099,7 +2139,7 @@ function hydraStep(E, dt, charging) {
 function hydraBreath(E, h, spread, T0) {
   const T = T0 || bossTarget(E);
   if (!T) return;
-  const g = headGeom(E, h), tf = feet(T), flat = h.el === 'zap';
+  const g0 = headGeom(E, h), gw = hydraTurn(E, g0.hx, g0.hy), g = { hx: gw.x, hy: gw.y }, tf = feet(T), flat = h.el === 'zap';
   const fake = { x: g.hx, h: -g.hy - 64, dx: 0, dy: 0 }, sol = solve(fake, tf.x, tf.y - 58, flat), dir = tf.x < g.hx ? -1 : 1;
   const e = (sol.e + gauss() * 2.6 + spread) * Math.PI / 180, v = sol.v + gauss() * 35, ang = dir < 0 ? Math.PI + e : -e;
   const x = g.hx + Math.cos(ang) * 24, y = g.hy + Math.sin(ang) * 24;
@@ -2110,16 +2150,19 @@ function hydraBreath(E, h, spread, T0) {
 }
 // arrow vs hydra: heads blow up, the heart gets hurt, necks and scales just stop the arrow
 function hydraHit(E, ar) {
+  const T = hydraTip(E);
+  if (Math.hypot(ar.x - T.x, ar.y - T.y) < 20) { tailHit(E, ar); return true; }
+  const L = hydraTurn(E, ar.x, ar.y, true), lx = L.x, ly = L.y;   // the arrow in the body's own frame
   for (const h of E.heads) {
     if (h.t > 0 || h.g < .6) continue;
     const g = headGeom(E, h);
-    if (Math.hypot(ar.x - g.hx, ar.y - g.hy) < 22) { chopHead(E, h, ar, g); return true; }
+    if (Math.hypot(lx - g.hx, ly - g.hy) < 22) { const w = hydraTurn(E, g.hx, g.hy); chopHead(E, h, ar, { hx: w.x, hy: w.y }); return true; }
   }
+  for (const h of E.heads) if (neckHit(headGeom(E, h), lx, ly, 9)) { hydraBlock(E, ar); return true; }   // a neck in the way guards the heart
   const H = hydraHeart(E);
-  const dH = Math.hypot(ar.x - H.x, ar.y - H.y);
+  const dH = Math.hypot(lx - H.x, ly - H.y);
   if (dH < 24) { heartShot(E, ar); return true; }
-  for (const h of E.heads) if (neckHit(headGeom(E, h), ar.x, ar.y, 9)) { hydraBlock(E, ar); return true; }
-  const b = hydraBody(E), bx = (ar.x - b.x) / b.rx, by = (ar.y - b.y) / b.ry;
+  const b = hydraBody(E), bx = (lx - b.x) / b.rx, by = (ly - b.y) / b.ry;
   if (bx * bx + by * by < 1 && dH > 40) { hydraBlock(E, ar); return true; }   // the armour gap round the heart lets arrows in
   return false;
 }
@@ -2143,7 +2186,7 @@ function heartShot(E, ar) {
   ar.done = true;
   const dmg = Math.round(70 * (ar.dmgMul || 1) * (ar.owner && ar.owner.isP ? st.dmgBoost : 1));
   E.hpLock = Math.max(0, E.hpLock - dmg); E.hp = E.hpLock; E.hitT = .25;
-  const H = hydraHeart(E);
+  const H0 = hydraHeart(E), H = hydraTurn(E, H0.x, H0.y);
   text(H.x, H.y - 46, 'HEART SHOT!', '#ff5a4e', 24, 1.4); text(H.x + rand(-10, 10), H.y - 20, '-' + dmg, '#f6eedf', 18, 1);
   blood(ar.x, ar.y, ar.vx, ar.vy, 22); ring(H.x, H.y, 60, '#ff3a4a', .5, 4); shake(10); sfx('head');
   st.gp += Math.round(dmg * .5);
@@ -2161,6 +2204,7 @@ function drawHydra(E) {
   if (E.dead) ctx.globalAlpha = .8;
   // ground shadow
   ctx.fillStyle = 'rgba(20,10,20,.28)'; ctx.beginPath(); ctx.ellipse(X(fx + 30 * m), Y(-2), 150 * sc, 12 * sc, 0, 0, 6.283); ctx.fill();
+  ctx.save(); hydraTx(E);
   // folded wings on its back (gently flexing)
   const wf = E.dead ? 0 : Math.sin(t * 1.3) * 8;
   for (const k of [1, 0]) {
@@ -2174,6 +2218,7 @@ function drawHydra(E) {
     for (const q of [p2, p3, p4]) { ctx.beginPath(); ctx.moveTo(X(p1[0]), Y(p1[1])); ctx.lineTo(X(q[0]), Y(q[1])); ctx.stroke(); }
     ctx.beginPath(); ctx.moveTo(X(p0[0]), Y(p0[1])); ctx.lineTo(X(p1[0]), Y(p1[1])); ctx.stroke();
   }
+  ctx.restore();
   // tail: tapers to a spiked tip
   const tw = E.dead ? 0 : Math.sin(t * 1.6) * 14, T0 = [fx + 70 * m, -58], TC = [fx + 175 * m, -4], T1 = [fx + 255 * m, -46 + tw];
   const tp = u => { const q = 1 - u; return [q * q * T0[0] + 2 * q * u * TC[0] + u * u * T1[0], q * q * T0[1] + 2 * q * u * TC[1] + u * u * T1[1]]; };
@@ -2184,17 +2229,20 @@ function drawHydra(E) {
   }
   { const a = tp(.92), b = T1, ang = Math.atan2(b[1] - a[1], b[0] - a[0]);
     ctx.save(); ctx.translate(X(b[0]), Y(b[1])); ctx.rotate(ang); ctx.scale(sc, sc);
-    ctx.fillStyle = bone; ctx.strokeStyle = dark; ctx.lineWidth = 1.5;
+    ctx.fillStyle = E.dead || E.rearT > 0 || E.tailCD > 0 ? bone : Math.sin(t * 5) > 0 ? '#ffb347' : '#ffd27a'; ctx.strokeStyle = dark; ctx.lineWidth = 1.5;   // tail tip glows when it's ready
     ctx.beginPath(); ctx.moveTo(-4, 0); ctx.lineTo(8, -12); ctx.lineTo(22, 0); ctx.lineTo(8, 12); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore(); }
   // legs with claws
   for (const [lx, back] of [[-62, 0], [-24, 1], [34, 1], [70, 0]]) {
+    ctx.save(); if (lx < 0) hydraTx(E);   // front legs lift when it rears up
     const top = [fx + lx * m, -54], knee = [fx + (lx - 10) * m, -26], foot = [fx + (lx - 4) * m, -4];
     ctx.strokeStyle = dark; ctx.lineWidth = (back ? 18 : 22) * sc;
     ctx.beginPath(); ctx.moveTo(X(top[0]), Y(top[1])); ctx.quadraticCurveTo(X(knee[0]), Y(knee[1]), X(foot[0]), Y(foot[1])); ctx.stroke();
     ctx.strokeStyle = back ? '#2f5a35' : skin; ctx.lineWidth = (back ? 13 : 16) * sc; ctx.stroke();
     ctx.fillStyle = bone;
     for (let c = 0; c < 3; c++) { const cx = foot[0] - (6 + c * 5) * m; ctx.beginPath(); ctx.moveTo(X(cx), Y(-1)); ctx.lineTo(X(cx - 7 * m), Y(1)); ctx.lineTo(X(cx), Y(-6)); ctx.fill(); }
+    ctx.restore();
   }
+  ctx.save(); hydraTx(E);
   // body: shaded, scaly, with a plated belly
   const b = hydraBody(E), bx = X(b.x), by = Y(b.y), rx = b.rx * sc, ry = b.ry * sc;
   const gr = ctx.createRadialGradient(X(b.x - 30 * m), Y(b.y - 28), 8 * sc, bx, by, rx * 1.05);
@@ -2295,6 +2343,15 @@ function drawHydra(E) {
     }
     ctx.restore();
   });
+  ctx.restore();
+  if (E.rearT > 0 && !E.dead) {   // roaring: countdown over the open heart
+    const H0 = hydraHeart(E), H = hydraTurn(E, H0.x, H0.y), k = E.rearT % 1;
+    ctx.strokeStyle = 'rgba(255,90,78,' + (.3 + .5 * k) + ')'; ctx.lineWidth = 3 * sc;
+    ctx.beginPath(); ctx.arc(X(H.x), Y(H.y), (30 + 18 * (1 - k)) * sc, 0, 6.283); ctx.stroke();
+    ctx.font = Math.round(26 * sc * (1 + .25 * k)) + 'px Silkscreen, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.lineWidth = 4 * sc; ctx.strokeStyle = '#16301b'; ctx.fillStyle = '#ff5a4e';
+    ctx.strokeText(String(Math.ceil(E.rearT)), X(H.x), Y(H.y - 64)); ctx.fillText(String(Math.ceil(E.rearT)), X(H.x), Y(H.y - 64));
+  }
   ctx.restore();
 }
 
@@ -4125,7 +4182,7 @@ function setupPractice() {
 // fight any boss in the practice range (you can't die here)
 const PRAC_BOSS = ['ship', 'giant', 'wizard', 'hydra'], PRAC_BOSS_ICO = { ship: '🎈', giant: '👹', wizard: '🧙', hydra: '🐉' };
 const PRAC_BOSS_DESC = { ship: 'Flies about. Pop the balloon 6 times to crash it', giant: 'Walks at you, throws boulders, swings a club. Shoot the boulders!',
-  wizard: 'Jumps from tower to tower, throws fireballs', hydra: 'Shoot a head off and two grow back. Only the heart hurts it' };
+  wizard: 'Jumps from tower to tower, throws fireballs', hydra: 'Shoot a head off and two grow back. Only the heart hurts it. Hit the tail tip to make it rear up' };
 function practiceBoss(bt) {
   st.pracBoss = bt;
   st.enemies = []; st.boulders = []; st.P.tpTag = null; st.shotDmg = 0;
