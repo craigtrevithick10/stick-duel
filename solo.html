@@ -167,6 +167,8 @@ const POWERS = {
   shield: { name: 'BARRIER',     short: 'BARRIER', col: '#8fc8ff', shots: 0, rare: true },
   slowmo: { name: 'SLOW-MO',     short: 'SLOW',   col: '#7ad7ff', shots: 3, rare: true },
   tornado:{ name: 'TORNADO',     short: 'TWISTER', col: '#d6e4f0', shots: 3 },
+  shrink: { name: 'SHRINK ARROWS', short: 'SHRINK', col: '#b6ff5c', shots: 6 },
+  tele:   { name: 'TELEPORT ARROWS', short: 'TELEPORT', col: '#d58cff', shots: 4 },
   blackhole:{ name: 'BLACK HOLE', short: 'VOID',   col: '#b07cff', shots: 1, ultra: true }
 };
 
@@ -193,12 +195,13 @@ const SPECKS = [];
 for (let i = 0; i < 90; i++) SPECKS.push({ x: Math.random(), y: Math.random(), r: rand(.8, 2), v: rand(4, 14) });
 
 function mkArcher(x, h, f, hp, isP, pw) {
-  return { x, h, f, hp, max: hp, pw, aim: f > 0 ? -.35 : Math.PI + .35, pow: 0, stuck: [], dead: false,
+  return { id: ++uid, x, h, f, hp, max: hp, pw, aim: f > 0 ? -.35 : Math.PI + .35, pow: 0, stuck: [], dead: false,
     rot: 0, vr: 0, dy: 0, vy: 0, vx: 0, dx: 0, headRed: 0, hitT: 0, isP, rise: 0,
     aiT: 0, aiAim: null, aiShots: 0 };
 }
 const feet = a => ({ x: a.x + a.dx, y: -a.h + a.dy });
-const shoulder = a => { const f = feet(a); return { x: f.x, y: f.y - 64 }; };
+const sizeOf = a => 1 - (a.shrink || 0);
+const shoulder = a => { const f = feet(a); return { x: f.x, y: f.y - 64 * sizeOf(a) }; };
 const alive = () => st.enemies.filter(e => !e.dead);
 const farX = () => Math.max(...st.enemies.map(e => e.x));
 
@@ -593,10 +596,13 @@ function fire(a, ang, v, pk) {
   const s = shoulder(a);
   const angs = pk === 'triple' ? [ang - .06, ang, ang + .06] : [ang];
   if (pk === 'heavy') v *= 1.18;
+  const tp = a.tpTag || null; a.tpTag = null;
+  v *= sizeOf(a);
   for (const an of angs) {
     const dx = Math.cos(an), dy = Math.sin(an);
     st.arrows.push({ x: s.x + dx * 24, y: s.y + dy * 24, sx: s.x + dx * 24, sy: s.y + dy * 24, vx: dx * v, vy: dy * v, owner: a, done: false, via: new Set(),
-      pk, dmgMul: pk === 'fire' ? 1.2 : pk === 'heavy' ? 1.35 : pk === 'slowmo' ? .3 : 1, col: pk ? POWERS[pk].col : null });
+      pk, dmgMul: pk === 'fire' ? 1.2 : pk === 'heavy' ? 1.35 : pk === 'slowmo' ? .3 : 1, col: pk ? POWERS[pk].col : null,
+      tpE: tp && an === ang ? tp : null });
   }
   sfx('twang');
 }
@@ -671,7 +677,7 @@ function blast(x, y, owner) {
   }
 }
 function toLocal(a, x, y) {
-  const f = feet(a), px = x - f.x, py = y - f.y, c = Math.cos(-a.rot), s = Math.sin(-a.rot);
+  const f = feet(a), k = sizeOf(a), px = (x - f.x) / k, py = (y - f.y) / k, c = Math.cos(-a.rot), s = Math.sin(-a.rot);
   return { x: px * c - py * s, y: px * s + py * c };
 }
 function segDist(px, py, ax, ay, bx, by) {
@@ -695,6 +701,27 @@ function blood(x, y, vx, vy, n) {
 function text(x, y, t, col, size, life = 1) { st.texts.push({ x, y, t, col, size, life, max: life }); }
 function shake(v) { if (!reduceMotion) st.shake = Math.max(st.shake, v); }
 
+// teleport arrow: the archer it tagged is sent to wherever the shooter's next arrow lands
+const PEOPLE = () => st.players || [st.P];
+const isTagged = a => !a.isP && PEOPLE().some(p => p.tpTag === a.id);
+function teleportTo(id, x, y) {
+  const E = st.enemies.find(e => e.id === id);
+  if (!E || E.dead || E.topple) return;
+  const others = [...PEOPLE(), ...(st.helpers || []), ...st.enemies.filter(o => o !== E && !o.dead)];
+  x = clamp(x, 200, 2600);
+  for (let k = 0; k < 12; k++) { const near = others.find(o => Math.abs(o.x - x) < 110); if (!near) break; x = near.x + (x >= near.x ? 120 : -120); }
+  const f0 = feet(E);
+  for (let q = 0; q < 16; q++) P_(f0.x + rand(-15, 15), f0.y - rand(0, 90), rand(-120, 120), rand(-160, 40), .5, 2.6, '#d58cff', 'spark');
+  ring(f0.x, f0.y - 50, 60, '#d58cff', .5, 3);
+  if (E.ship) { E.ship.baseX = E.ship.tx = x; E.x = x; }
+  else { E.x = x; E.h = clamp(-y, 30, 240); E.chops = []; E.dy = 0; E.vy = 0; E.rise = 0; }
+  E.aiAim = null; E.pow = 0; E.aiT = Math.max(E.aiT || 0, 1.2);
+  const f = feet(E);
+  for (let q = 0; q < 16; q++) P_(f.x + rand(-15, 15), f.y - rand(0, 90), rand(-120, 120), rand(-160, 40), .5, 2.6, '#d58cff', 'spark');
+  ring(f.x, f.y - 50, 70, '#d58cff', .6, 3);
+  text(f.x, f.y - 130, 'TELEPORTED!', '#d58cff', 16, 1.1);
+  sfx('whoosh');
+}
 function onHit(ar, a, z) {
   const base = z === 'head' ? 48 : z === 'body' ? 26 : 15;
   const dmg = Math.round(base * rand(.9, 1.15) * (ar.dmgMul || 1) * (ar.owner.isP ? st.dmgBoost : 1) * (a === st.P ? 1 - st.armour : 1));
@@ -718,6 +745,17 @@ function onHit(ar, a, z) {
     a.slowM = a.slowT > 0 ? Math.max(.04, a.slowM * .5) : .4; a.slowT = 4.5;
     text(f.x, f.y - 132, 'SLOWED ×' + (1 / a.slowM).toFixed(a.slowM < .1 ? 0 : 1), '#7ad7ff', 14, 1.1);
     for (let k = 0; k < 2; k++) ring(f.x, f.y - 60, 60 + k * 30, '#7ad7ff', .6 + k * .2, 2.5);
+  }
+  if (ar.pk === 'shrink' && !a.isP) {
+    a.shrink = Math.min(.5, Math.round(((a.shrink || 0) + .1) * 10) / 10); a.shrinkT = 7;
+    text(f.x, f.y - 132, 'SHRUNK · POWER ' + Math.round(sizeOf(a) * 100) + '%', '#b6ff5c', 14, 1.1);
+    for (let k = 0; k < 10; k++) P_(f.x + rand(-20, 20), f.y - rand(10, 90), rand(-40, 40), rand(-60, 20), .5, 2.2, '#b6ff5c', 'spark');
+    ring(f.x, f.y - 50, 55, '#b6ff5c', .5, 2.5);
+  }
+  if (ar.pk === 'tele' && !a.isP && ar.owner) {
+    ar.owner.tpTag = a.id;
+    text(f.x, f.y - 150, 'TAGGED: NEXT ARROW SENDS THEM THERE', '#d58cff', 13, 1.6);
+    ring(f.x, f.y - 50, 60, '#d58cff', .6, 3);
   }
   if (ar.pk === 'ice' && !a.isP) { a.frozen = 3.5; a.aiAim = null; a.pow = 0; text(f.x, f.y - 132, 'FROZEN', '#bfe9ff', 14, .9); }
   if (ar.pk === 'fire') for (let i = 0; i < 8; i++) st.parts.push({ x: ar.x, y: ar.y, vx: rand(-80, 80), vy: rand(-160, 0), life: .5, max: .5, r: 2.4, col: '#ff9a45' });
@@ -1247,6 +1285,12 @@ function update(rdt) {
     }
     if (E.ship && !E.dead) shipStep(E, dt);
     if (E.topple) updateTopple(E, dt);
+    if (E.shrink > 0) {
+      if ((E.shrinkT -= dt) <= 0) {
+        E.shrink = Math.max(0, E.shrink - dt * .05);
+        if (E.shrink <= 0 && !E.dead) text(feet(E).x, feet(E).y - 130, 'FULL SIZE', '#b6ff5c', 12, .8);
+      }
+    }
     if (E.slowT > 0) { E.slowT -= dt; if (E.slowT <= 0) { E.slowM = 1; if (!E.dead) text(feet(E).x, feet(E).y - 130, 'SPEED BACK', '#7ad7ff', 12, .8); } }
     if (E.frozen > 0) { E.frozen -= dt; continue; }
     if (E.stun > 0) { E.stun -= dt; continue; }
@@ -1434,6 +1478,7 @@ function update(rdt) {
   }
   if (st.pinned.length > 40) st.pinned.splice(0, st.pinned.length - 40);
   for (const a of st.arrows) if (a.done && a.vol && !a.volDone) { a.volDone = true; if (--a.vol.alive <= 0 && !a.vol.res) { a.vol.res = true; resolveVolley(a.vol); } }
+  for (const a of st.arrows) if (a.done && a.tpE) { const id = a.tpE; a.tpE = null; teleportTo(id, a.x, Math.min(a.y, 0)); }
   st.arrows = st.arrows.filter(a => !a.done);
 
   // camera: follow your lead arrow out, hold where it lands, then return home
@@ -1725,8 +1770,10 @@ function drawArcher(a) {
   const f = feet(a);
   if (SX(f.x) < -80 || SX(f.x) > W + 80) return;
   ctx.save();
-  ctx.translate(SX(f.x), SY(f.y)); ctx.scale(sc, sc); ctx.rotate(a.rot);
+  ctx.translate(SX(f.x), SY(f.y)); ctx.scale(sc * sizeOf(a), sc * sizeOf(a)); ctx.rotate(a.rot);
   const ink = a.hitT > 0 ? '#5a1010' : '#141414', ff = a.f;
+  if (!a.dead && isTagged(a)) { ctx.save(); ctx.strokeStyle = '#d58cff'; ctx.lineWidth = 2.5; ctx.setLineDash([7, 6]); ctx.lineDashOffset = -st.t * 40;
+    ctx.beginPath(); ctx.arc(0, -50, 62, 0, 6.283); ctx.stroke(); ctx.restore(); }
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   if (!a.dead) { ctx.fillStyle = 'rgba(40,20,30,.3)'; ctx.beginPath(); ctx.ellipse(2, 1, 20, 4, 0, 0, 6.283); ctx.fill(); }
   // headband tails
