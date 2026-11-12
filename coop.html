@@ -2066,7 +2066,7 @@ function newHead(e, a) {
   return { k: ++e.hk, a, L: rand(150, 205), ph: rand(0, 6.283), t: 0, g: 1, br: 0, el: els[Math.floor(Math.random() * els.length)] };
 }
 const hydraRoot = E => { const f = feet(E); return { x: f.x + 70 * E.f, y: f.y - 118 }; };
-const hydraHeart = E => { const f = feet(E); return { x: f.x + 80 * E.f, y: f.y - 82 }; };   // front of the chest, in a gap in the scales
+const hydraHeart = E => { const f = feet(E); return { x: f.x + 90 * E.f, y: f.y - 96 }; };   // on the front of the chest, just under the necks
 const hydraBody = E => { const f = feet(E); return { x: f.x, y: f.y - 75, rx: 100, ry: 52 }; };
 function headGeom(E, h) {
   const R = hydraRoot(E), t = st.t, m = -E.f;   // m = 1 when it faces left
@@ -2136,7 +2136,7 @@ function hydraHit(E, ar) {
   }
   const H = hydraHeart(E);
   const dH = Math.hypot(ar.x - H.x, ar.y - H.y);
-  if (dH < 22) { heartShot(E, ar); return true; }
+  if (dH < 24) { heartShot(E, ar); return true; }
   for (const h of E.heads) if (neckHit(headGeom(E, h), ar.x, ar.y, 9)) { hydraBlock(E, ar); return true; }
   const b = hydraBody(E), bx = (ar.x - b.x) / b.rx, by = (ar.y - b.y) / b.ry;
   if (bx * bx + by * by < 1 && dH > 40) { hydraBlock(E, ar); return true; }   // the armour gap round the heart lets arrows in
@@ -2150,7 +2150,7 @@ function hydraBlock(E, ar) {
   sfx('thud');
 }
 function chopHead(E, h, ar, g) {
-  ar.done = true; h.t = E.rage ? 2 : 3; h.br = 0;
+  ar.done = true; h.t = 5; h.br = 0;   // 5 s before two heads grow back
   for (let q = 0; q < 26; q++) P_(g.hx, g.hy, rand(-240, 240), rand(-280, 60), rand(.4, .9), rand(2.5, 5), q % 3 ? '#4f8a4a' : '#ff5a4e', q % 2 ? 'spark' : 'smoke');
   ring(g.hx, g.hy, 70, '#ffd27a', .45, 4); glow(g.hx, g.hy, 80, 'rgba(255,200,120,', .3);
   text(g.hx, g.hy - 34, 'HEAD OFF!', '#ffd27a', 18, 1.1);
