@@ -307,7 +307,7 @@ const ICON = {
 };
 
 let W = 0, H = 0, DPR = 1, sc = 1, camX = 0, camY = 0, scBase = 1, zoom = 1, forcePortrait = false;
-// pinch zoom taken out (Craig, 2026-11-13): the view always stays at the normal size (zoom 1)
+try { const z = +localStorage.getItem('stickZoom'); if (z >= .5 && z <= 1.8) zoom = z; } catch (e) {}
 let st = null, running = false, paused = false, last = 0, best = 0, uid = 0;
 
 /* ---------- co-op: who is playing ---------- */
@@ -4561,7 +4561,43 @@ $('quiver').addEventListener('click', e => { if (e.target.closest('button[data-l
 addEventListener('keydown', e => { if (e.target && e.target.tagName === 'INPUT') return; const n = +e.key; if (running && n >= 1 && n <= 4) tapSlot(n - 2); else if (running && (e.key === 'l' || e.key === 'L')) tapLink(); });
 
 /* ---------- input ---------- */
-let zoomShowT = 0;
+/* ---------- pinch with two fingers (or the mouse wheel) to zoom in and out ---------- */
+const ZMIN = .5, ZMAX = 1.8, fingers = new Map();
+let pinch = null, pinchLock = false, zoomShowT = 0;
+function setZoom(z, cx) {
+  z = clamp(z, ZMIN, ZMAX); if (Math.abs(z - zoom) < .001) return;
+  const wx = camX + cx / sc; zoom = z; sc = scBase * zoom; camX = wx - cx / sc; zoomShowT = performance.now();
+  try { localStorage.setItem('stickZoom', zoom.toFixed(2)); } catch (e) {}
+}
+const twoFingers = () => [...fingers.values()].slice(0, 2);
+// these run before the aiming handlers; while two fingers are down they swallow the touches so nothing fires
+cv.addEventListener('pointerdown', e => {
+  if (e.isPrimary) { fingers.clear(); pinch = null; pinchLock = false; }
+  fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (fingers.size >= 2) {
+    if (!pinch) { const [a, b] = twoFingers(); pinch = { d0: Math.max(20, Math.hypot(a.x - b.x, a.y - b.y)), z0: zoom }; pinchLock = true; cancelAim(); }
+    e.stopImmediatePropagation();
+  } else if (pinchLock) e.stopImmediatePropagation();
+}, true);
+cv.addEventListener('pointermove', e => {
+  if (!fingers.has(e.pointerId)) return;
+  fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pinch && fingers.size >= 2) {
+    const [a, b] = twoFingers(), r = cv.getBoundingClientRect();
+    setZoom(pinch.z0 * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d0, (a.x + b.x) / 2 - r.left);
+  }
+  if (pinchLock) e.stopImmediatePropagation();
+}, true);
+function fingerUp(e) {
+  fingers.delete(e.pointerId);
+  if (fingers.size < 2) pinch = null;
+  const locked = pinchLock;
+  if (!fingers.size) pinchLock = false;
+  if (locked) e.stopImmediatePropagation();
+}
+cv.addEventListener('pointerup', fingerUp, true);
+cv.addEventListener('pointercancel', fingerUp, true);
+cv.addEventListener('wheel', e => { e.preventDefault(); const r = cv.getBoundingClientRect(); setZoom(zoom * Math.exp(-e.deltaY * .0015), e.clientX - r.left); }, { passive: false });
 document.addEventListener('gesturestart', e => e.preventDefault());
 // zoomed in: slide the view up so your archer stays on screen (never shows below the ground)
 function camYTarget() {
