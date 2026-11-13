@@ -307,7 +307,7 @@ const ICON = {
 };
 
 let W = 0, H = 0, DPR = 1, sc = 1, camX = 0, camY = 0, scBase = 1, zoom = 1, forcePortrait = false;
-try { const z = +localStorage.getItem('stickZoom'); if (z >= .5 && z <= 1.8) zoom = z; } catch (e) {}
+// pinch zoom taken out (Craig, 2026-11-13): the view always stays at the normal size (zoom 1)
 let st = null, running = false, paused = false, last = 0, best = 0, uid = 0;
 
 /* ---------- co-op: who is playing ---------- */
@@ -3233,8 +3233,7 @@ function updateCam(rdt) {
   for (const a of st.arrows) if (a.owner === P && (!lead || (right ? a.x > lead.x : a.x < lead.x))) lead = a;
   let target = home, speed = 3;
   const fwd = x => right ? Math.max(home, x) : Math.min(home, x);
-  if (drag && drag.pan) { target = camX; speed = 0; }
-  else if (CAM.home) { target = home; speed = 14; CAM.hold = 0; CAM.focus = null; }
+  if (CAM.home) { target = home; speed = 14; CAM.hold = 0; CAM.focus = null; }
   else if (lead) { target = fwd(lead.x - viewW * .5); CAM.last = target; CAM.hold = 1.1; speed = 10; }
   else if (CAM.focus && CAM.hold > 0) { CAM.hold -= rdt; target = fwd(feet(CAM.focus).x - viewW * .5); speed = 4; }
   else if (CAM.hold > 0 && !drag) { CAM.hold -= rdt; target = CAM.last; speed = 6; }
@@ -4056,10 +4055,8 @@ function drawHUD() {
   if (hintOn && running && !st.banner && !spectating()) {
     const f = feet(P), a = .6 + Math.sin(st.t * 4) * .35, d = sideToward(P);
     ctx.globalAlpha = a; ctx.textAlign = 'center'; ctx.font = '700 13px Silkscreen, monospace'; ctx.fillStyle = '#f6eedf';
-    ctx.fillText('TOUCH YOUR ARCHER, PULL BACK & RELEASE', clamp(SX(f.x) + 270 * d, 200, W - 200), H * .3);
-    ctx.fillText(d > 0 ? 'NEAREST ENEMY IS TO THE RIGHT →' : '← NEAREST ENEMY IS TO THE LEFT', clamp(SX(f.x) + 270 * d, 200, W - 200), H * .3 + 20);
-    ctx.fillText('SWIPE ANYWHERE ELSE TO LOOK AROUND', clamp(SX(f.x) + 270 * d, 200, W - 200), H * .3 + 40);
-    ctx.globalAlpha = 1; if (inPlay(P) && !drag) drawGrabRing(P);
+    ctx.fillText('PULL BACK & RELEASE', clamp(SX(f.x) + 140 * d, 120, W - 120), H * .3);
+    ctx.fillText(d > 0 ? 'NEAREST ENEMY IS TO THE RIGHT →' : '← NEAREST ENEMY IS TO THE LEFT', clamp(SX(f.x) + 140 * d, 120, W - 120), H * .3 + 20);
     ctx.globalAlpha = 1;
   }
 }
@@ -4564,43 +4561,7 @@ $('quiver').addEventListener('click', e => { if (e.target.closest('button[data-l
 addEventListener('keydown', e => { if (e.target && e.target.tagName === 'INPUT') return; const n = +e.key; if (running && n >= 1 && n <= 4) tapSlot(n - 2); else if (running && (e.key === 'l' || e.key === 'L')) tapLink(); });
 
 /* ---------- input ---------- */
-/* ---------- pinch with two fingers (or the mouse wheel) to zoom in and out ---------- */
-const ZMIN = .5, ZMAX = 1.8, fingers = new Map();
-let pinch = null, pinchLock = false, zoomShowT = 0;
-function setZoom(z, cx) {
-  z = clamp(z, ZMIN, ZMAX); if (Math.abs(z - zoom) < .001) return;
-  const wx = camX + cx / sc; zoom = z; sc = scBase * zoom; camX = wx - cx / sc; zoomShowT = performance.now();
-  try { localStorage.setItem('stickZoom', zoom.toFixed(2)); } catch (e) {}
-}
-const twoFingers = () => [...fingers.values()].slice(0, 2);
-// these run before the aiming handlers; while two fingers are down they swallow the touches so nothing fires
-cv.addEventListener('pointerdown', e => {
-  if (e.isPrimary) { fingers.clear(); pinch = null; pinchLock = false; }
-  fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-  if (fingers.size >= 2) {
-    if (!pinch) { const [a, b] = twoFingers(); pinch = { d0: Math.max(20, Math.hypot(a.x - b.x, a.y - b.y)), z0: zoom }; pinchLock = true; cancelAim(); }
-    e.stopImmediatePropagation();
-  } else if (pinchLock) e.stopImmediatePropagation();
-}, true);
-cv.addEventListener('pointermove', e => {
-  if (!fingers.has(e.pointerId)) return;
-  fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-  if (pinch && fingers.size >= 2) {
-    const [a, b] = twoFingers(), r = cv.getBoundingClientRect();
-    setZoom(pinch.z0 * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d0, (a.x + b.x) / 2 - r.left);
-  }
-  if (pinchLock) e.stopImmediatePropagation();
-}, true);
-function fingerUp(e) {
-  fingers.delete(e.pointerId);
-  if (fingers.size < 2) pinch = null;
-  const locked = pinchLock;
-  if (!fingers.size) pinchLock = false;
-  if (locked) e.stopImmediatePropagation();
-}
-cv.addEventListener('pointerup', fingerUp, true);
-cv.addEventListener('pointercancel', fingerUp, true);
-cv.addEventListener('wheel', e => { e.preventDefault(); const r = cv.getBoundingClientRect(); setZoom(zoom * Math.exp(-e.deltaY * .0015), e.clientX - r.left); }, { passive: false });
+let zoomShowT = 0;
 document.addEventListener('gesturestart', e => e.preventDefault());
 // zoomed in: slide the view up so your archer stays on screen (never shows below the ground)
 function camYTarget() {
@@ -4619,22 +4580,6 @@ function drawZoomNote() {
 function cancelAim() { if (drag && !drag.spec && st) { st.P.pow = 0; NET.myPow = 0; if (!isHost()) sendHost({ t: 'aim', a: st.P.aim, p: 0 }); } drag = null; }
 
 let drag = null, aimSentAt = 0;
-// a touch only starts aiming when it lands on or close to your archer; anywhere else it slides the view
-// (swipe right = look right, swipe left = look left)
-const PAN_DIR = 1, PAN_SPEED = 1.5;
-function nearArcher(e, A) {
-  if (!A || A.dead) return false;
-  const r = cv.getBoundingClientRect(), f = feet(A);
-  const px = e.clientX - r.left, py = e.clientY - r.top;
-  const cx = SX(f.x), cy = SY(f.y - 45);
-  return Math.abs(px - cx) < Math.max(65, 60 * sc) && Math.abs(py - cy) < Math.max(85, 75 * sc);
-}
-function drawGrabRing(A) {
-  const f = feet(A), k = .5 + Math.sin(st.t * 4) * .5;
-  ctx.save(); ctx.strokeStyle = 'rgba(255,210,122,' + (.35 + k * .4) + ')'; ctx.lineWidth = 3; ctx.setLineDash([8, 6]);
-  ctx.beginPath(); ctx.ellipse(SX(f.x), SY(f.y - 45), Math.max(65, 60 * sc) * (.95 + k * .08), Math.max(85, 75 * sc) * (.95 + k * .08), 0, 0, Math.PI * 2); ctx.stroke();
-  ctx.restore();
-}
 function toWorld(e) {
   const r = cv.getBoundingClientRect();
   return { x: camX + (e.clientX - r.left) / sc, y: (e.clientY - r.top - (H - GROUND) - camY) / sc };
@@ -4647,8 +4592,6 @@ cv.addEventListener('pointerdown', e => {
     drag = { id: e.pointerId, x: e.clientX, y: e.clientY, cam: camX, moved: false, spec: true };
   } else if (myPlace()) {   // you hit a MOVE pad: drag to look around, tap where it goes
     drag = { id: e.pointerId, x: e.clientX, y: e.clientY, cam: camX, moved: false, spec: true, place: true };
-  } else if (!nearArcher(e, st.P)) {   // not on your archer: swipe to look around
-    drag = { id: e.pointerId, x: e.clientX, y: e.clientY, cam: camX, moved: false, pan: true };
   } else {
     drag = { id: e.pointerId, x: e.clientX, y: e.clientY };   // the camera only goes home once you actually pull (a tap to split a cluster keeps following it)
   }
@@ -4660,11 +4603,6 @@ cv.addEventListener('pointermove', e => {
   if (drag.spec) {
     if (len > 8) drag.moved = true;
     if (drag.moved) camX = drag.cam - dx / sc;
-    return;
-  }
-  if (drag.pan) {
-    if (Math.abs(dx) > 10) drag.moved = true;
-    if (drag.moved) { const viewW = W / sc; camX = clamp(drag.cam + PAN_DIR * PAN_SPEED * dx / sc, fieldL() - viewW * .5, farX() - viewW * .4); CAM.home = false; CAM.focus = null; }
     return;
   }
   const P = st.P;
@@ -4685,11 +4623,6 @@ function release(e) {
   if (!st || !running) return;
   if (d.spec && d.place) {
     if (!d.moved && e) { const w = toWorld(e); if (isHost()) doPlace(st.P, w.x, w.y); else sendHost({ t: 'place', x: w.x, y: w.y }); }
-    return;
-  }
-  if (d.pan) {
-    if (d.moved) { CAM.last = camX; CAM.hold = 1e6; CAM.focus = null; return; }   // stay where you looked until you aim again
-    if (inPlay(st.P)) { if (isHost()) splitFor(st.P); else sendHost({ t: 'split' }); }   // a tap away from the archer still bursts cluster arrows
     return;
   }
   if (d.spec) {
