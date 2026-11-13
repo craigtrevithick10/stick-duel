@@ -423,23 +423,42 @@ function netReset(msg) {
   if (match && match.vs === 'live') { match = null; st = null; }
   if (!match) { toLobby(msg); show('lobbyMain', true); show('codeBox', false); show('joinBox', false); show('cancelBtn', false); show('liveBtn', false); }
 }
-function hostGame() {
+/* ---------- relay: lets players on different networks connect (Cloudflare TURN; our small Worker hands out
+   short-lived passwords). Empty RELAY_URL = no relay, same Wi-Fi only. Add ?relay to the address to force the relay (testing). */
+const RELAY_URL = 'https://stick-duel-relay.craigtrevithick.workers.dev';
+let ICE = null, ICE_AT = 0, iceP = null;
+async function fetchIce() {
+  if (!RELAY_URL) return;
+  try {
+    const ctl = new AbortController(), tm = setTimeout(() => ctl.abort(), 5000);
+    const r = await fetch(RELAY_URL, { cache: 'no-store', signal: ctl.signal }); clearTimeout(tm);
+    const j = await r.json(); let s = j && j.iceServers;
+    if (s && !Array.isArray(s)) s = [s];
+    if (s && s.length) { ICE = s.map(o => Object.assign({}, o, { urls: [].concat(o.urls).filter(u => !/:53\?/.test(u)) })); ICE_AT = Date.now(); }
+  } catch (e) {}
+}
+iceP = fetchIce();
+async function iceReady() { if (ICE_AT && Date.now() - ICE_AT > 5 * 3600e3) iceP = fetchIce(); await iceP; }
+const peerOpts = () => ICE ? { config: { iceServers: ICE, iceTransportPolicy: /[?&]relay\b/.test(location.search) ? 'relay' : 'all' } } : {};
+async function hostGame() {
+  if (typeof Peer !== 'undefined') { setLobby('Setting up…'); await iceReady(); }
   if (typeof Peer === 'undefined') { setLobby('Could not load the connection library. Check your internet.'); return; }
   isHost = true; noAuto = false;
   const code = Array.from({ length: 4 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('');
   setLobby('Setting up…');
-  peer = new Peer('stickduel-' + code);
+  peer = new Peer('stickduel-' + code, peerOpts());
   peer.on('open', () => { $('codeOut').textContent = code; show('lobbyMain', false); show('codeBox', true); show('cancelBtn', true); setLobby('Tell your opponent this code:'); });
   peer.on('connection', c => { if (conn && conn.open) { c.close(); return; } wire(c); });
   peer.on('error', e => { if (e && e.type === 'unavailable-id') { peer.destroy(); peer = null; hostGame(); } else { netReset('Connection problem (' + (e && e.type || 'unknown') + '). Try again.'); } });
 }
-function joinGame() {
+async function joinGame() {
+  if (typeof Peer !== 'undefined') await iceReady();
   if (typeof Peer === 'undefined') { setLobby('Could not load the connection library. Check your internet.'); return; }
   const code = ($('codeIn').value || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4);
   if (code.length !== 4) { setLobby('Type the 4-letter code from the other device.'); return; }
   isHost = false; noAuto = false;
   setLobby('Connecting to ' + code + '…'); show('joinBox', false); show('cancelBtn', true);
-  peer = new Peer();
+  peer = new Peer(peerOpts());
   peer.on('open', () => {
     const c = peer.connect('stickduel-' + code, { reliable: true });
     wire(c);

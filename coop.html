@@ -4769,6 +4769,23 @@ $('musicBtn').onclick = () => {
 };
 
 /* ---------- networking: one host runs the game, everyone else sends taps and gets pictures ---------- */
+/* ---------- relay: lets players on different networks connect (Cloudflare TURN; our small Worker hands out
+   short-lived passwords). Empty RELAY_URL = no relay, same Wi-Fi only. Add ?relay to the address to force the relay (testing). */
+const RELAY_URL = 'https://stick-duel-relay.craigtrevithick.workers.dev';
+let ICE = null, ICE_AT = 0, iceP = null;
+async function fetchIce() {
+  if (!RELAY_URL) return;
+  try {
+    const ctl = new AbortController(), tm = setTimeout(() => ctl.abort(), 5000);
+    const r = await fetch(RELAY_URL, { cache: 'no-store', signal: ctl.signal }); clearTimeout(tm);
+    const j = await r.json(); let s = j && j.iceServers;
+    if (s && !Array.isArray(s)) s = [s];
+    if (s && s.length) { ICE = s.map(o => Object.assign({}, o, { urls: [].concat(o.urls).filter(u => !/:53\?/.test(u)) })); ICE_AT = Date.now(); }
+  } catch (e) {}
+}
+iceP = fetchIce();
+async function iceReady() { if (ICE_AT && Date.now() - ICE_AT > 5 * 3600e3) iceP = fetchIce(); await iceP; }
+const peerOpts = () => ICE ? { config: { iceServers: ICE, iceTransportPolicy: /[?&]relay\b/.test(location.search) ? 'relay' : 'all' } } : {};
 const PEER_PREFIX = 'stickcoop-', CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 const rnd = (k, v) => typeof v === 'number' ? Math.round(v * 100) / 100 : v;
 const parse = d => { try { return typeof d === 'string' ? JSON.parse(d) : d; } catch (e) { return null; } };
@@ -4836,7 +4853,8 @@ function backToLobby(msg) {
 }
 
 // host
-function hostGame() {
+async function hostGame() {
+  if (typeof Peer !== 'undefined') { lobbyStatus('Setting up…'); await iceReady(); }
   if (typeof Peer === 'undefined') { lobbyStatus('Could not load the connection library. Check your internet.'); return; }
   wakeAudio();
   const name = myName();
@@ -4845,7 +4863,7 @@ function hostGame() {
   NET.code = Array.from({ length: 4 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('');
   NET.roster = [{ id: 'host', name, col: COLS[0] }];
   lobbyStatus('Setting up…'); lobbyView('none'); show('cancelBtn', true);
-  const peer = new Peer(PEER_PREFIX + NET.code); NET.peer = peer;
+  const peer = new Peer(PEER_PREFIX + NET.code, peerOpts()); NET.peer = peer;
   peer.on('open', () => {
     $('codeOut').textContent = NET.code; $('codeLbl').textContent = 'Tell your team this code:';
     lobbyView('room'); renderRoster();
@@ -4945,7 +4963,8 @@ function showOver(m) {
 }
 
 // guest
-function joinGame() {
+async function joinGame() {
+  if (typeof Peer !== 'undefined') await iceReady();
   if (typeof Peer === 'undefined') { lobbyStatus('Could not load the connection library. Check your internet.'); return; }
   const code = ($('codeIn').value || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4);
   if (code.length !== 4) { lobbyStatus('Type the 4-letter code from the host.'); return; }
@@ -4954,7 +4973,7 @@ function joinGame() {
   netClose();
   NET.role = 'guest'; NET.myId = null; NET.code = code;
   lobbyStatus('Connecting to ' + code + '…'); lobbyView('none'); show('cancelBtn', true);
-  const peer = new Peer(); NET.peer = peer;
+  const peer = new Peer(peerOpts()); NET.peer = peer;
   peer.on('open', () => {
     const c = peer.connect(PEER_PREFIX + code, { reliable: true }); NET.conn = c;
     c.on('open', () => c.send(JSON.stringify({ t: 'hello', name })));
