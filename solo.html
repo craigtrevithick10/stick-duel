@@ -97,10 +97,24 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 .shopgrid .item.sel{border-color:#7dffe8;background:rgba(125,255,232,.16);box-shadow:0 0 0 2px rgba(125,255,232,.35)}
 .shopgrid .item.now{border-color:var(--ember)}
 #rackHint{color:#7dffe8;min-height:1.2em}
-#forgeScreen .shopgrid{max-height:calc(100vh - 250px);max-height:calc(100dvh - 250px);overflow-y:auto}
+#forgeScreen .shopgrid{max-height:calc(100vh - 290px);max-height:calc(100dvh - 290px);overflow-y:auto}
 #forgeScreen .item{padding:6px 10px}#forgeScreen .item .ico{font-size:24px;width:30px}
 #quiver button.mega{border-color:#ffb347!important;box-shadow:0 0 10px rgba(255,179,71,.55),inset 0 0 0 1px rgba(255,210,122,.6)}
 #quiver button.mega small{color:#ffd27a}
+#quiver.many{flex-wrap:nowrap;overflow-x:auto;left:8px;right:8px;transform:none;justify-content:flex-start;gap:4px;scrollbar-width:none}
+#quiver.many button{min-width:50px;flex:0 0 auto;padding:4px 4px 3px;font-size:9px}#quiver.many .qi{font-size:15px}
+#quiver .tier{font:700 6.5px var(--pixel);font-style:normal;letter-spacing:.06em;margin-top:1px;color:#f6eedf;opacity:.9}
+#quiver button.t2{border-color:#5dff8a}#quiver button.t2 .tier{color:#5dff8a}
+#quiver button.t3{border-color:#5ab4ff}#quiver button.t3 .tier{color:#5ab4ff}
+#quiver button.t4{border-color:#ffc83a;box-shadow:0 0 10px rgba(255,200,58,.55)}#quiver button.t4 .tier{color:#ffc83a}
+#quiver button.t4.on{background:rgba(255,200,58,.3)}
+.gclist{display:flex;flex-wrap:nowrap;gap:4px;justify-content:flex-start;align-items:center;width:min(740px,calc(100vw - 48px));max-width:min(740px,calc(100vw - 48px));overflow-x:auto;margin:2px 0;padding-bottom:2px;scrollbar-width:thin}
+.gclist .gch{flex:0 0 auto;max-width:150px;white-space:normal;text-align:left;font:700 8px var(--pixel);color:#ffc83a;letter-spacing:.04em}
+.gclist button{flex:0 0 auto;white-space:nowrap}
+.gclist button{font:700 10px var(--pixel);padding:4px 7px;border:2px solid #ffc83a;background:rgba(40,30,10,.75);color:#ffc83a;cursor:pointer}
+.gclist button.have{border-color:#5dff8a}
+.gclist button small{display:block;font:700 8px var(--pixel);opacity:.85;color:#f6eedf}
+.gclist button[disabled]{opacity:.5;border-color:rgba(246,238,223,.3);color:#c9bfae;cursor:default}
 #quiver button.forged{border-color:#ffd27a!important;box-shadow:inset 0 0 0 1px rgba(255,210,122,.5)}
 #quiver button.forged.dry{opacity:.45}
 @media (max-height:520px){#rackScreen .panel{gap:8px}#rackScreen .title{font-size:24px!important}#rackScreen .shopgrid{max-height:calc(100vh - 205px);max-height:calc(100dvh - 205px)}#rackScreen{padding:8px 16px}}
@@ -210,11 +224,12 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
       <p class="small" id="forgeHint">Tap two arrow powers</p>
       <div class="shopgrid" id="forgeGrid"></div>
       <p class="small" id="forgeMine"></p>
+      <div class="gclist" id="gcList"></div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center">
         <button class="btn" id="forgeMake" type="button" style="font-size:16px;padding:10px 22px" disabled>FORGE</button>
         <button class="btn alt" id="forgeDone" type="button" style="font-size:16px;padding:10px 22px">TO THE SHOP ▶</button>
       </div>
-      <p class="small" style="opacity:.7">Forged arrows are unlocked for the rest of the run: they turn up in the field as gold FORGED crates. Shoot one to collect it. Forge again at every horde. Game over and they are gone.</p>
+      <p class="small" style="opacity:.7">Forged arrows are unlocked for the rest of the run: they turn up in the field as gold FORGED crates. Shoot one to collect it. Forge again at every horde. A forged POWERFUL arrow + one more power can make a GAME CHANGER. Game over and they are gone.</p>
     </div>
   </div>
   <div class="overlay" id="overScreen" hidden>
@@ -304,7 +319,7 @@ const COMBOS = {
   'blackhole+tele': ['WORMHOLE', '#d58cff', 'WORMHOLE'], 'blackhole+shrink': ['GIANT SLAYER', '#b6ff5c', 'SLAYER'],
   'boom+heavy': ['MEGA BOMB', '#ffd27a', 'MEGA BOMB'], 'pierce+storm': ['RAIL LIGHTNING', '#fff36b', 'RAIL ZAP'], 'cluster+meteor': ['STAR BURST', '#ff7b3a', 'STAR BURST'],
   'grow+shrink': ['SIZE WOBBLE', '#ff6bd6', 'WOBBLE'], 'boom+grow': ['BIG BANG', '#ff9a45', 'BIG BANG'], 'grow+tornado': ['MEGA TWISTER', '#ff6bd6', 'MEGA TWISTER'],
-  'blackhole+grow': ['MEGA VOID', '#c79bff', 'MEGA VOID'], 'grow+meteor': ['PLANET FALL', '#ff7b3a', 'PLANET'], 'grow+heavy': ['TITAN ARROW', '#ffd27a', 'TITAN'],
+  'blackhole+grow': ['MEGA VOID', '#c79bff', 'MEGA VOID'], 'grow+meteor': ['MEGA METEOR', '#ff7b3a', 'MEGA METEOR'], 'grow+heavy': ['TITAN ARROW', '#ffd27a', 'TITAN'],
   'magnet+storm': ['LIGHTNING ROD', '#fff36b', 'ROD'], 'homing+magnet': ['PAYBACK', '#ff8ad8', 'PAYBACK'], 'boom+magnet': ['SPIKE MINE', '#ff5a4e', 'MINE'],
   'fire+magnet': ['HOT MAGNET', '#ff9a45', 'HOT MAG'], 'grow+magnet': ['BIG MAGNET', '#ff6bd6', 'BIG MAG'],
   'boom+bounce': ['BOUNCING BOMB', '#ff5a4e', 'BOUNCE BOMB'], 'bounce+fire': ['FIRE SKIPPER', '#ff9a45', 'SKIPPER'], 'bounce+storm': ['PINBALL', '#fff36b', 'PINBALL'],
@@ -315,10 +330,16 @@ const COMBOS = {
 const comboKey = (a, b) => a && b ? [a, b].sort().join('+') : null;
 const comboOf = ar => !ar ? null : comboKey(ar.pk, ar.pk2);
 // MEGA arrows (huge-area wreckers) only ever get ONE shot: black hole, meteor, every pair with them, and these pairs
-const MEGA_ONE = ['blackhole', 'meteor'], MEGA_PAIRS = ['grow+meteor', 'grow+tornado', 'blackhole+grow', 'boom+grow', 'grow+heavy', 'boom+heavy'];
-const isMega = (k, k2) => !!k && (MEGA_ONE.includes(k) || MEGA_ONE.includes(k2) || MEGA_PAIRS.includes(comboKey(k, k2)));
-const megaAr = ar => !!ar && isMega(ar.pk, ar.pk2 || null);
-const megaTag = o => isMega(o.k, o.k2 || null) ? (o.shots === 1 ? 'MEGA · 1 SHOT' : 'MEGA ×' + o.shots) : null;
+// ARROW TIERS: 1 BASIC (plain, white), 2 ENHANCED (one power, green), 3 POWERFUL (two linked, blue, 2-3 shots),
+// 4 GAME CHANGER (forged from a POWERFUL + one more power, gold, 1 shot). Black hole / meteor alone keep 1 shot.
+const MEGA_ONE = ['blackhole', 'meteor'];
+const isMega = (k, k2) => !!k && !k2 && MEGA_ONE.includes(k);
+const pwShots = (k, k2) => MEGA_ONE.includes(k) || MEGA_ONE.includes(k2) ? 2 : 3;
+const megaAr = ar => !!ar && (!!ar.gc || isMega(ar.pk, ar.pk2 || null));
+const TIER_COL = [null, '#f6eedf', '#5dff8a', '#5ab4ff', '#ffc83a'], TIER_NAME = [null, 'BASIC', 'ENHANCED', 'POWERFUL', 'GAME CHANGER'];
+const tierOf = o => !o ? 1 : o.gc ? 4 : o.k2 ? 3 : o.k ? 2 : 1;
+const arTier = ar => ar.gc ? 4 : ar.pk2 ? 3 : ar.pk ? 2 : 1;
+const megaTag = o => (o.gc || isMega(o.k, o.k2 || null)) && o.shots === 1 ? '1 SHOT' : '×' + o.shots;
 const COMBO_DESC = {
   'fire+ice': "A steam cloud: nobody inside can aim", 'boom+fire': 'Sets the floor under the blast on fire', 'fire+meteor': 'Rocks leave burning patches',
   'meteor+storm': 'Every rock zaps the nearest enemy', 'storm+tornado': 'The twister throws lightning', 'blackhole+meteor': 'The hole eats the rocks, then one huge blast',
@@ -326,7 +347,7 @@ const COMBO_DESC = {
   'boom+heavy': 'A huge blast that knocks an archer off their tower', 'pierce+storm': 'Lightning down the whole flight path', 'cluster+meteor': 'Tap the screen: it bursts into 5 flaming rocks',
   'grow+shrink': "They flicker big and small and can't shoot for 4 s", 'boom+grow': 'A blast twice as big that enlarges everyone in it',
   'grow+tornado': 'A twister twice as wide', 'blackhole+grow': 'A bigger hole that pulls from much further away',
-  'grow+meteor': 'One planet-sized rock falls slowly and wrecks a huge area', 'grow+heavy': 'A huge arrow that hits 60% harder',
+  'grow+meteor': 'Huge rocks that enlarge whoever they hit', 'grow+heavy': 'A huge arrow that hits 60% harder',
   'magnet+storm': 'Every arrow the magnet catches zaps the nearest enemy', 'homing+magnet': 'When the magnet ends, its arrows fly back at whoever shot them',
   'boom+magnet': 'When the magnet ends it blows up and throws its arrows at the enemy', 'fire+magnet': 'Caught arrows melt, so the magnet never fills up',
   'grow+magnet': 'The magnet pulls from much further and holds 8 arrows',
@@ -346,7 +367,7 @@ function comboAnnounce(P, a, b) {
   ring(f.x, f.y - 60, 95, C[1], .7, 4); ring(f.x, f.y - 60, 60, '#ffffff', .5, 2); sfx('heal');
   return true;
 }
-const powShort = q => q.k2 ? (COMBOS[comboKey(q.k, q.k2)] ? '★' + COMBOS[comboKey(q.k, q.k2)][2] : POWERS[q.k].short + '+' + POWERS[q.k2].short) : POWERS[q.k].short;
+const powShort = q => q.gc ? GC[q.gc].name : q.k2 ? (COMBOS[comboKey(q.k, q.k2)] ? '★' + COMBOS[comboKey(q.k, q.k2)][2] : POWERS[q.k].short + '+' + POWERS[q.k2].short) : POWERS[q.k].short;
 const powName = q => q.k2 ? powShort(q) : POWERS[q.k].name;
 // a picture for every shop item and arrow type (shop cards and the quiver buttons)
 const ICON = {
@@ -402,6 +423,7 @@ function newGame() {
 
 function spawnLevel(first) {
   for (const q of st.forged || []) q.shots = q.max;   // forged arrows refill every level
+  if (GC_TEST && !st.gcGiven) gcGive();
   const lv = st.level, n = Math.min(lv, 6);
   st.enemies = [];
   // each archer gets its own random spot: some close, some far
@@ -457,7 +479,7 @@ function spawnLevel(first) {
   st.wind = lv >= 4 ? Math.round(rand(-1, 1) * Math.min(100, (lv - 3) * 14)) : 0;
   st.pinned = st.pinned.filter(p => p.x < 200);
   st.marchers = []; if (SOLDIERS) buildMarchQueue(); else st.marchQ = []; st.allies = []; st.allyQ = 0; st.gateCD = Math.min(st.gateCD, 3);
-  st.tornados = []; st.mags = []; st.planets = []; st.holes = []; st.showers = []; st.rocks = []; st.boulders = []; st.timeScale = 1;
+  st.tornados = []; st.mags = []; st.planets = []; st.gcfx = []; st.holes = []; st.showers = []; st.rocks = []; st.boulders = []; st.timeScale = 1;
   const wr = Math.random();
   st.weather = lv < 3 || bossLv ? 'clear' : wr < .45 ? 'clear' : wr < .63 ? 'night' : wr < .82 ? 'storm' : 'fog';
   if (st.weather === 'storm') { st.wind = Math.round(rand(-120, 120)); st.windT = st.wind; st.stormT = rand(2.5, 4); }
@@ -852,6 +874,7 @@ function gadgetStep(ar, sdt) {
         g.gone = true; ar.done = true;
         if (g.piece) { hordePiece(g); return; }
         if (g.recruit) { hordeRecruit(g); for (let i = 0; i < 20; i++) P_(g.x, g.y, rand(-180, 180), rand(-220, 60), .6, 2.6, i % 2 ? '#b07a43' : '#7dff9a', 'spark'); sfx('heal'); return; }
+        if (g.gc) { giveGC(g.gc); gcPickFX(g, st.P); return; }
         if (g.pk2) {   // FORGED crate: a linked arrow you forged at a horde
           const col = forgedCol(g); giveLinked(g.pk, g.pk2, isMega(g.pk, g.pk2) ? 1 : forgedShots(g.pk, g.pk2) + st.extraShots);
           text(g.x, g.y - 26, 'FORGED: ' + forgedName(g), col, 18, 1.4); text(feet(st.P).x, feet(st.P).y - 140, forgedName(g), col, 16, 1.4);
@@ -1057,6 +1080,7 @@ function impactFX(ar, x, y, onBody) {
     glow(x, y, 40, 'rgba(140,255,90,', .3); ring(x, y, 26, '#8cff5a', .35, 2.5);
     for (let i = 0; i < 16; i++) P_(x, y, rand(-140, 140), rand(-220, -30), rand(.35, .7), rand(1.8, 3.4), i % 2 ? '#8cff5a' : '#5fd13a', 'spark');
   }
+  if (ar.gc && !ar.rider && ar.owner && ar.owner.isP && shotOnce(ar, 'gc')) gcImpact(ar, x, y);
   if (!pk) return;
   if (pk === 'fire') {
     glow(x, y, 60, 'rgba(255,150,60,', .35); ring(x, y, 46, '#ffb347', .4, 3);
@@ -1095,8 +1119,7 @@ function impactFX(ar, x, y, onBody) {
   } else if (pk === 'blackhole') {
     if (ar.owner.isP && shotOnce(ar, 'blackhole')) spawnHole(x, Math.min(y, -40), riderOf(ar, 'blackhole'));
   } else if (pk === 'meteor') {
-    if (ar.owner.isP && riderOf(ar, 'meteor') === 'grow') { if (shotOnce(ar, 'planet')) spawnPlanet(x, Math.sign(ar.vx) || 1, ar.owner); }
-    else if (ar.owner.isP) { const n = meteorShare(ar); if (n > 0) spawnShower(x, Math.sign(ar.vx) || 1, n, riderOf(ar, 'meteor')); }
+    if (ar.owner.isP) { const n = meteorShare(ar); if (n > 0) spawnShower(x, Math.sign(ar.vx) || 1, n, riderOf(ar, 'meteor')); }
   } else if (pk === 'grow') {
     ring(x, y, 40, GROW_COL, .45, 3);
     for (let i = 0; i < 14; i++) P_(x, y, rand(-170, 170), rand(-200, 30), rand(.35, .65), rand(2, 3.4), i % 2 ? GROW_COL : '#ffd6f4', 'spark');
@@ -1797,7 +1820,7 @@ function spawnPlanet(x, dir, by) {
   st.planets = st.planets || [];
   const y0 = topY() - 260;
   st.planets.push({ x: x - dir * 260, tx: x, y: y0, y0, t: 0, r: PLANET_R, dir, by, spin: 0, rumble: 0 });
-  comboText(x, -300, 'grow+meteor'); text(x, -250, 'LOOK UP!', '#ffd27a', 16, 2);
+  text(x, -250, 'LOOK UP!', '#ffd27a', 16, 2);
   st.flashA = .3; st.flashC = '255,140,60'; sfx('void');
 }
 function planetStep(dt) {
@@ -1860,7 +1883,7 @@ function drawPlanets() {
   }
 }
 function updateMeteors(dt) {
-  planetStep(dt);
+  planetStep(dt); gcStep(dt);
   st.showers = st.showers || []; st.rocks = st.rocks || [];
   for (const S of st.showers) {
     S.next -= dt;
@@ -1902,7 +1925,7 @@ function drawZapRock(R) {
   ctx.restore();
 }
 function drawMeteors() {
-  drawPlanets();
+  gcDraw(); drawPlanets();
   for (const R of st.rocks || []) {
     if (R.k === 'storm') { drawZapRock(R); continue; }
     const x = SX(R.x), y = SY(R.y), r = R.r * sc, sp = Math.hypot(R.vx, R.vy), ux = R.vx / sp, uy = R.vy / sp;
@@ -2179,6 +2202,326 @@ function drawWebs() {
   for (const m of st.marchers || []) if (m.web > 0 && !m.dead) drawWeb(SX(m.x), SY((m.y || 0) - 40 * (m.s || 1)), 40 * (m.s || 1) * sc, m.web, m.x);
   for (const g of st.gadgets) if (g.webT > 0 && !g.gone) drawWeb(SX(g.x), SY(g.y), 52 * (g.size || 1) * sc, g.webT, g.id || 1);
 }
+/* ---------- GAME CHANGERS (tier 4): forge a POWERFUL arrow + one more power. 1 shot, a huge effect, enemies only ---------- */
+const GC_GOLD = '#ffc83a';
+const GC = {
+  planet:    { name: 'PLANET FALL', base: 'grow+meteor',      add: 'grow',   icon: '🪐', col: '#ff7b3a', desc: 'A planet falls slowly and wrecks a huge area' },
+  nova:      { name: 'SUPERNOVA',   base: 'blackhole+grow',   add: 'boom',   icon: '💥', col: '#c79bff', desc: 'A giant black hole pulls everything in, then explodes across the screen' },
+  hurricane: { name: 'HURRICANE',   base: 'storm+tornado',    add: 'grow',   icon: '🌀', col: '#9fd8ff', desc: 'A huge storm sweeps the whole field for 8 s, throwing and zapping enemies' },
+  volcano:   { name: 'VOLCANO',     base: 'boom+fire',        add: 'meteor', icon: '🌋', col: '#ff5a2e', desc: 'A volcano bursts up and rains burning rocks for 6 s' },
+  iceage:    { name: 'ICE AGE',     base: 'fire+ice',         add: 'ice',    icon: '🧊', col: '#bfe9ff', desc: 'The whole field freezes: every enemy frozen solid for 6 s' },
+  sky:       { name: 'SKY STRIKE',  base: 'magnet+storm',     add: 'storm',  icon: '⚡', col: '#fff36b', desc: 'A bolt hits every enemy on the field at once' },
+  quake:     { name: 'EARTHQUAKE',  base: 'grow+heavy',       add: 'boom',   icon: '🪨', col: '#c8a070', desc: 'Slams the ground: every enemy tower cracks and archers fall' },
+  demo:      { name: 'DEMOLITION',  base: 'bounce+heavy',     add: 'grow',   icon: '⚫', col: '#b8bcc8', desc: 'A giant ball rolls the length of the field, flattening towers and cover' },
+  multi:     { name: 'MULTIBALL',   base: 'bounce+storm',     add: 'triple', icon: '🎱', col: '#fff36b', desc: 'Splits into 5 bouncing arrows that zap on every bounce' },
+  dome:      { name: 'IRON DOME',   base: 'grow+magnet',      add: 'shield', icon: '🛡️', col: '#ff3b5c', desc: 'A magnet dome over you catches every enemy arrow for 10 s' },
+  doom:      { name: 'DOOMSDAY',    base: 'blackhole+meteor', add: 'grow',   icon: '☄️', col: '#ff5a4e', desc: 'The sky goes dark and meteors hit every part of the field at once' }
+};
+const GC_TEST = /[?&]gc\b/.test(location.search);
+const qIcon = o => o.gc ? GC[o.gc].icon : (ICON['pw_' + o.k] || '') + (o.k2 ? ICON['pw_' + o.k2] || '' : '');
+const qCol = o => o.gc ? GC_GOLD : POWERS[o.k].col;
+const gcCost = id => { const G = GC[id], [p, q] = G.base.split('+'); return forgeCost(p, q) + (FORGE_COST[G.add] || 15) + 40; };
+const gcUnlock = (id, by) => { const [k, k2] = GC[id].base.split('+'); return { k, k2, gc: id, by }; };
+// three picked powers: is it a Game Changer recipe, and do you own the POWERFUL arrow it needs?
+function gcHint(pick, list) {
+  const [a, b, c] = pick;
+  for (const id in GC) {
+    const G = GC[id], [p, q] = G.base.split('+');
+    for (const [x, y, z] of [[a, b, c], [a, c, b], [b, c, a]]) {
+      if (comboKey(x, y) !== G.base || z !== G.add) continue;
+      const own = list.some(u => !u.gc && comboKey(u.k, u.k2) === G.base), cost = gcCost(id);
+      return own ? { ok: true, gc: id, cost, t: '★' + COMBOS[G.base][0] + ' + ' + POWERS[G.add].short + '  =  ' + G.icon + ' ' + G.name + '  (GAME CHANGER, 1 shot)  ·  ' + cost + ' points' }
+                 : { ok: false, t: 'That makes a GAME CHANGER, but first forge ★' + COMBOS[G.base][0] + ' (' + POWERS[p].short + ' + ' + POWERS[q].short + ')' };
+    }
+  }
+  return { ok: false, t: "These won't forge together" };
+}
+function gcListHTML(list) {
+  let h = '<div class="gch">GAME CHANGERS · forge a POWERFUL arrow + one more power · 1 shot</div>';
+  for (const id in GC) {
+    const G = GC[id], own = list.some(u => !u.gc && comboKey(u.k, u.k2) === G.base), have = list.some(u => u.gc === id), c = COMBOS[G.base];
+    h += own ? `<button type="button" data-gc="${id}"${have ? ' class="have"' : ''}>${G.icon} ${G.name}${have ? ' ✓' : ''}<small>★${c[0]} + ${POWERS[G.add].short} · ${gcCost(id)}</small></button>`
+             : `<button type="button" data-gc="${id}" disabled>???<small>needs ★${c[0]}</small></button>`;
+  }
+  return h;
+}
+const gcAdd = o => { (st.gcfx = st.gcfx || []).push(o); return o; };
+const gcLive = () => st.enemies.filter(e => !e.dead && !e.swallowed);
+const gcMarch = fn => { for (const m of st.marchers || []) if (!m.dead) fn(m); };
+function gcBanner(id) {
+  const G = GC[id];
+  st.banner = { t: G.icon + ' ' + G.name + '!', sub: 'GAME CHANGER', life: 2.6 };
+  shake(10); sfx('void'); st.flashA = Math.max(st.flashA || 0, .35); st.flashC = '255,210,120';
+}
+function gcHurt(E, dmg, by, x, col) {
+  if (!E || E.dead) return;
+  if (E.boss) dmg *= .7;   // bosses take big damage, but are not one-shot
+  dmg = Math.max(1, Math.round(dmg));
+  const f = feet(E);
+  text(f.x + rand(-12, 12), f.y - 120, '-' + dmg, col || GC_GOLD, 18, 1);
+  if (E.hydra) { E.hp = Math.max(1, E.hp - dmg * .6); E.hitT = .2; return; }
+  E.hp -= dmg; E.hitT = .2; if (by) E.lastBy = by;
+  if (E.hp <= 0) kill(E, { vx: (f.x - (x == null ? f.x - 1 : x)) || 1, owner: by }, 'body');
+}
+function gcTopple(E, by, n) {
+  if (!E || E.dead || E.boss || E.ship || E.walker || E.flyer || E.hydra || !E.chops || E.topple) return;
+  if (E.rise > 0) { gcHurt(E, 25 * n, by); return; }   // still rising into place: no tower to crack yet
+  for (let q = 0; q < n && !E.dead && !E.topple; q++) chopPillar(E, { x: E.x, y: clamp(-E.h * .5, -E.h + 12, -14), owner: by });
+}
+// the arrow was just fired: mark it (IRON DOME goes up at once)
+function gcFired(P, id, n0) {
+  for (let q = n0; q < st.arrows.length; q++) { const ar = st.arrows[q]; ar.gc = id === 'dome' ? null : id; ar.col = GC_GOLD; }
+  if (id === 'dome') {
+    gcBanner(id);
+    const f = feet(P);
+    gcAdd({ ty: 'dome', x: f.x, y: 0, t: 0, life: 10, r: Math.max(560, -f.y + 400), n: 0 });
+  } else text(feet(P).x, feet(P).y - 150, GC[id].icon + ' ' + GC[id].name, GC_GOLD, 16, 1.2);
+}
+function gcImpact(ar, x, y) {
+  const id = ar.gc, by = gcBy(ar), dir = Math.sign(ar.vx) || 1;
+  if (!GC[id]) return;
+  gcBanner(id);
+  if (id === 'planet') spawnPlanet(x, dir, by);
+  else if (id === 'nova') gcAdd({ ty: 'nova', x, y: Math.min(y, -120) - 60, t: 0, life: 3.3, by, dir, rt: 0 });
+  else if (id === 'hurricane') { const L = gcL() - 250, R = gcR() + 250, s0 = dir > 0 ? L : R; gcAdd({ ty: 'storm', x0: s0, x1: dir > 0 ? R : L, x: s0, t: 0, life: 8, by, zt: 0, rt: 0, hit: [] }); }
+  else if (id === 'volcano') {
+    gcAdd({ ty: 'volc', x, t: 0, life: 6.5, by, dir, rt: .2, qt: 0 });
+    for (let i = -4; i <= 4; i++) burnPatch(x + i * 90, -4, by, 6);
+    for (const E of gcLive()) { const d = Math.abs(feet(E).x - x); if (d < 260) gcHurt(E, 70 * (1 - d / 320), by, x, '#ff9a45'); }
+    gcMarch(m => { if (Math.abs(m.x - x) < 260) hurtMarcher(m, 120, { owner: by }); });
+    shake(16); sfx('boom');
+  }
+  else if (id === 'iceage') gcIceAge(by);
+  else if (id === 'sky') gcSky(by);
+  else if (id === 'quake') gcQuake(x, by);
+  else if (id === 'demo') { const sx = by && by.x != null ? feet(by).x + dir * 160 : x; gcAdd({ ty: 'ball', x: sx, y: 0, dir, t: 0, life: 12, r: 95, by, hit: [], spin: 0 }); sfx('thud'); }
+  else if (id === 'multi') gcMulti(ar, true);
+  else if (id === 'doom') gcAdd({ ty: 'doom', t: 0, life: 4.2, by, dir, fired: 0 });
+}
+function gcMulti(ar, fromHit) {
+  if (ar.gcSplit) return;
+  ar.gcSplit = true; ar.done = true;
+  if (!fromHit) gcBanner('multi');
+  const sp = Math.max(750, Math.hypot(ar.vx, ar.vy)), base = fromHit ? -Math.PI / 2 : Math.atan2(ar.vy, ar.vx), y = fromHit ? Math.min(ar.y, -2) - 12 : ar.y;
+  for (const off of [-.36, -.18, 0, .18, .36]) st.arrows.push(Object.assign({}, ar, { y, vx: Math.cos(base + off) * sp, vy: Math.sin(base + off) * sp, pk: 'bounce', pk2: 'storm', gc: null, done: false, via: new Set(), hit: null, bn: 0, tid: 0, col: '#fff36b', split: true, vol: null, volDone: true, gcSplit: true }));
+  ring(ar.x, y, 44, '#fff36b', .4, 3); sfx('zap'); text(ar.x, y - 40, 'MULTIBALL!', '#fff36b', 16, 1);
+}
+function gcIceAge(by) {
+  for (const E of gcLive()) {
+    const f = feet(E);
+    E.frozen = Math.max(E.frozen || 0, E.boss ? 3 : 6); E.aiAim = null; E.pow = 0;
+    gcHurt(E, 12, by, null, '#bfe9ff');
+    for (let i = 0; i < 8; i++) P_(f.x + rand(-18, 18), f.y - rand(10, 100), rand(-40, 40), rand(-80, 10), .6, rand(2, 4), '#e8f8ff', 'shard');
+  }
+  gcMarch(m => { m.frozen = Math.max(m.frozen || 0, 6); });
+  gcAdd({ ty: 'ice', t: 0, life: 6 });
+  st.flashA = .7; st.flashC = '200,235,255'; sfx('glass');
+}
+function gcSky(by) {
+  const top = topY() - 200;
+  for (const E of gcLive()) {
+    const f = feet(E);
+    st.bolts.push({ x1: f.x + rand(-60, 60), y1: top, x2: f.x, y2: f.y - 60, life: .5, col: '#fff36b' });
+    ring(f.x, f.y - 60, 50, '#fff36b', .4, 3);
+    gcHurt(E, 75, by, null, '#fff36b');
+  }
+  let n = 0;
+  gcMarch(m => { if (n++ < 40) st.bolts.push({ x1: m.x + rand(-30, 30), y1: top, x2: m.x, y2: -30, life: .4, col: '#fff36b' }); hurtMarcher(m, 90, { owner: by }); });
+  st.flashA = .9; st.flashC = '255,250,200'; shake(12); sfx('zap'); sfx('boom');
+}
+function gcQuake(x, by) {
+  for (const E of gcLive()) {
+    if (E.flyer) continue;
+    if (E.cover) damageCover(E, 9);
+    if (!E.boss && !E.walker && !E.ship && !E.hydra && E.chops) gcTopple(E, by, 3);
+    else gcHurt(E, 70, by, x, '#c8a070');
+    if (E.walker && !E.dead) E.stun = Math.max(E.stun || 0, 2);
+  }
+  gcMarch(m => { hurtMarcher(m, 70, { owner: by }); if (!m.dead) m.frozen = Math.max(m.frozen || 0, 1.5); });
+  gcAdd({ ty: 'quake', x, t: 0, life: 2.2 });
+  shake(Math.min(26, W / 34)); sfx('boom'); sfx('thud');
+}
+function gcNovaBoom(F) {
+  const R = 1150;
+  st.flashA = 1; st.flashC = '255,240,255'; shake(Math.min(26, W / 34)); sfx('boom'); sfx('void');
+  for (let i = 0; i < 5; i++) ring(F.x, F.y, R * (.2 + i * .2), i % 2 ? '#ffffff' : '#c79bff', .8 + i * .1, 9 - i);
+  glow(F.x, F.y, 400, 'rgba(220,180,255,', .7);
+  for (let i = 0; i < 80; i++) { const a = rand(0, 6.283), v = rand(300, 1100); P_(F.x, F.y, Math.cos(a) * v, Math.sin(a) * v, rand(.6, 1.3), rand(3, 7), ['#ffffff', '#c79bff', '#ff8ad8'][i % 3], 'spark'); }
+  for (const E of gcLive()) {
+    const d = Math.abs(feet(E).x - F.x); if (d > R) continue;
+    gcHurt(E, 160 * (1 - d / (R * 1.2)), F.by, F.x, '#e0c8ff');
+    if (d < 450 && !E.dead) gcTopple(E, F.by, 2);
+    if (E.cover && !E.dead) damageCover(E, 9);
+  }
+  gcMarch(m => { const d = Math.abs(m.x - F.x); if (d < R) hurtMarcher(m, 260 * (1 - d / (R * 1.2)), { owner: F.by }); });
+  text(F.x, F.y - 80, 'SUPERNOVA!', '#ffffff', 26, 1.6, 1);
+}
+// IRON DOME: enemy arrows that come into the dome are caught
+function domeCatch(ar) {
+  const fx = st.gcfx; if (!fx || !fx.length) return false;
+  for (const D of fx) {
+    if (D.ty !== 'dome' || D.t >= D.life || ar.y > 2 || Math.hypot(ar.x - D.x, ar.y) > D.r) continue;
+    ar.done = true; D.n++;
+    for (let i = 0; i < 6; i++) P_(ar.x, ar.y, rand(-90, 90), rand(-90, 30), .35, 2, i % 2 ? '#ff3b5c' : '#ffd27a', 'spark');
+    if (D.n % 3 === 1) sfx('glass');
+    return true;
+  }
+  return false;
+}
+function gcStep(dt) {
+  if (!st.gcfx || !st.gcfx.length) return;
+  for (const F of st.gcfx) {
+    F.t += dt;
+    if (F.ty === 'nova') {
+      if (F.t < 3) {
+        for (const E of gcLive()) if (E.flyer) E.x += Math.sign(F.x - E.x) * 160 * dt;
+        gcMarch(m => { const d = F.x - m.x; if (Math.abs(d) < 1000) m.x += Math.sign(d) * Math.min(Math.abs(d), 140 * dt); });
+        for (const ar of st.arrows) if (!ar.done && !(ar.owner && ar.owner.isP)) { const d = Math.hypot(ar.x - F.x, ar.y - F.y) || 1; if (d < 900) { ar.vx += (F.x - ar.x) / d * 1600 * dt; ar.vy += (F.y - ar.y) / d * 1600 * dt; if (d < 40) ar.done = true; } }
+        for (let i = 0; i < 2; i++) { const a = rand(0, 6.283), r = rand(200, 600); P_(F.x + Math.cos(a) * r, F.y + Math.sin(a) * r, -Math.cos(a) * r * 1.4, -Math.sin(a) * r * 1.4, .7, rand(2, 4), '#c79bff', 'spark'); }
+        if ((F.rt -= dt) <= 0) { F.rt = .5; shake(3 + F.t * 2); sfx('void'); }
+      } else if (!F.boom) { F.boom = 1; gcNovaBoom(F); }
+    } else if (F.ty === 'storm') {
+      F.x = F.x0 + (F.x1 - F.x0) * Math.min(1, F.t / F.life);
+      for (const E of gcLive()) {
+        const f = feet(E);
+        if (Math.abs(f.x - F.x) > 200 || F.hit.includes(E.id)) continue;
+        F.hit.push(E.id); gcHurt(E, 45, F.by, F.x, '#9fd8ff');
+        if (!E.dead) { E.stun = Math.max(E.stun || 0, 1.5); if (E.flyer) E.h = Math.max(60, E.h - 80); }
+        for (let i = 0; i < 10; i++) P_(f.x, f.y - 60, rand(-220, 220), rand(-320, -60), .6, 3, '#cfe6ff', 'spark');
+      }
+      if ((F.zt -= dt) <= 0) {
+        F.zt = .45; let best = null, bd = 520;
+        for (const E of gcLive()) { const d = Math.abs(feet(E).x - F.x); if (d < bd) { bd = d; best = E; } }
+        if (best) { const f = feet(best); st.bolts.push({ x1: F.x + rand(-60, 60), y1: -560, x2: f.x, y2: f.y - 60, life: .3, col: '#fff36b' }); gcHurt(best, 12, F.by, F.x, '#fff36b'); sfx('zap'); }
+      }
+      F.mh = F.mh || new WeakSet();
+      gcMarch(m => { if (Math.abs(m.x - F.x) < 170 && !F.mh.has(m)) { F.mh.add(m); hurtMarcher(m, 90, { owner: F.by }); } });
+      for (let i = 0; i < 3; i++) P_(F.x + rand(-160, 160), -rand(0, 500), rand(-300, 300), rand(-200, 50), .6, rand(2, 5), 'rgba(200,220,240,.7)', 'smoke');
+      if ((F.rt -= dt) <= 0) { F.rt = .6; shake(4); sfx('whoosh'); }
+    } else if (F.ty === 'volc') {
+      if (F.t < 6 && (F.rt -= dt) <= 0) { F.rt = .3; gcShower(F.x + rand(-520, 520), F.dir, F.by, 2, 'fire'); }
+      for (let i = 0; i < 3; i++) P_(F.x + rand(-30, 30), -150 * Math.min(1, F.t / .6), rand(-260, 260), rand(-700, -300), rand(.6, 1.2), rand(3, 6), ['#ff5a2e', '#ffb347', '#ffd27a'][i % 3], 'flame');
+      if ((F.qt -= dt) <= 0) { F.qt = .5; shake(3); sfx('thud'); }
+    } else if (F.ty === 'quake') {
+      shake(10 * (1 - F.t / F.life));
+      if (Math.random() < .6) P_(camX + rand(0, W / sc), -2, rand(-80, 80), rand(-200, -60), .7, rand(4, 8), 'rgba(150,120,100,.7)', 'smoke');
+    } else if (F.ty === 'ball') {
+      F.x += F.dir * 820 * dt; F.spin += F.dir * 820 * dt / F.r;
+      for (const E of gcLive()) {
+        if (E.flyer || F.hit.includes(E.id)) continue;
+        if (Math.abs(feet(E).x - F.x) > F.r + 25) continue;
+        F.hit.push(E.id);
+        if (E.cover) damageCover(E, 9);
+        if (!E.boss && !E.walker && !E.ship && !E.hydra && E.chops) gcTopple(E, F.by, 3);
+        gcHurt(E, E.boss || E.walker ? 80 : 40, F.by, F.x - F.dir * 50, '#d8dce8');
+        shake(8); sfx('boom');
+      }
+      gcMarch(m => { if (Math.abs(m.x - F.x) < F.r) hurtMarcher(m, 400, { owner: F.by }); });
+      for (let i = 0; i < 2; i++) P_(F.x - F.dir * F.r * .6, -4, -F.dir * rand(40, 200), rand(-140, -30), .6, rand(4, 8), 'rgba(150,120,100,.7)', 'smoke');
+      if ((F.dir > 0 && F.x > gcR() + 400) || (F.dir < 0 && F.x < gcL() - 400)) F.t = F.life;
+    } else if (F.ty === 'doom') {
+      if (F.t > .9 && !F.fired) {
+        F.fired = 1;
+        for (let x = gcL() - 100; x <= gcR() + 100; x += 240) gcShower(x, F.dir, F.by, 3, 'grow');
+        shake(14); sfx('boom');
+      }
+    }
+  }
+  st.gcfx = st.gcfx.filter(F => F.t < F.life);
+}
+function gcDraw() {
+  for (const F of st.gcfx || []) {
+    const t = F.t, left = F.life - t;
+    if (F.ty === 'nova' && t < 3) {
+      const k = Math.min(1, t / 3), x = SX(F.x), y = SY(F.y), r = (50 + 110 * k) * sc;
+      const g = ctx.createRadialGradient(x, y, r * .2, x, y, r * 2.2);
+      g.addColorStop(0, 'rgba(10,0,20,1)'); g.addColorStop(.45, 'rgba(60,20,110,.85)'); g.addColorStop(1, 'rgba(160,100,255,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r * 2.2, 0, 6.283); ctx.fill();
+      ctx.strokeStyle = 'rgba(220,190,255,.8)'; ctx.lineWidth = 3 * sc;
+      for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc(x, y, r * (1 + i * .35), st.t * (3 + i) + i, st.t * (3 + i) + i + 3.6); ctx.stroke(); }
+    } else if (F.ty === 'storm') {
+      const a = Math.min(1, t / .5, left / .8);
+      ctx.save(); ctx.globalAlpha = a;
+      for (let i = 0; i < 16; i++) {
+        const w = (40 + i * 16) * sc, cx = SX(F.x) + Math.sin(st.t * 4 + i * .7) * 14 * sc, cy = SY(-i * 42);
+        ctx.fillStyle = 'rgba(150,170,200,.16)'; ctx.strokeStyle = 'rgba(205,220,240,.55)'; ctx.lineWidth = 2 * sc;
+        ctx.beginPath(); ctx.ellipse(cx, cy, w, w * .22, 0, 0, 6.283); ctx.fill(); ctx.stroke();
+      }
+      ctx.restore();
+    } else if (F.ty === 'volc') {
+      const h = 170 * Math.min(1, t / .6), a = Math.min(1, left / .6), x = SX(F.x), g0 = SY(0);
+      ctx.save(); ctx.globalAlpha = a;
+      const g = ctx.createLinearGradient(0, SY(-h), 0, g0); g.addColorStop(0, '#6a3a24'); g.addColorStop(1, '#2a1a14');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(x - 230 * sc, g0); ctx.lineTo(x - 45 * sc, SY(-h)); ctx.lineTo(x + 45 * sc, SY(-h)); ctx.lineTo(x + 230 * sc, g0); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = 'rgba(255,120,40,.9)'; ctx.beginPath(); ctx.ellipse(x, SY(-h), 45 * sc, 10 * sc, 0, 0, 6.283); ctx.fill();
+      ctx.strokeStyle = 'rgba(255,140,50,.8)'; ctx.lineWidth = 4 * sc;
+      for (let i = -1; i <= 1; i++) { ctx.beginPath(); ctx.moveTo(x + i * 20 * sc, SY(-h)); ctx.lineTo(x + i * 70 * sc + Math.sin(st.t * 3 + i) * 8 * sc, g0); ctx.stroke(); }
+      ctx.restore();
+    } else if (F.ty === 'ice') {
+      const a = Math.min(1, t / .3, left / 1.5);
+      ctx.fillStyle = 'rgba(190,230,255,' + (.28 * a).toFixed(3) + ')'; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = 'rgba(235,248,255,' + (.8 * a).toFixed(3) + ')'; ctx.fillRect(0, SY(0) - 6 * sc, W, 10 * sc);
+    } else if (F.ty === 'quake') {
+      const a = Math.min(1, left / .8);
+      ctx.strokeStyle = 'rgba(40,25,20,' + (.8 * a).toFixed(3) + ')'; ctx.lineWidth = 3 * sc;
+      for (let i = 0; i < 12; i++) {
+        let px = (i + .5) * W / 12, py = SY(0);
+        ctx.beginPath(); ctx.moveTo(px, py);
+        for (let j = 0; j < 4; j++) { px += (hash(i * 7 + j) - .5) * 40 * sc; py += 9 * sc; ctx.lineTo(px, py); }
+        ctx.stroke();
+      }
+    } else if (F.ty === 'ball') {
+      const x = SX(F.x), y = SY(-F.r), r = F.r * sc;
+      const g = ctx.createRadialGradient(x - r * .35, y - r * .35, r * .1, x, y, r);
+      g.addColorStop(0, '#c8ccd6'); g.addColorStop(.6, '#5a5e6a'); g.addColorStop(1, '#22242c');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, 6.283); ctx.fill();
+      ctx.strokeStyle = 'rgba(20,20,26,.7)'; ctx.lineWidth = 4 * sc;
+      for (let i = 0; i < 3; i++) { const a = (F.spin || 0) + i * 2.094; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + Math.cos(a) * r * .9, y + Math.sin(a) * r * .9); ctx.stroke(); }
+    } else if (F.ty === 'dome') {
+      const a = Math.min(1, t / .4, left / 1), x = SX(F.x), y = SY(0), r = F.r * sc;
+      ctx.save();
+      ctx.fillStyle = 'rgba(255,59,92,' + (.08 * a).toFixed(3) + ')'; ctx.beginPath(); ctx.arc(x, y, r, Math.PI, 0); ctx.fill();
+      ctx.strokeStyle = 'rgba(255,90,110,' + (.75 * a).toFixed(3) + ')'; ctx.lineWidth = 3 * sc; ctx.beginPath(); ctx.arc(x, y, r, Math.PI, 0); ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,210,122,' + (.35 * a).toFixed(3) + ')'; ctx.lineWidth = 1.5 * sc;
+      for (let i = 1; i < 6; i++) { ctx.beginPath(); ctx.arc(x, y, r, Math.PI + i * Math.PI / 6 - .03, Math.PI + i * Math.PI / 6 + .03); ctx.lineTo(x, y); ctx.stroke(); }
+      ctx.font = '700 12px Silkscreen, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillStyle = 'rgba(255,210,122,' + a.toFixed(3) + ')';
+      ctx.fillText('IRON DOME · ' + Math.ceil(left) + 's' + (F.n ? ' · CAUGHT ' + F.n : ''), x, y - r - 6);
+      ctx.restore();
+    } else if (F.ty === 'doom') {
+      const a = Math.min(1, t / .5, left / .6);
+      ctx.fillStyle = 'rgba(15,5,20,' + (.55 * a).toFixed(3) + ')'; ctx.fillRect(0, 0, W, H);
+      const g = ctx.createLinearGradient(0, 0, 0, H * .4); g.addColorStop(0, 'rgba(255,60,40,' + (.35 * a).toFixed(3) + ')'); g.addColorStop(1, 'rgba(255,60,40,0)');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H * .4);
+    }
+  }
+}
+const gcBy = ar => ar.owner;
+const gcShower = (x, dir, by, n, k) => spawnShower(x, dir, n, k);
+const gcL = () => Math.min(st.P.x, ...st.enemies.map(e => e.x));
+const gcR = () => farX();
+function giveGC(id) {
+  let q = st.quiver.find(o => o.gc === id);
+  if (!q) {
+    if (st.quiver.length >= QUIVER_SLOTS) {
+      const drop = st.quiver.reduce((a, o) => o.shots < a.shots ? o : a);
+      st.quiver = st.quiver.filter(o => o !== drop); if (st.power === drop) st.power = null;
+      text(feet(st.P).x, feet(st.P).y - 160, 'DROPPED ' + powShort(drop), '#f6eedf', 13, 1.3);
+    }
+    q = Object.assign(gcUnlock(id), { shots: 1 }); st.quiver.push(q);
+  }
+  q.shots = Math.max(1, q.shots); st.power = q;
+}
+function gcGive() {
+  st.gcGiven = true; QUIVER_SLOTS = 12; $('quiver').classList.add('many');
+  st.unlocks = Object.keys(GC).map(id => gcUnlock(id));
+  st.quiver = Object.keys(GC).map(id => Object.assign(gcUnlock(id), { shots: 9 })); st.power = st.quiver[0];
+}
+function gcPickFX(g, P) {
+  const G = GC[g.gc];
+  text(g.x, g.y - 26, 'GAME CHANGER: ' + G.name, GC_GOLD, 18, 1.6); text(feet(P).x, feet(P).y - 140, G.icon + ' ' + G.name, GC_GOLD, 16, 1.6);
+  for (let i = 0; i < 30; i++) st.parts.push({ x: g.x, y: g.y, vx: rand(-240, 240), vy: rand(-260, 60), life: .8, max: .8, r: 3, col: i % 2 ? GC_GOLD : G.col });
+  sfx('heal');
+}
 function updateVortices(dt) {
   comboStep(dt);
   for (const T of st.tornados) {
@@ -2287,6 +2630,7 @@ function updateTopple(e, dt) {
   }
 }
 function damageCover(e, n) {
+  if (!e.cover) return;
   e.cover.hp -= n;
   const x = e.x - e.pw / 2 + 4, y = -e.h - 29;
   for (let q = 0; q < 8; q++) P_(x, y + rand(-25, 25), rand(-140, 60), rand(-160, 20), .6, rand(3, 6), '#9a6a3a', 'shard');
@@ -2421,7 +2765,7 @@ function startHorde() {
   st.clones = [];
   st.helpers = st.helpers.filter(h => !h.dead && !h.clone);
   st.enemies = []; st.marchers = []; st.marchQ = []; st.allies = []; st.arrows = []; st.pinned = [];
-  st.tornados = []; st.mags = []; st.planets = []; st.holes = []; st.showers = []; st.rocks = []; st.boulders = []; st.steams = []; st.fires = [];
+  st.tornados = []; st.mags = []; st.planets = []; st.gcfx = []; st.holes = []; st.showers = []; st.rocks = []; st.boulders = []; st.steams = []; st.fires = [];
   st.gadgets = []; st.dirT = undefined; st.wind = 0; st.weather = 'clear'; st.timeScale = 1; st.nextT = 0;
   const P = st.P;
   Object.assign(P, { big: .75, hp: P.max, confT: 0, acidT: 0, burn: 0, frozen: 0, headRed: 0, stuck: [], dead: false, rot: 0, vr: 0, dx: 0, dy: 0 });
@@ -4179,6 +4523,7 @@ function update(rdt) {
         }
       }
       if (hasPk(ar, 'cluster') && !ar.split && !ar.owner.isP && ar.vy > 0) splitCluster(ar);
+      if (ar.gc === 'multi' && ar.owner.isP && ar.vy > 0 && !ar.done) { gcMulti(ar); break; }
       if (ar.pay) payStep(ar, sdt);
       gadgetStep(ar, sdt);
       if (ar.done) break;
@@ -4213,7 +4558,7 @@ function update(rdt) {
         }
         if (!ar.done && ar.y > -260) for (const m of st.marchers) { if (ar.mhit && ar.mhit.has(m)) continue; const z = mZone(m, ar.x, ar.y); if (z) { onMarcherHit(ar, m, z); break; } }
       } else {
-        if (magPull(ar, sdt)) break;
+        if (domeCatch(ar) || magPull(ar, sdt)) break;
         const B = st.barrier, bx = barrierX();
         if (B && Math.abs(ar.x - bx) < 7 && ar.y > barrierTop() && ar.y < barrierBot()) {
           const dmg = hasPk(ar, 'boom') ? 40 : 20;
@@ -4576,7 +4921,7 @@ function trackTrails() {
     if (ar.done || !ar.owner || !ar.owner.isP || ar.owner.helper || ar.magic) continue;
     if (!ar.tid) ar.tid = ++uid;
     let T = TRAILS.get(ar.tid);
-    if (!T) { T = { pts: [], col: ar.col || '#ffffff', col2: ar.pk2 && POWERS[ar.pk2] ? POWERS[ar.pk2].col : null }; TRAILS.set(ar.tid, T); }
+    if (!T) { T = { pts: [], col: ar.col || '#ffffff', col2: ar.pk2 && POWERS[ar.pk2] ? POWERS[ar.pk2].col : null, tc: arTier(ar) > 1 ? TIER_COL[arTier(ar)] : null }; TRAILS.set(ar.tid, T); }
     const L = T.pts[T.pts.length - 1];
     if (!L || Math.hypot(ar.x - L.x, ar.y - L.y) > 9) T.pts.push({ x: ar.x, y: ar.y, t: now });
   }
@@ -4591,6 +4936,7 @@ function drawTrails() {
     for (let i = 1; i < T.pts.length; i++) {
       const p = T.pts[i], q = T.pts[i - 1], k = 1 - (now - p.t) / LIFE;
       ctx.globalAlpha = k * .75; ctx.lineWidth = (.8 + k * 3) * sc;
+      if (T.tc) { const a0 = ctx.globalAlpha, w0 = ctx.lineWidth; ctx.globalAlpha = a0 * .45; ctx.lineWidth = w0 + 4 * sc; ctx.strokeStyle = T.tc; ctx.beginPath(); ctx.moveTo(SX(q.x), SY(q.y)); ctx.lineTo(SX(p.x), SY(p.y)); ctx.stroke(); ctx.globalAlpha = a0; ctx.lineWidth = w0; ctx.strokeStyle = T.col; }
       if (T.col2) ctx.strokeStyle = (i >> 1) % 2 ? T.col2 : T.col;
       ctx.beginPath(); ctx.moveTo(SX(q.x), SY(q.y)); ctx.lineTo(SX(p.x), SY(p.y)); ctx.stroke();
       if (i % 5 === 0) { ctx.globalAlpha = k; ctx.beginPath(); ctx.arc(SX(p.x) + (hash(i + id) - .5) * 10 * sc, SY(p.y) + (hash(i * 3 + id) - .5) * 10 * sc, 1.4 * sc, 0, 6.283); ctx.fill(); }
@@ -4840,9 +5186,9 @@ function drawGadget(g) {
     ctx.font = '700 10px Silkscreen, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
     ctx.fillStyle = pw.col; ctx.fillText(pw.short, x, by + r + 4);
     if (g.pk2 && !g.recruit && !g.piece) {   // FORGED crate: gold double frame, anvil tag
-      ctx.strokeStyle = '#ffd27a'; ctx.lineWidth = 2 * sc; ctx.strokeRect(x - r - 3 * sc, by - r - 3 * sc, r * 2 + 6 * sc, r * 2 + 6 * sc); ctx.strokeRect(x - r - 7 * sc, by - r - 7 * sc, r * 2 + 14 * sc, r * 2 + 14 * sc);
-      ctx.textBaseline = 'bottom'; ctx.fillStyle = '#ffd27a'; ctx.fillText('⚒ FORGED' + (isMega(g.pk, g.pk2) ? ' · MEGA 1 SHOT' : ''), x, by - r - 10 * sc); ctx.textBaseline = 'top';
-    } else if (g.pk && isMega(g.pk) && !g.recruit && !g.piece) { ctx.strokeStyle = '#ffd27a'; ctx.lineWidth = 3 * sc; ctx.strokeRect(x - r - 4 * sc, by - r - 4 * sc, r * 2 + 8 * sc, r * 2 + 8 * sc); ctx.fillStyle = '#ffd27a'; ctx.fillText('MEGA · 1 SHOT', x, by + r + 17); }
+      ctx.strokeStyle = TIER_COL[g.gc ? 4 : 3]; ctx.lineWidth = 2 * sc; ctx.strokeRect(x - r - 3 * sc, by - r - 3 * sc, r * 2 + 6 * sc, r * 2 + 6 * sc); ctx.strokeRect(x - r - 7 * sc, by - r - 7 * sc, r * 2 + 14 * sc, r * 2 + 14 * sc);
+      ctx.textBaseline = 'bottom'; ctx.fillStyle = TIER_COL[g.gc ? 4 : 3]; ctx.fillText('⚒ ' + (g.gc ? 'GAME CHANGER · 1 SHOT' : 'POWERFUL'), x, by - r - 10 * sc); ctx.textBaseline = 'top';
+    } else if (g.pk && !g.recruit && !g.piece) { ctx.strokeStyle = TIER_COL[2]; ctx.lineWidth = 2 * sc; ctx.strokeRect(x - r - 3 * sc, by - r - 3 * sc, r * 2 + 6 * sc, r * 2 + 6 * sc); if (isMega(g.pk)) { ctx.fillStyle = TIER_COL[2]; ctx.fillText('1 SHOT', x, by + r + 17); } }
     return;
   }
   if (g.type === 'cloud') return;
@@ -5484,6 +5830,7 @@ $('shopNext').onclick = () => {
 };
 $('hordeNext').onclick = () => openForge();
 $('forgeGrid').addEventListener('click', e => { const b = e.target.closest('button[data-k]'); if (b && !b.disabled) forgeTap(b.dataset.k); });
+$('gcList').addEventListener('click', e => { const b = e.target.closest('button[data-gc]'); if (!b || b.disabled) return; const G = GC[b.dataset.gc]; forgePick = [...G.base.split('+'), G.add]; sfx('click'); renderForge(); });
 $('forgeMake').onclick = () => forgeMake();
 $('forgeDone').onclick = () => closeForge();
 $('catBtn').onclick = () => { if (st && st.horde) catToggle(); };
@@ -5515,19 +5862,21 @@ function frame(ts) {
 }
 
 /* ---------- quiver: plain arrows + up to 3 special arrow types, tap a slot to load it ---------- */
-const QUIVER_SLOTS = 3;
+let QUIVER_SLOTS = 3;
 /* ---------- forged arrows: forging UNLOCKS a linked arrow for the run; it turns up in the field as a FORGED crate ---------- */
 const FORGED_CHANCE = .12, FORGED_LEVEL = .55;   // any crate may be a forged one; plus a good chance of an extra forged crate each level
 function forgeCrate(g) {
   const U = st.unlocks || [];
   if (!U.length || !g || g.type !== 'crate') return g;
-  const u = U[Math.floor(Math.random() * U.length)];   // forging the same pair twice makes it turn up more often
-  g.pk = u.k; g.pk2 = u.k2; g.forged = true;
+  // forging the same pair twice makes it turn up more often; GAME CHANGERS are rarer
+  const Wt = U.map(u => u.gc ? .35 : 1); let r = Math.random() * Wt.reduce((a, b) => a + b, 0), u = U[0];
+  for (let i = 0; i < U.length; i++) { r -= Wt[i]; if (r <= 0) { u = U[i]; break; } }
+  g.pk = u.k; g.pk2 = u.k2; g.gc = u.gc || null; g.forged = true;
   return g;
 }
-const forgedShots = (k, k2) => isMega(k, k2) ? 1 : Math.min(POWERS[k].shots, POWERS[k2].shots);
-const forgedName = o => { const c = COMBOS[comboKey(o.k || o.pk, o.k2 || o.pk2)]; return c ? c[0] : POWERS[o.k || o.pk].short + '+' + POWERS[o.k2 || o.pk2].short; };
-const forgedCol = o => { const c = COMBOS[comboKey(o.k || o.pk, o.k2 || o.pk2)]; return c ? c[1] : POWERS[o.k || o.pk].col; };
+const forgedShots = (k, k2) => pwShots(k, k2);
+const forgedName = o => { if (o.gc) return GC[o.gc].name; const c = COMBOS[comboKey(o.k || o.pk, o.k2 || o.pk2)]; return c ? c[0] : POWERS[o.k || o.pk].short + '+' + POWERS[o.k2 || o.pk2].short; };
+const forgedCol = o => { if (o.gc) return GC_GOLD; const c = COMBOS[comboKey(o.k || o.pk, o.k2 || o.pk2)]; return c ? c[1] : POWERS[o.k || o.pk].col; };
 // a linked arrow from a FORGED crate goes into the quiver like any pickup (same pair adds shots)
 function giveLinked(k, k2, n) {
   let q = st.quiver.find(o => o.k2 && ((o.k === k && o.k2 === k2) || (o.k === k2 && o.k2 === k)));
@@ -5565,7 +5914,7 @@ function linkSlots(i, j) {
   if (!a || !b || a === b || a.k2 || b.k2) return;
   if (b.k === 'cluster') [a, b] = [b, a];   // cluster first, so its split arrows carry the other power
   // a linked arrow gets the SMALLER count of the two: weak pairs keep lots, strong ones get few (black hole / meteor stay one-offs)
-  const q = { k: a.k, k2: b.k, shots: isMega(a.k, b.k) ? 1 : Math.min(a.shots, b.shots) };
+  const q = { k: a.k, k2: b.k, shots: Math.max(1, Math.min(a.shots, b.shots, pwShots(a.k, b.k))) };
   const at = Math.min(i, j);
   st.quiver = st.quiver.filter(o => o !== a && o !== b); st.quiver.splice(at, 0, q);
   st.power = q; st.links--; st.linking = false; st.linkA = -1;
@@ -5617,32 +5966,40 @@ function renderForge() {
   const [a, b] = forgePick;
   let hint;
   if (full) hint = 'Your forge rack is full (' + FORGE_MAX + ' arrows). They stay with you until game over.';
-  else if (!a) hint = 'Tap two arrow powers to forge them into one linked arrow';
+  else if (!a) hint = 'Tap two arrow powers to forge a POWERFUL arrow (or tap a GAME CHANGER below)';
   else if (!b) hint = POWERS[a].short + ' + … tap a second power';
+  else if (forgePick[2]) hint = gcHint(forgePick, list).t;
   else {
     const c = COMBOS[comboKey(a, b)];
-    hint = POWERS[a].short + ' + ' + POWERS[b].short + (c ? '  =  ★' + c[2] : '') + '  ·  ' + forgedShots(a, b) + (isMega(a, b) ? ' MEGA shot' : ' shots') + ' per FORGED crate  ·  ' + forgeCost(a, b) + ' points';
+    hint = POWERS[a].short + ' + ' + POWERS[b].short + (c ? '  =  ★' + c[2] : '') + '  ·  ' + forgedShots(a, b) + ' shots' + ' per FORGED crate  ·  ' + forgeCost(a, b) + ' points';
   }
   $('forgeHint').textContent = hint;
   let h = '';
   for (const k in FORGE_COST) {
-    const P = POWERS[k], on = forgePick.includes(k), cant = full || (!on && forgePick.length >= 2);
+    const P = POWERS[k], on = forgePick.includes(k), cant = full || (!on && forgePick.length >= 3);
     h += `<button type="button" class="item${on ? ' sel' : ''}" data-k="${k}"${cant ? ' disabled' : ''}><i class="ico">${ICON['pw_' + k] || ''}</i><span class="txt"><b style="color:${P.col}">${P.short}</b><span class="cost">${FORGE_COST[k]}</span></span></button>`;
   }
   $('forgeGrid').innerHTML = h;
-  const cost = b ? forgeCost(a, b) : 0;
-  $('forgeMake').disabled = !(b && !full && bank >= cost);
-  $('forgeMake').textContent = b ? (bank >= cost ? 'FORGE · ' + cost : 'NEED ' + cost + ' POINTS') : 'FORGE';
+  const G3 = forgePick[2] ? gcHint(forgePick, list) : null, cost = G3 ? G3.cost || 0 : b ? forgeCost(a, b) : 0;
+  $('forgeMake').disabled = !(b && !(G3 && !G3.ok) && !full && bank >= cost);
+  $('forgeMake').textContent = b && !(G3 && !G3.ok) ? (bank >= cost ? 'FORGE · ' + cost : 'NEED ' + cost + ' POINTS') : 'FORGE';
   $('forgeMine').innerHTML = list.length ? 'FORGED THIS RUN (turn up as crates): ' + list.map(q => '<b style="color:' + POWERS[q.k].col + '">' + powShort(q) + '</b>').join(' · ') : '';
+  $('gcList').innerHTML = gcListHTML(list);
 }
 function forgeTap(k) {
   if (forgePick.includes(k)) forgePick = forgePick.filter(x => x !== k);
-  else if (forgePick.length < 2) forgePick.push(k);
+  else if (forgePick.length < 3) forgePick.push(k);
   sfx('click'); renderForge();
 }
 function forgeMake() {
   let [a, b] = forgePick;
   if (!b) return;
+  if (forgePick[2]) {   // GAME CHANGER: a POWERFUL arrow you forged + one more power
+    const G3 = gcHint(forgePick, st.unlocks || []);
+    if (!G3.ok || hordeBank() < G3.cost) return;
+    (st.unlocks = st.unlocks || []).push(gcUnlock(G3.gc)); hordeBank(-G3.cost); forgePick = [];
+    sfx('void'); renderForge(); return;
+  }
   const cost = forgeCost(a, b), list = st.unlocks = st.unlocks || [];   // no limit: forge again at every horde
   if (hordeBank() < cost) return;
   if (b === 'cluster') [a, b] = [b, a];   // cluster first, so its split arrows carry the other power
@@ -5676,17 +6033,18 @@ function drawQuiver() {
     return;
   }
   const FG = st.forged || [];
-  const sig = st.quiver.map(o => o.k + (o.k2 || '') + o.shots).join() + '|' + st.quiver.indexOf(st.power) + '|' + st.links + st.linking + st.linkA + '|' + FG.map(o => o.k + o.k2 + o.shots).join() + FG.indexOf(st.power);
+  const sig = st.quiver.map(o => o.k + (o.k2 || '') + (o.gc || '') + o.shots).join() + '|' + st.quiver.indexOf(st.power) + '|' + st.links + st.linking + st.linkA + '|' + FG.map(o => o.k + o.k2 + o.shots).join() + FG.indexOf(st.power);
   if (sig === quiverSig) return;
   quiverSig = sig;
   const sel = st.quiver.indexOf(st.power);
   const L = st.linking;
   let h = L ? `<div class="qhint">LINKING: TAP 2 ARROW TYPES TO JOIN THEM</div>` : '';
-  h += `<button type="button" data-i="-1" class="${!st.power && !L ? 'on' : ''}"${L ? ' disabled' : ''}><i class="qi">➶</i><span>PLAIN</span><small>∞</small></button>`;
-  for (let i = 0; i < QUIVER_SLOTS; i++) {
+  h += `<button type="button" data-i="-1" class="${!st.power && !L ? 'on' : ''}"${L ? ' disabled' : ''}><i class="qi">➶</i><span>PLAIN</span><small>∞</small><em class="tier">BASIC</em></button>`;
+  box.classList.toggle('many', st.quiver.length > 4);
+  for (let i = 0; i < Math.max(QUIVER_SLOTS, st.quiver.length); i++) {
     const o = st.quiver[i];
     const cls = L ? (st.linkA === i ? 'on' : o && o.k2 ? 'empty' : 'pickme') : sel === i ? 'on' : '';
-    h += o ? `<button type="button" data-i="${i}" class="${cls}${megaTag(o) ? ' mega' : ''}"${L && o.k2 ? ' disabled' : ''}><i class="qi">${ICON['pw_' + o.k] || ''}${o.k2 ? ICON['pw_' + o.k2] || '' : ''}</i><span style="color:${POWERS[o.k].col}">${powShort(o)}</span><small>${megaTag(o) || '×' + o.shots}</small></button>`
+    h += o ? `<button type="button" data-i="${i}" class="${cls} t${tierOf(o)}"${L && o.k2 ? ' disabled' : ''}><i class="qi">${qIcon(o)}</i><span style="color:${qCol(o)}">${powShort(o)}</span><small>${megaTag(o)}</small><em class="tier">${TIER_NAME[tierOf(o)]}</em></button>`
            : `<button type="button" class="empty" disabled><i class="qi">·</i><span>EMPTY</span><small>—</small></button>`;
   }
   FG.forEach((o, i) => { h += `<button type="button" data-f="${i}" class="forged${st.power === o && !L ? ' on' : ''}${o.shots <= 0 ? ' dry' : ''}"${L ? ' disabled' : ''}><i class="qi">${ICON['pw_' + o.k] || ''}${ICON['pw_' + o.k2] || ''}</i><span style="color:${POWERS[o.k].col}">${powShort(o)}</span><small>⚒ ${megaTag(o) || '×' + o.shots}</small></button>`; });
@@ -5793,9 +6151,10 @@ function release(e) {
     if (hp) htLock(P, hp);
     else if (cl.length || mg.length) { for (const a of cl) splitCluster(a); for (const a of mg) plantMag(a); }   // a tap sticks a magnet arrow in the air   // a tap (no pull) bursts any cluster arrow in the air
     else if (P.pow > .1 && st.reload <= 0) {
-      const pk = st.power ? st.power.k : null, pk2 = st.power ? st.power.k2 || null : null;
+      const gc = st.power && st.power.gc || null, pk = st.power && !gc ? st.power.k : null, pk2 = st.power && !gc ? st.power.k2 || null : null;
       const n0 = st.arrows.length;
       fire(P, P.aim, 300 + P.pow * 1100, pk, pk2);
+      if (gc) gcFired(P, gc, n0);
       if (catArmed()) catLaunch(n0);
       if ((pk === 'cluster' || pk2 === 'cluster') && (st.splitHints = (st.splitHints || 0) + 1) <= 3) text(feet(P).x, feet(P).y - 150, 'TAP THE SCREEN TO SPLIT IT', '#ffb3f0', 14, 1.6);
       else if ((pk === 'magnet' || pk2 === 'magnet') && (st.magHints = (st.magHints || 0) + 1) <= 3) text(feet(P).x, feet(P).y - 150, 'TAP TO STICK IT IN THE AIR', MAG_COL, 14, 1.6);
@@ -5921,7 +6280,7 @@ function makeDummy(i) {
 }
 function setupPractice() {
   st.practice = true; st.level = 6; st.wind = 0; st.weather = 'clear';
-  st.gadgets = []; st.dirT = undefined; st.tornados = []; st.mags = []; st.planets = []; st.holes = []; st.showers = []; st.rocks = [];
+  st.gadgets = []; st.dirT = undefined; st.tornados = []; st.mags = []; st.planets = []; st.gcfx = []; st.holes = []; st.showers = []; st.rocks = [];
   st.enemies = PRAC_X.map((x, i) => makeDummy(i));
   st.quiver = []; st.power = null; st.links = 0; st.shotDmg = 0; st.bestDmg = 0;
   st.banner = { t: 'PRACTICE RANGE', sub: 'TAP THE ARROW BUTTON TO PICK ANY ARROW', life: 3 };
