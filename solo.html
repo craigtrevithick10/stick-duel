@@ -238,7 +238,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
         <button class="btn" id="forgeMake" type="button" style="font-size:16px;padding:10px 22px" disabled>FORGE</button>
         <button class="btn alt" id="forgeDone" type="button" style="font-size:16px;padding:10px 22px">TO THE SHOP ▶</button>
       </div>
-      <p class="small" style="opacity:.7">Every forge visit: 2 forges, using only today's powers (new picks every horde). Forge 2 POWERFUL arrows, or 1 POWERFUL arrow then a GAME CHANGER from it (or from a ✓SAVED Powerful arrow you carried in, which gets used up). Forged arrows turn up in the field as crates for the rest of the run. Game over and they are gone.</p>
+      <p class="small" style="opacity:.7">Every forge visit: 2 forges, using only today's powers (new picks every horde). Forge 2 POWERFUL arrows, or 1 POWERFUL arrow then a GAME CHANGER from it (or from a Powerful arrow in your quiver, which gets used up). Arrows in your quiver can be used too: they are free and get used up. Forged arrows turn up in the field as crates for the rest of the run. Game over and they are gone.</p>
     </div>
   </div>
   <div class="overlay" id="overScreen" hidden>
@@ -576,8 +576,8 @@ function spawnGadgets() {
   // then field gadgets up to the limit for this level (at least 2); more turn up during the level
   let field = 1;
   for (let guard = 0; st.gadgets.length < cap && guard < 20; guard++) { addGadget(pickGadgetType(null, true)); field++; }
-  // portal pair (from level 2)
-  if (st.level >= 2 && Math.random() < .6) {
+  // portal pair (from level 2): switched off at Craig's word 2026-11-15 (PORTALS), code kept
+  if (PORTALS && st.level >= 2 && Math.random() < .6) {
     const pid = ++uid;
     const ax = rand(260, Math.max(300, far * .45)), ay = rand(Math.max(-280, topY() + 60), -110);
     const bx = rand(Math.max(ax + 200, far * .5), Math.max(ax + 260, far - 80)), by = rand(Math.max(-300, topY() + 60), -90);
@@ -2343,46 +2343,70 @@ function drawBlanket(x, gy, h, hw, left, seed) {
   ctx.fillStyle = 'rgba(236,241,248,' + (.35 * al).toFixed(3) + ')'; ctx.beginPath(); ctx.ellipse(x, gy, W2 * 1.45, Math.max(2, 3 * sc), 0, 0, 6.283); ctx.fill();
   ctx.restore();
 }
-// a webbed object (window, fan...) is tied down: thick sticky strands run from it to the ground (screen units)
+// a webbed object (window, fan...) is tied down: twisted silk ropes run from its frame and fan out into glue on the ground (screen units)
 function drawWebTie(x, top, bot, hw, gy, left, seed) {
-  const k = clamp(left / 1.5, 0, 1), al = .5 + .45 * Math.min(1, left), N = 7, h = bot - top;
+  const k = clamp(left / 1.5, 0, 1), al = .5 + .45 * Math.min(1, left), h = bot - top;
   if (gy <= bot + 4) return;
-  const S = [];
-  for (let i = 0; i < N; i++) {
-    const u = i / (N - 1) - .5;
-    const sx = x + u * hw * 1.8, sy = bot - (1 - Math.abs(u) * 2) * h * .08 - Math.abs(u) * h * .45;   // round the bottom and up the sides
-    const ex = x + u * hw * (3.6 + hash(seed + i * 4.1) * 1.4), sway = Math.sin(st.t * 1.6 + seed + i) * hw * .04;
-    S.push({ sx, sy, ex, ey: gy, sway, on: hash(seed + i * 2.7) <= k + .3 });
-  }
-  const pt = (s, t) => [s.sx + (s.ex - s.sx) * t + Math.sin(t * Math.PI) * s.sway, s.sy + (s.ey - s.sy) * t];
-  ctx.save(); ctx.lineCap = 'round';
-  // strands: a soft shadow, then the bright thread on top
-  for (const [lw, col, oy] of [[3, 'rgba(120,130,145,', 1.2], [1.8, 'rgba(244,247,252,', 0]]) {
-    ctx.strokeStyle = col + (al * (oy ? .55 : 1)).toFixed(3) + ')'; ctx.lineWidth = Math.max(1, lw * sc);
-    for (const s of S) {
-      if (!s.on) continue;
-      ctx.beginPath(); ctx.moveTo(s.sx, s.sy + oy * sc);
-      for (let j = 1; j <= 8; j++) { const [px, py] = pt(s, j / 8); ctx.lineTo(px, py + oy * sc); }
+  const SPOTS = [[-1, .45], [-.8, 1], [0, 1], [.8, 1], [1, .45]];   // [across, down] where each rope leaves the frame
+  const tw = Math.max(1.2, 1.7 * sc), thin = Math.max(.7, .9 * sc);
+  const silk = a => 'rgba(242,246,252,' + (a * al).toFixed(3) + ')';
+  const R = [];
+  ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  SPOTS.forEach(([u, d], i) => {
+    const sx = x + u * hw * .95, sy = top + h * d;
+    const ex = x + u * hw * 2.7 + (hash(seed + i * 4.1) - .5) * hw * .7, ey = gy;
+    const len = Math.hypot(ex - sx, ey - sy), cx = (sx + ex) / 2 + u * hw * .2, cy = (sy + ey) / 2 + len * .06;   // a little sag
+    const P = t => [(1 - t) * (1 - t) * sx + 2 * (1 - t) * t * cx + t * t * ex, (1 - t) * (1 - t) * sy + 2 * (1 - t) * t * cy + t * t * ey];
+    const nx = -(ey - sy) / len, ny = (ex - sx) / len;
+    if (hash(seed + i * 2.7) > k + .3) {   // snapped: a torn end dangles from the frame
+      const lx = sx + u * hw * .15 + Math.sin(st.t * 1.8 + i) * hw * .06, ly = sy + Math.min(len * .3, 60 * sc);
+      ctx.strokeStyle = silk(.75); ctx.lineWidth = thin;
+      for (const o of [-1.2, 1.2]) { ctx.beginPath(); ctx.moveTo(sx, sy); ctx.quadraticCurveTo(sx + u * hw * .3, sy + (ly - sy) * .4, lx + o * sc, ly); ctx.stroke(); }
+      return;
+    }
+    R.push(P);
+    // soft silky glow under the rope
+    ctx.strokeStyle = 'rgba(255,255,255,' + (.13 * al).toFixed(3) + ')'; ctx.lineWidth = tw * 3.4;
+    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.quadraticCurveTo(cx, cy, ex, ey); ctx.stroke();
+    // three threads twisted round each other, splaying apart where they grab the frame and the ground
+    const turns = len / (22 * sc), fan = [-1, 0, 1];
+    ctx.strokeStyle = silk(.92); ctx.lineWidth = thin;
+    for (const j of fan) {
+      ctx.beginPath();
+      for (let s = 0; s <= 30; s++) {
+        const t = s / 30, [px, py] = P(t);
+        const splay = j * (Math.max(0, .12 - t) / .12 * hw * .28 + Math.max(0, t - .86) / .14 * hw * .55);
+        const off = Math.sin(t * turns * 6.283 + (j + 1) * 2.094 + seed) * 1.7 * sc * (1 - Math.max(0, t - .86) / .14) + splay;
+        s ? ctx.lineTo(px + nx * off, py + ny * off) : ctx.moveTo(px + nx * off, py + ny * off);
+      }
       ctx.stroke();
     }
-  }
-  // cross threads near the object, sagging between neighbouring strands
-  ctx.strokeStyle = 'rgba(236,241,248,' + (.8 * al).toFixed(3) + ')'; ctx.lineWidth = Math.max(.8, sc);
-  for (const t of [.08, .2, .36]) {
-    for (let i = 0; i < N - 1; i++) {
-      if (!S[i].on || !S[i + 1].on || hash(seed + i * 5 + t * 30) > k + .2) continue;
-      const [ax, ay] = pt(S[i], t), [bx, by] = pt(S[i + 1], t), sag = Math.hypot(bx - ax, by - ay) * .22;
+    // a silk pad where it grips the frame
+    const [ax, ay] = P(.12);
+    ctx.fillStyle = silk(.35);
+    ctx.beginPath(); ctx.moveTo(sx + nx * hw * .3, sy + ny * hw * .3); ctx.lineTo(ax, ay); ctx.lineTo(sx - nx * hw * .3, sy - ny * hw * .3); ctx.closePath(); ctx.fill();
+    // glue blobs where the threads land
+    ctx.fillStyle = silk(.95);
+    for (const j of fan) {
+      const [qx] = P(1), gx = qx + nx * j * hw * .55;
+      ctx.beginPath(); ctx.ellipse(gx, gy, Math.max(1.6, 3 * sc), Math.max(1, 1.6 * sc), 0, 0, 6.283); ctx.fill();
+    }
+    ctx.fillStyle = silk(.3); ctx.beginPath(); ctx.ellipse(ex, gy, hw * .7, Math.max(1.5, 2.4 * sc), 0, 0, 6.283); ctx.fill();
+    // dew drops catching the light
+    for (const tt of [.3 + hash(seed + i) * .15, .58 + hash(seed + i * 3) * .2]) {
+      const [dx, dy] = P(tt), r = Math.max(1, 1.7 * sc);
+      ctx.fillStyle = 'rgba(200,230,255,' + (.85 * al).toFixed(3) + ')'; ctx.beginPath(); ctx.arc(dx, dy + r * .6, r, 0, 6.283); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,' + al.toFixed(3) + ')'; ctx.beginPath(); ctx.arc(dx - r * .35, dy + r * .25, r * .35, 0, 6.283); ctx.fill();
+    }
+  });
+  // catch threads strung between neighbouring ropes near the object
+  ctx.strokeStyle = silk(.6); ctx.lineWidth = thin;
+  for (let i = 0; i < R.length - 1; i++) {
+    for (const t of [.12, .24]) {
+      if (hash(seed + i * 5 + t * 40) > k + .25) continue;
+      const [ax, ay] = R[i](t), [bx, by] = R[i + 1](t + .04), sag = Math.hypot(bx - ax, by - ay) * .25;
       ctx.beginPath(); ctx.moveTo(ax, ay); ctx.quadraticCurveTo((ax + bx) / 2, (ay + by) / 2 + sag, bx, by); ctx.stroke();
     }
-  }
-  // sticky blobs where the strands are glued to the ground, and dew drops on the strands
-  for (const s of S) {
-    if (!s.on) continue;
-    ctx.fillStyle = 'rgba(240,244,250,' + al.toFixed(3) + ')';
-    ctx.beginPath(); ctx.ellipse(s.ex, s.ey, Math.max(2, 4 * sc), Math.max(1.2, 2 * sc), 0, 0, 6.283); ctx.fill();
-    const [dx, dy] = pt(s, .55 + hash(s.ex) * .3);
-    ctx.fillStyle = 'rgba(210,235,255,' + (.9 * al).toFixed(3) + ')';
-    ctx.beginPath(); ctx.arc(dx, dy, Math.max(1, 1.5 * sc), 0, 6.283); ctx.fill();
   }
   ctx.restore();
 }
@@ -3671,6 +3695,7 @@ const MT = {
 const MDPS = { footman: 10, runner: 7, shield: 8, knight: 15, giant: 34 };
 const GATE_CD = 14;
 const SOLDIERS = false;
+const PORTALS = false;   // portals switched off (Craig, 2026-11-15)
 const leverPos = () => ({ x: st.P.x - st.P.pw / 2 - 74, y: -150 });
 function releaseAllies() {
   const n = Math.min(8, 3 + Math.floor(st.level / 2));
@@ -6475,7 +6500,12 @@ function qGiveGC(H, A, id) {
 // (or from a SAVED Powerful arrow carried in, which gets used up) + one more of today's powers
 const FORGE_TODAY = 7;
 let forgeGCSel = null;
-const carriedKeys = H => (H.quiver || []).filter(q => q.saved && q.k2 && !q.gc).map(q => comboKey(q.k, q.k2));
+const carriedKeys = H => (H.quiver || []).filter(q => q.k2 && !q.gc).map(q => comboKey(q.k, q.k2));
+const carriedPows = H => [...new Set((H.quiver || []).filter(q => !q.k2 && !q.gc && FORGE_COST[q.k]).map(q => q.k))];
+// a power that is only in your quiver (not in today's forge) is free to use, and that quiver arrow is used up
+const fromQ = (v, k) => !!k && !v.today.includes(k) && (v.have || []).includes(k);
+const pickCost = (v, a, b) => (fromQ(v, a) ? 0 : FORGE_COST[a] || 0) + (fromQ(v, b) ? 0 : FORGE_COST[b] || 0);
+function useQ(H, k) { const q = (H.quiver || []).find(o => !o.k2 && !o.gc && o.k === k); if (q) { H.quiver = H.quiver.filter(o => o !== q); if (H.power === q) H.power = null; } }
 function forgeRoll(carried) {
   const all = Object.keys(FORGE_COST), ids = Object.keys(GC), pick = new Set(), R = a => a[Math.floor(Math.random() * a.length)];
   if (Math.random() < .45) {   // often one GAME CHANGER recipe can be made with today's powers (not every time)
@@ -6494,18 +6524,17 @@ function gcState(v, id) {
   let ok = false, why;
   if (v.uses <= 0) why = 'NO FORGES LEFT';
   else if (v.gcDone) why = 'ONE PER VISIT';
-  else if (G.pair && !(fromMade && carry)) why = 'NEEDS ★' + COMBOS[base][0] + ' FORGED TODAY + A SAVED ★' + COMBOS[base][0];
-  else if (!fromMade && !carry) why = 'NEEDS ★' + COMBOS[base][0] + ' FORGED TODAY OR SAVED';
-  else if (!G.pair && !v.today.includes(G.add)) why = 'NEEDS ' + POWERS[G.add].short + " (NOT IN TODAY'S FORGE)";
-  else if (v.uses >= 2) why = 'FORGE A POWERFUL ARROW FIRST';
+  else if (G.pair && !(fromMade && carry)) why = 'NEEDS ★' + COMBOS[base][0] + ' FORGED TODAY + ★' + COMBOS[base][0] + ' IN YOUR QUIVER';
+  else if (!fromMade && !carry) why = 'NEEDS ★' + COMBOS[base][0] + ' FORGED TODAY OR IN YOUR QUIVER';
+  else if (!G.pair && !v.today.includes(G.add) && !(v.have || []).includes(G.add)) why = 'NEEDS ' + POWERS[G.add].short + " (NOT IN TODAY'S FORGE OR YOUR QUIVER)";
   else ok = true;
-  return { ok, why, known, fromMade, carry, cost: gcCost(id) };
+  return { ok, why, known, fromMade, carry, cost: gcCost(id) - (!G.pair && fromQ(v, G.add) ? FORGE_COST[G.add] || 0 : 0) };
 }
 function gcListHTML(v, sel) {
-  let h = '<div class="gch">GAME CHANGERS · 2ND FORGE ONLY</div>';
+  let h = '<div class="gch">GAME CHANGERS · ONE PER VISIT</div>';
   for (const id in GC) {
     const G = GC[id], s = gcState(v, id), c = COMBOS[G.base], add = gcAddName(G), have = v.list.some(u => u.gc === id);
-    if (s.ok) h += `<button type="button" data-gc="${id}" class="ready${sel === id ? ' sel' : ''}">${G.icon} ${G.name}<small>★${c[0]}${s.fromMade ? '' : ' (SAVED)'} + ${add}${G.pair ? ' (SAVED)' : ''} · ${s.cost}</small></button>`;
+    if (s.ok) h += `<button type="button" data-gc="${id}" class="ready${sel === id ? ' sel' : ''}">${G.icon} ${G.name}<small>★${c[0]}${s.fromMade ? '' : ' (QUIVER)'} + ${add}${G.pair || fromQ(v, G.add) ? ' (QUIVER)' : ''} · ${s.cost}</small></button>`;
     else if (s.known) h += `<button type="button" data-gc="${id}" disabled>${G.icon} ${G.name}${have ? ' ✓' : ''}<small>${s.why}</small></button>`;
     else h += `<button type="button" disabled>???<small>★${c[0]} + ${add}</small></button>`;
   }
@@ -6519,23 +6548,25 @@ function forgeRender(v) {
   $('forgeToday').textContent = "TODAY'S FORGE: just these " + v.today.filter(k => FORGE_COST[k]).length + ' powers · new picks every horde' + (v.team ? ' · each player gets different ones' : '');
   let hint;
   if (v.done) hint = 'Done. Waiting for the team…';
+  else if (v.msg && !a && !G) hint = v.msg + (v.uses <= 0 ? '  ·  No forges left. On to the shop!' : '');
   else if (v.uses <= 0) hint = 'No forges left this visit. On to the shop!';
-  else if (G) hint = GC[G].icon + ' ' + GC[G].name + ' (GAME CHANGER, 1 shot): ' + GC[G].desc + (gcState(v, G).fromMade && !GC[G].pair ? '' : '  ·  uses up your SAVED ★' + COMBOS[GC[G].base][0]);
-  else if (!a) hint = v.uses === 2 ? 'Forge 1 of 2: tap two powers to make a POWERFUL arrow' : 'Forge 2 of 2: another POWERFUL arrow, or tap a lit GAME CHANGER below';
+  else if (G) hint = GC[G].icon + ' ' + GC[G].name + ' (GAME CHANGER, 1 shot): ' + GC[G].desc + (gcState(v, G).fromMade && !GC[G].pair ? '' : '  ·  uses up your ★' + COMBOS[GC[G].base][0] + ' from your quiver') + (!GC[G].pair && fromQ(v, GC[G].add) ? '  ·  and your ' + POWERS[GC[G].add].short + ' arrows' : '');
+  else if (v.msg && !a) hint = v.msg;
+  else if (!a) { const gcOk = Object.keys(GC).some(id => gcState(v, id).ok); hint = (v.uses === 2 ? 'Forge 1 of 2: tap two powers to make a POWERFUL arrow' : 'Forge 2 of 2: another POWERFUL arrow') + (gcOk ? ', or tap a lit GAME CHANGER below' : ''); }
   else if (!b) hint = POWERS[a].short + ' + … tap a second power';
-  else { const c = COMBOS[comboKey(a, b)]; hint = POWERS[a].short + ' + ' + POWERS[b].short + (c ? '  =  ★' + c[0] : '') + '  ·  ' + forgedShots(a, b) + ' shots per FORGED crate  ·  ' + forgeCost(a, b) + ' points'; }
+  else { const c = COMBOS[comboKey(a, b)]; hint = POWERS[a].short + ' + ' + POWERS[b].short + (c ? '  =  ★' + c[0] : '') + '  ·  ' + forgedShots(a, b) + ' shots per FORGED crate  ·  ' + pickCost(v, a, b) + ' points' + (fromQ(v, a) || fromQ(v, b) ? ' (your quiver arrow is used up)' : ''); }
   $('forgeHint').textContent = hint;
   let h = '';
-  for (const k of v.today) {
-    const P = POWERS[k], on = forgePick.includes(k), gcOnly = !FORGE_COST[k], cant = v.done || v.uses <= 0 || gcOnly || !!G || (!on && forgePick.length >= 2);
-    h += `<button type="button" class="item${on ? ' sel' : ''}" data-k="${k}"${cant ? ' disabled' : ''}><i class="ico">${ICON['pw_' + k] || ''}</i><span class="txt"><b style="color:${P.col}">${P.short}</b><span class="cost">${gcOnly ? 'GAME CHANGER ONLY' : FORGE_COST[k]}</span></span></button>`;
+  for (const k of [...v.today, ...(v.have || []).filter(k => !v.today.includes(k))]) {
+    const P = POWERS[k], on = forgePick.includes(k), gcOnly = !FORGE_COST[k], mine = fromQ(v, k), cant = v.done || v.uses <= 0 || gcOnly || !!G || (!on && forgePick.length >= 2);
+    h += `<button type="button" class="item${on ? ' sel' : ''}" data-k="${k}"${cant ? ' disabled' : ''}><i class="ico">${ICON['pw_' + k] || ''}</i><span class="txt"><b style="color:${P.col}">${P.short}</b><span class="cost">${gcOnly ? 'GAME CHANGER ONLY' : mine ? 'YOUR QUIVER · FREE' : FORGE_COST[k]}</span></span></button>`;
   }
   $('forgeGrid').innerHTML = h;
-  const cost = G ? gcCost(G) : b ? forgeCost(a, b) : 0, can = !v.done && v.uses > 0 && !!(G || b);
+  const cost = G ? gcState(v, G).cost : b ? pickCost(v, a, b) : 0, can = !v.done && v.uses > 0 && !!(G || b);
   $('forgeMake').disabled = !(can && v.bank >= cost);
   $('forgeMake').textContent = !can ? (v.uses <= 0 ? 'NO FORGES LEFT' : 'FORGE') : v.bank >= cost ? 'FORGE · ' + cost : 'NEED ' + cost + ' POINTS';
   const nm = c => forgedName({ k: c.split('+')[0], k2: c.split('+')[1] });
-  $('forgeMine').innerHTML = (v.carried.length ? 'YOU CARRIED IN (✓SAVED): ' + v.carried.map(c => '<b style="color:' + TIER_COL[3] + '">★' + nm(c) + '</b>').join(' · ') + '<br>' : '')
+  $('forgeMine').innerHTML = (v.carried.length ? 'IN YOUR QUIVER: ' + v.carried.map(c => { const g = Object.keys(GC).filter(id => GC[id].base === c && !GC[id].pair); return '<b style="color:' + TIER_COL[3] + '">★' + nm(c) + '</b>' + (g.length ? ' → ' + g.map(id => GC[id].icon + GC[id].name + ' (+' + gcAddName(GC[id]) + ')').join(' or ') : ' (no Game Changer uses it)'); }).join(' · ') + '<br>' : '')
     + (v.list.length ? (v.team ? 'TEAM FORGED ARROWS' : 'FORGED THIS RUN') + ' (turn up as crates): ' + v.list.map(q => '<b style="color:' + (q.gc ? GC_GOLD : POWERS[q.k].col) + '">' + powShort(q) + '</b>').join(' · ') : '');
   $('gcList').innerHTML = gcListHTML(v, G);
 }
@@ -6543,22 +6574,27 @@ function forgeRender(v) {
 function forgeDo(H, v, pick, gcId, bank, by) {
   const fv = H.fv;
   if (!fv || fv.uses <= 0) return null;
+  fv.msg = null;
   if (gcId) {
     const s = GC[gcId] && gcState(v, gcId);
     if (!s || !s.ok || bank < s.cost) return null;
     if (!s.fromMade || GC[gcId].pair) {   // a SAVED Powerful arrow carried in is used up
-      const q = (H.quiver || []).find(o => o.saved && o.k2 && !o.gc && comboKey(o.k, o.k2) === GC[gcId].base);
+      const q = (H.quiver || []).find(o => o.k2 && !o.gc && comboKey(o.k, o.k2) === GC[gcId].base);
       if (!q) return null;
       H.quiver = H.quiver.filter(o => o !== q); if (H.power === q) H.power = null;
     }
+    if (!GC[gcId].pair && fromQ(v, GC[gcId].add)) useQ(H, GC[gcId].add);
     (st.unlocks = st.unlocks || []).push(gcUnlock(gcId, by));
     fv.uses--; fv.gcDone = true;
-    return { cost: s.cost, gc: gcId };
+    const inQ = qGiveGC(H, H.P || H, gcId);
+    fv.msg = inQ ? GC[gcId].icon + ' ' + GC[gcId].name + ' is in your quiver (gold slot), ready to fire!' : 'GAME CHANGER SLOT FULL: ' + GC[gcId].name + ' will turn up as a gold crate';
+    return { cost: s.cost, gc: gcId, inQ };
   }
   let [a, b] = pick;
-  if (!a || !b || a === b || !FORGE_COST[a] || !FORGE_COST[b] || !fv.today.includes(a) || !fv.today.includes(b)) return null;
-  const cost = forgeCost(a, b);
+  if (!a || !b || a === b || !FORGE_COST[a] || !FORGE_COST[b] || !(fv.today.includes(a) || fromQ(v, a)) || !(fv.today.includes(b) || fromQ(v, b))) return null;
+  const cost = pickCost(v, a, b);
   if (bank < cost) return null;
+  for (const k of [a, b]) if (fromQ(v, k)) useQ(H, k);
   if (b === 'cluster') [a, b] = [b, a];   // cluster first, so its split arrows carry the other power
   (st.unlocks = st.unlocks || []).push(by ? { k: a, k2: b, by } : { k: a, k2: b });
   if (fv.uses === 2) fv.made = comboKey(a, b);
@@ -6637,7 +6673,7 @@ function openForge() {
 }
 function soloForgeView() {
   const fv = st.fv || (st.fv = newForgeVisit(st));
-  return { bank: hordeBank(), list: st.unlocks || [], today: fv.today, uses: fv.uses, made: fv.made, gcDone: fv.gcDone, carried: carriedKeys(st), done: false, team: false };
+  return { bank: hordeBank(), list: st.unlocks || [], today: fv.today, uses: fv.uses, made: fv.made, gcDone: fv.gcDone, msg: fv.msg || null, carried: carriedKeys(st), have: carriedPows(st), done: false, team: false };
 }
 function renderForge() { forgeRender(soloForgeView()); }
 function forgeTap(k) {
