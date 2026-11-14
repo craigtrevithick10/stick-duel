@@ -272,6 +272,7 @@ const POWERS = {
   tele:   { name: 'TELEPORT ARROWS', short: 'TELEPORT', col: '#d58cff', shots: 4 },
   confuse:{ name: 'CONFUSION', short: 'CONFUSE', col: '#ff3df2', shots: 4 },
   magnet: { name: 'MAGNET ARROW', short: 'MAGNET', col: '#ff3b5c', shots: 3 },
+  bounce: { name: 'BOUNCY ARROW', short: 'BOUNCE', col: '#ffb02e', shots: 4 },
   clone:  { name: 'CLONE ARROWS', short: 'CLONE', col: '#4fe3c1', shots: 2, rare: true },
   meteor: { name: 'METEOR SHOWER', short: 'METEOR', col: '#ff7b3a', shots: 1, mega: true },
   blackhole:{ name: 'BLACK HOLE', short: 'VOID',   col: '#b07cff', shots: 1, ultra: true }
@@ -300,7 +301,7 @@ const RIDE = {   // [glow rgb, main colour, light colour, particle kind]
 };
 const rideOf = k => RIDE[k] || [hexRgb(POWERS[k].col), POWERS[k].col, '#ffffff', 'spark'];
 const RIDE_NAME = { fire: 'FIRE', ice: 'ICE', boom: 'BOMB', heavy: 'GIANT', storm: 'THUNDER', slowmo: 'SLOW', shrink: 'SHRINK', grow: 'HUGE', tele: 'WARP', homing: 'HUNTER',
-  blackhole: 'VOID', tornado: 'WINDY', meteor: 'BURNING', triple: 'TRIPLE', rapid: 'QUICK', pierce: 'SHARP', scope: 'SCOPED', cluster: 'CONFETTI', confuse: 'DIZZY', magnet: 'MAGNETIC' };
+  blackhole: 'VOID', tornado: 'WINDY', meteor: 'BURNING', triple: 'TRIPLE', rapid: 'QUICK', pierce: 'SHARP', scope: 'SCOPED', cluster: 'CONFETTI', confuse: 'DIZZY', magnet: 'MAGNETIC', bounce: 'BOUNCY' };
 const RIDE_ON = { fire: 1, ice: 1, slowmo: 1, shrink: 1, grow: 1, boom: 1, storm: 1, heavy: 1 };   // a twister hands these to the arrows it turns round
 // combo arrows: some linked pairs make a special effect of their own (key = both powers, sorted)
 const COMBOS = {
@@ -312,7 +313,9 @@ const COMBOS = {
   'grow+shrink': ['SIZE WOBBLE', '#ff6bd6', 'WOBBLE'], 'boom+grow': ['BIG BANG', '#ff9a45', 'BIG BANG'], 'grow+tornado': ['MEGA TWISTER', '#ff6bd6', 'MEGA TWISTER'],
   'blackhole+grow': ['MEGA VOID', '#c79bff', 'MEGA VOID'], 'grow+meteor': ['GIANT METEORS', '#ff7b3a', 'GIANT ROCKS'], 'grow+heavy': ['TITAN ARROW', '#ffd27a', 'TITAN'],
   'magnet+storm': ['LIGHTNING ROD', '#fff36b', 'ROD'], 'homing+magnet': ['PAYBACK', '#ff8ad8', 'PAYBACK'], 'boom+magnet': ['SPIKE MINE', '#ff5a4e', 'MINE'],
-  'fire+magnet': ['HOT MAGNET', '#ff9a45', 'HOT MAG'], 'grow+magnet': ['BIG MAGNET', '#ff6bd6', 'BIG MAG']
+  'fire+magnet': ['HOT MAGNET', '#ff9a45', 'HOT MAG'], 'grow+magnet': ['BIG MAGNET', '#ff6bd6', 'BIG MAG'],
+  'boom+bounce': ['BOUNCING BOMB', '#ff5a4e', 'BOUNCE BOMB'], 'bounce+fire': ['FIRE SKIPPER', '#ff9a45', 'SKIPPER'], 'bounce+storm': ['PINBALL', '#fff36b', 'PINBALL'],
+  'bounce+pierce': ['RICOCHET', '#e0e0ff', 'RICOCHET'], 'bounce+heavy': ['WRECKING BALL', '#ffd27a', 'WRECKER']
 };
 const comboKey = (a, b) => a && b ? [a, b].sort().join('+') : null;
 const comboOf = ar => !ar ? null : comboKey(ar.pk, ar.pk2);
@@ -326,7 +329,10 @@ const COMBO_DESC = {
   'grow+meteor': 'Huge rocks that enlarge whoever they hit', 'grow+heavy': 'A huge arrow that hits 60% harder',
   'magnet+storm': 'Every arrow the magnet catches zaps the nearest enemy', 'homing+magnet': 'When the magnet ends, its arrows fly back at whoever shot them',
   'boom+magnet': 'When the magnet ends it blows up and throws its arrows at the enemy', 'fire+magnet': 'Caught arrows melt, so the magnet never fills up',
-  'grow+magnet': 'The magnet pulls from much further and holds 8 arrows'
+  'grow+magnet': 'The magnet pulls from much further and holds 8 arrows',
+  'boom+bounce': 'Bounces up to 3 times, then blows up where it stops', 'bounce+fire': 'Leaves a fire everywhere it bounces',
+  'bounce+storm': 'Every bounce zaps the nearest enemy', 'bounce+pierce': 'Goes through archers and bounces up to 5 times',
+  'bounce+heavy': 'Every bounce off an enemy tower cracks it'
 };
 // linking two arrows that make a combo: show its name and what it does
 function comboAnnounce(P, a, b) {
@@ -346,7 +352,7 @@ const ICON = {
   armour: '🛡️', leech: '🧛', revive: '💨', glass: '🪟', helper: '🤝',
   pw_triple: '🔱', pw_fire: '🔥', pw_ice: '❄️', pw_boom: '💥', pw_heavy: '🪨', pw_rapid: '⏩', pw_pierce: '📌',
   pw_homing: '🎯', pw_storm: '⚡', pw_cluster: '🎆', pw_scope: '🔭', pw_slowmo: '🐢', pw_tornado: '🌪️',
-  pw_shrink: '🤏', pw_grow: '🍄', pw_tele: '🌀', pw_blackhole: '🕳️', pw_meteor: '☄️', pw_clone: '👥', pw_confuse: '😵', pw_magnet: '🧲', pw_shield: '🧱'
+  pw_shrink: '🤏', pw_grow: '🍄', pw_tele: '🌀', pw_blackhole: '🕳️', pw_meteor: '☄️', pw_clone: '👥', pw_confuse: '😵', pw_magnet: '🧲', pw_bounce: '🏀', pw_shield: '🧱'
 };
 
 let W = 0, H = 0, DPR = 1, sc = 1, camX = 0, camY = 0, scBase = 1, zoom = 1, forcePortrait = false;
@@ -2076,6 +2082,47 @@ function drawMags() {
     ctx.restore();
   }
 }
+/* ---------- bouncy arrow ---------- */
+// it bounces off the ground, towers and cover up to 3 times (losing speed) before it sticks: bank shots round cover.
+// Linked: BOUNCING BOMB (boom), FIRE SKIPPER (fire), PINBALL (zap), RICOCHET (pierce), WRECKING BALL (heavy)
+const BOUNCE_COL = '#ffb02e';
+const bounceMax = ar => hasPk(ar, 'pierce') ? 5 : 3;
+// a = the archer whose tower it hit, 'cover' for a cover wall, null for the ground. Returns true if it bounced.
+function bounceHit(ar, a, sdt, wallX) {
+  if (!hasPk(ar, 'bounce') || !ar.owner || !ar.owner.isP || ar.rock || ar.ret || (ar.bn || 0) >= bounceMax(ar)) return false;
+  if (Math.hypot(ar.vx, ar.vy) < 220) return false;   // too slow: it just sticks
+  ar.bn = (ar.bn || 0) + 1;
+  const px = ar.x - ar.vx * sdt, py = ar.y - ar.vy * sdt;   // where it was a moment ago
+  if (!a) { ar.y = -1; ar.vy = -Math.abs(ar.vy) * .62; ar.vx *= .82; }
+  else if (a === 'cover') { ar.x = wallX - Math.sign(ar.vx || 1) * 8; ar.vx = -ar.vx * .62; ar.vy *= .85; }
+  else if (!inPillar(a, ar.x, py)) { ar.y = py; ar.vy = -ar.vy * .62; ar.vx *= .82; }   // came down on the top
+  else { ar.x = px; ar.vx = -ar.vx * .62; ar.vy *= .85; }   // hit the side
+  const x = ar.x, y = Math.min(ar.y, -2), K = comboOf(ar);
+  ring(x, y, 22, BOUNCE_COL, .3, 2.5);
+  for (let i = 0; i < 9; i++) P_(x, y, rand(-140, 140), rand(-160, 20), .3, 2, i % 2 ? BOUNCE_COL : '#fff2c8', 'spark');
+  text(x, y - 26, ar.bn >= bounceMax(ar) ? 'BOING ' + ar.bn : 'BOING', BOUNCE_COL, 11, .5);
+  sfx('boing');
+  if (hasPk(ar, 'fire')) {   // FIRE SKIPPER: a fire where it bounces
+    burnPatch(x, y, ar.owner, 3);
+    for (let i = 0; i < 10; i++) P_(x, y, rand(-70, 70), rand(-170, -40), rand(.3, .6), rand(2, 3.5), i % 2 ? '#ff9a45' : '#ffd27a', 'flame');
+    if (K === 'bounce+fire' && ar.bn === 1) comboText(x, y - 60, K);
+  }
+  if (hasPk(ar, 'storm')) bounceZap(ar, x, y, K === 'bounce+storm' && ar.bn === 1);   // PINBALL
+  if (hasPk(ar, 'heavy') && a && a !== 'cover' && ar.owner.isP && !a.isP) { chopPillar(a, ar); if (K === 'bounce+heavy') shake(6); }   // WRECKING BALL
+  if (K === 'bounce+pierce' && ar.bn === 1) comboText(x, y - 60, K);
+  return true;
+}
+function bounceZap(ar, x, y, first) {
+  let best = null, bd = 650;
+  for (const E of st.enemies) { if (E.dead) continue; const f = feet(E), d = Math.hypot(f.x - x, f.y - 60 - y); if (d < bd) { bd = d; best = E; } }
+  if (first) comboText(x, y - 60, 'bounce+storm');
+  if (!best) return;
+  const p = htPt(best), dmg = 12;
+  st.bolts.push({ x1: x, y1: y, x2: p.x, y2: p.y, life: .3, col: '#fff36b' });
+  best.hp -= dmg; best.hitT = .15; best.lastBy = ar.owner;
+  text(p.x, p.y - 50, '-' + dmg, '#fff36b', 15, .8); sfx('zap');
+  if (best.hp <= 0) kill(best, { vx: Math.sign(p.x - x) || 1, owner: ar.owner }, 'body');
+}
 function updateVortices(dt) {
   comboStep(dt);
   for (const T of st.tornados) {
@@ -2199,6 +2246,7 @@ function coverHit(ar) {
     if (!e.cover || e.dead || e.rise > 0) continue;
     const x = e.x - e.pw / 2 + 4, top = -e.h - 58;
     if (Math.abs(ar.x - x) < 6 && ar.y > top && ar.y < -e.h) {
+      if (bounceHit(ar, 'cover', 0, x)) return true;
       ar.done = true;
       impactFX(ar, ar.x, ar.y, false);
       damageCover(e, hasPk(ar, 'boom') ? 3 : 1);
@@ -4091,6 +4139,7 @@ function update(rdt) {
       if (ar.done) break;
       for (const a of [...st.players.filter(p => p.inLevel), ...st.helpers, ...st.enemies]) {
         if ((!a.dead || (a.isP && !a.helper)) && !ar.htGo && inPillar(a, ar.x, ar.y)) {
+          if (bounceHit(ar, a, sdt)) break;
           ar.done = true;
           if (!a.ship) st.pinned.push({ x: ar.x, y: ar.y, ang: Math.atan2(ar.vy, ar.vx), col: ar.col });
           for (let q = 0; q < 6; q++) st.parts.push({ x: ar.x, y: ar.y, vx: rand(-80, 80), vy: rand(-120, -20), life: .35, max: .35, r: 2, col: '#e8d3ac' });
@@ -4099,6 +4148,7 @@ function update(rdt) {
           break;
         }
       }
+      if (!ar.done && ar.y >= 0 && hasPk(ar, 'bounce')) bounceHit(ar, null, sdt);
       if (!ar.done && ar.y >= 0) {
         ar.done = true;
         if (!ar.rock) st.pinned.push({ x: ar.x, y: -2, ang: Math.atan2(ar.vy, ar.vx), col: ar.col });
@@ -5506,7 +5556,7 @@ function tapLink() {
 }
 /* ---------- the forge (co-op): after a horde each player spends their horde points on linked arrows they keep for the run ---------- */
 // every player gets the team's horde score as forge points (P.bank); forged arrows refill every level and are lost at game over
-const FORGE_COST = { triple: 10, rapid: 10, pierce: 10, heavy: 10, scope: 8, homing: 12, fire: 15, ice: 15, tele: 15, slowmo: 18, shrink: 18, grow: 18, confuse: 18, magnet: 16,
+const FORGE_COST = { triple: 10, rapid: 10, pierce: 10, heavy: 10, scope: 8, homing: 12, fire: 15, ice: 15, tele: 15, slowmo: 18, shrink: 18, grow: 18, confuse: 18, magnet: 16, bounce: 12,
   boom: 20, storm: 20, cluster: 20, tornado: 30, blackhole: 60, meteor: 60 };
 const FORGE_MAX = 2, FORGE_SHOTS = 5, FORGE_BIG = ['blackhole', 'meteor'];
 const forgeCost = (a, b) => (FORGE_COST[a] || 0) + (FORGE_COST[b] || 0);
@@ -5757,7 +5807,7 @@ cv.addEventListener('pointercancel', e => { if (drag && e.pointerId === drag.id)
 
 /* ---------- sound ---------- */
 let AC = null;
-const SFX = { twang: ['triangle', 260, 90, .12, .16, .12], hit: ['square', 160, 60, .08, .1, .1], head: ['square', 520, 120, .12, .16, .12],
+const SFX = { boing: ['sine', 170, 560, .1, .14, .12], twang: ['triangle', 260, 90, .12, .16, .12], hit: ['square', 160, 60, .08, .1, .1], head: ['square', 520, 120, .12, .16, .12],
   thud: ['sine', 120, 50, .08, .1, .1], kill: ['sawtooth', 220, 40, .4, .5, .12], click: ['square', 900, 1400, .05, .07, .08],
   glass: ['triangle', 1800, 900, .12, .16, .08], bell: ['sine', 880, 860, 1.2, 1.4, .16], whoosh: ['sawtooth', 300, 80, .4, .5, .05], void: ['sine', 220, 30, 1.2, 1.4, .2], crack: ['square', 300, 90, .1, .14, .1], zap: ['square', 1200, 200, .2, .25, .08], boom: ['sawtooth', 140, 30, .3, .4, .16], heal: ['triangle', 500, 1200, .25, .3, .12], spit: ['square', 620, 150, .12, .16, .08] };
 function sfx(t, remote) {
