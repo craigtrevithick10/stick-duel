@@ -665,9 +665,11 @@ function padAction(g, k, ar) {
   sfx('click');
 }
 /* ---------- enlarge arrow: hit archers grow (easier to hit, and their bow overshoots); hit a window or fan in the middle and it grows ---------- */
-const GROW_COL = '#ff6bd6', GROW_MAX = .6, GROW_STEP = .15, GADGET_GROW = [1, 1.3, 1.6];
+const GROW_COL = '#ff6bd6', GROW_MAX = 1, GROW_STEP = .25, GADGET_GROW = [1, 1.3, 1.6];
 // bow speed: shrunk archers shoot short, enlarged ones overshoot
 const bowK = a => (1 - (a.shrink || 0)) * (1 + (a.grow || 0) * .35);
+// enlarged archers are slower: -15% per grow step (moving, aiming, reloading), back to normal as they shrink
+const growSlow = a => a && a.grow > 0 ? Math.max(.4, 1 - .15 * a.grow / GROW_STEP) : 1;
 // arrows carrying the power are drawn bigger (a TITAN arrow even more)
 const arZ = ar => (hasPk(ar, 'grow') ? 1.35 : 1) * (comboOf(ar) === 'grow+heavy' ? 1.5 : 1);
 // is the arrow loaded on this screen an enlarge arrow? (shows the target spot on windows and fans)
@@ -682,7 +684,7 @@ function growA(a, m = 1) {
   } else {
     if (a.grow >= GROW_MAX) { a.growT = 7; text(f.x, f.y - 140 * sizeOf(a), 'MAX SIZE', GROW_COL, 13, .9); return; }
     a.grow = Math.min(GROW_MAX, Math.round(((a.grow || 0) + GROW_STEP * m) * 100) / 100); a.growT = 7;
-    text(f.x, f.y - 120 * sizeOf(a) - 14, 'ENLARGED ×' + (1 + a.grow).toFixed(2).replace(/0$/, ''), GROW_COL, 14, 1.1);
+    text(f.x, f.y - 120 * sizeOf(a) - 14, 'ENLARGED ×' + (1 + a.grow).toFixed(2).replace(/0$/, '').replace(/\.$/, '') + ' · SLOWER', GROW_COL, 14, 1.1);
   }
   ring(f.x, f.y - 50 * sizeOf(a), 70, GROW_COL, .5, 3);
   for (let k = 0; k < 12; k++) P_(f.x + rand(-24, 24), f.y - rand(10, 100) * sizeOf(a), rand(-70, 70), rand(-90, 10), .55, 2.4, k % 2 ? GROW_COL : '#ffd6f4', 'spark');
@@ -692,7 +694,7 @@ function growStep(dt) {
   for (const a of [...PEOPLE(), ...st.helpers, ...st.enemies]) {
     if (a.wobT > 0) a.wobT -= dt;
     if (!(a.grow > 0) || (a.growT -= dt) > 0) continue;
-    a.grow = Math.max(0, a.grow - dt * .05);
+    a.grow = Math.max(0, a.grow - dt * .1);
     if (a.grow <= 0 && !a.dead) text(feet(a).x, feet(a).y - 130, 'NORMAL SIZE', GROW_COL, 12, .8);
   }
 }
@@ -1346,6 +1348,16 @@ function confStep(dt) {
   }
 }
 // spinning question marks and stars around a confused head
+function drawGrowSlow() {
+  for (const a of [...PEOPLE(), ...st.helpers, ...st.enemies]) {
+    if (!(a.grow > 0) || a.dead || a.swallowed) continue;
+    const f = feet(a), k = sizeOf(a), hx = SX(f.x + 30 * k), hy = SY(f.y - 55 * k);
+    if (hx < -40 || hx > W + 40) continue;
+    ctx.save(); ctx.globalAlpha = .85; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = Math.round(13 * sc * Math.min(1.4, k)) + 'px sans-serif'; ctx.fillText('🐢', hx, hy + Math.sin(st.t * 4) * 2 * sc);
+    ctx.restore();
+  }
+}
 function drawConfused() {
   for (const a of [st.P, ...st.helpers, ...st.enemies]) {
     if (!(a.confT > 0) || a.dead || a.swallowed) continue;
@@ -3725,7 +3737,7 @@ function update(rdt) {
   const dt = rdt * (st.slow > 0 ? .3 : 1) * (st.timeScale || 1);
   st.slow -= rdt; st.t += dt;
   st.shake *= Math.pow(.02, rdt);
-  st.reload -= dt;
+  st.reload -= dt * growSlow(st.P);
   const P = st.P, n = st.enemies.length;
 
   for (const E of st.enemies) {
@@ -3750,7 +3762,7 @@ function update(rdt) {
     if (E.blind > 0) { E.blind -= dt; continue; }
     if (E.dead || P.dead || E.rise > 0 || st.nextT > 0) continue;
     if (E.dummy && !st.dummyFire) continue;
-    const edt = dt * (E.slowT > 0 ? E.slowM : 1);
+    const edt = dt * (E.slowT > 0 ? E.slowM : 1) * growSlow(E);
     if (E.flyer) { flyerStep(E, edt); continue; }
     if (E.boss && bossStep(E, edt)) continue;
     if (E.kind === 'healer' && !E.aiAim && E.aiT - edt <= 0) {
@@ -4858,7 +4870,7 @@ function draw() {
     drawArrowShape(34, ar.col); ctx.restore();
   }
   drawFires();
-  drawConfused();
+  drawConfused(); drawGrowSlow();
   drawVortices();
   drawMeteors();
   drawBoulders();
@@ -5545,7 +5557,7 @@ const RACK_DESC = {
   plain: 'A normal arrow', triple: '3 arrows at once', fire: 'Sets them on fire', ice: 'Freezes them solid', boom: 'Explodes; 3 hits topple a tower',
   heavy: 'Hits much harder', rapid: 'Very fast reload', pierce: 'Goes through archers', homing: 'Steers into the nearest archer',
   storm: 'Lightning jumps between archers', cluster: 'Tap the screen to split it', scope: 'Shows where your arrow will go',
-  slowmo: 'Slows down whoever it hits', tornado: 'A twister that turns arrows round', shrink: 'Each hit shrinks them', grow: 'Each hit makes them bigger, and their shots overshoot. Hit a window or fan in the middle to make it bigger',
+  slowmo: 'Slows down whoever it hits', tornado: 'A twister that turns arrows round', shrink: 'Each hit shrinks them', grow: 'Each hit makes them 25% bigger and 15% slower, and their shots overshoot. Hit a window or fan in the middle to make it bigger',
   tele: 'Tag one; your next arrow moves them there', confuse: 'They aim backwards for 6 s and can hit their own side', magnet: 'Sticks in where it lands for 6 s. Enemy arrows that fly near it bend in and get caught (holds 5)', clone: 'Copies what it hits. A cloned archer fights for you', meteor: 'Rocks rain down. They hit you too!', blackhole: 'Sucks everything in',
   shield: 'Puts a wall up in front of you'
 };
