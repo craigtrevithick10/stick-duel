@@ -207,7 +207,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
         <button class="btn alt" id="forgeDone" type="button" style="font-size:16px;padding:10px 22px">TO THE SHOP ▶</button>
       </div>
       <p class="small" id="forgeWait"></p>
-      <p class="small" style="opacity:.7">Forged arrows stay in your quiver for the whole run and refill every level. Game over and they are gone.</p>
+      <p class="small" style="opacity:.7">Forged arrows are unlocked for the rest of the run: they turn up in the field as gold FORGED crates that anyone on the team can shoot. Shoot one to collect it. Forge again at every horde. Game over and they are gone.</p>
     </div>
   </div>
 
@@ -565,7 +565,9 @@ function makeGadget(type, x, y) {
     const keys = Object.keys(POWERS), wts = keys.map(k => POWERS[k].mega ? .02 : POWERS[k].ultra ? .07 : POWERS[k].rare ? .3 : 1);
     let r = Math.random() * wts.reduce((a, b) => a + b, 0), pk = keys[0];
     for (let q = 0; q < keys.length; q++) { r -= wts[q]; if (r <= 0) { pk = keys[q]; break; } }
-    return { id: ++uid, type, x, y, tx: x, ty: y, pk, bob: rand(0, 6) };
+    const g = { id: ++uid, type, x, y, tx: x, ty: y, pk, bob: rand(0, 6) };
+    if (Math.random() < FORGED_CHANCE) forgeCrate(g);
+    return g;
   }
   if (type === 'refill') return { id: ++uid, type, x, y, tx: x, ty: y, mult: Math.random() < .7 ? 2 : 3, bob: rand(0, 6) };
   if (type === 'hp') return { id: ++uid, type, x, y, tx: x, ty: y, amt: Math.random() < .7 ? 20 : 35, bob: rand(0, 6) };
@@ -595,6 +597,7 @@ function spawnGadgets() {
   const far = farX(), cap = gadgetCap();
   addGadget('win', FIRST_WIN());   // always one window to start
   for (let i = 0; i < 1 + st.extraCrates + EXTRA_PICKUPS(); i++) addGadget('crate');
+  if ((st.unlocks || []).length && Math.random() < FORGED_LEVEL) forgeCrate(addGadget('crate'));
   for (let i = 0; i < (Math.random() < .5 ? 1 : 0) + st.extraHp + EXTRA_PICKUPS(); i++) addGadget('hp');
   if (st.level >= 3 && Math.random() < .3) addGadget('link');
   // then field gadgets up to the limit for this level (at least 2); more turn up during the level
@@ -918,6 +921,12 @@ function gadgetStep(ar, sdt) {
         g.gone = true; ar.done = true;
         if (g.piece) { hordePiece(g); return; }
         if (g.recruit) { hordeRecruit(g, P); for (let i = 0; i < 20; i++) P_(g.x, g.y, rand(-180, 180), rand(-220, 60), .6, 2.6, i % 2 ? '#b07a43' : '#7dff9a', 'spark'); sfx('heal'); return; }
+        if (g.pk2) {   // FORGED crate: a linked arrow, for whoever shoots it (the team shares forged arrows)
+          const col = forgedCol(g); giveLinked(P, g.pk, g.pk2, isMega(g.pk, g.pk2) ? 1 : forgedShots(g.pk, g.pk2) + P.up.extraShots);
+          text(g.x, g.y - 26, 'FORGED: ' + forgedName(g), col, 18, 1.4); text(feet(P).x, feet(P).y - 140, forgedName(g), col, 16, 1.4);
+          for (let i = 0; i < 24; i++) st.parts.push({ x: g.x, y: g.y, vx: rand(-200, 200), vy: rand(-240, 60), life: .7, max: .7, r: 2.8, col: i % 2 ? '#ffd27a' : col });
+          sfx('heal'); return;
+        }
         const pw = POWERS[g.pk];
         if (g.pk === 'shield') { P.barrier = { hp: 120, max: 120, hitT: 0 }; P.bside = sideToward(P); }
         else givePower(P, g.pk, pw.shots + P.up.extraShots);
@@ -4887,7 +4896,7 @@ function drawGadget(g) {
     return;
   }
   if (g.type === 'crate') {
-    const pw = g.recruit ? { col: '#7dff9a', short: '+ARCHER' } : g.piece ? { col: '#ffb347', short: CAT_NAMES[g.piece] } : POWERS[g.pk], by = y + Math.sin(st.t * 2 + g.bob) * 6 * sc, r = 15 * sc;
+    const pw = g.recruit ? { col: '#7dff9a', short: '+ARCHER' } : g.piece ? { col: '#ffb347', short: CAT_NAMES[g.piece] } : g.pk2 ? { col: forgedCol(g), short: forgedName(g) } : POWERS[g.pk], by = y + Math.sin(st.t * 2 + g.bob) * 6 * sc, r = 15 * sc;
     ctx.fillStyle = pw.col + '33'; ctx.beginPath(); ctx.arc(x, by, r * 1.9, 0, 6.283); ctx.fill();
     ctx.fillStyle = '#a8743f'; ctx.fillRect(x - r, by - r, r * 2, r * 2);
     ctx.strokeStyle = '#5e3c1c'; ctx.lineWidth = 2.5 * sc; ctx.strokeRect(x - r + 3 * sc, by - r + 3 * sc, r * 2 - 6 * sc, r * 2 - 6 * sc);
@@ -4895,7 +4904,10 @@ function drawGadget(g) {
     ctx.fillStyle = pw.col; ctx.fillRect(x - r, by - 3 * sc, r * 2, 6 * sc);
     ctx.font = '700 10px Silkscreen, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
     ctx.fillStyle = pw.col; ctx.fillText(pw.short, x, by + r + 4);
-    if (g.pk && isMega(g.pk) && !g.recruit && !g.piece) { ctx.strokeStyle = '#ffd27a'; ctx.lineWidth = 3 * sc; ctx.strokeRect(x - r - 4 * sc, by - r - 4 * sc, r * 2 + 8 * sc, r * 2 + 8 * sc); ctx.fillStyle = '#ffd27a'; ctx.fillText('MEGA · 1 SHOT', x, by + r + 17); }
+    if (g.pk2 && !g.recruit && !g.piece) {   // FORGED crate: gold double frame, anvil tag
+      ctx.strokeStyle = '#ffd27a'; ctx.lineWidth = 2 * sc; ctx.strokeRect(x - r - 3 * sc, by - r - 3 * sc, r * 2 + 6 * sc, r * 2 + 6 * sc); ctx.strokeRect(x - r - 7 * sc, by - r - 7 * sc, r * 2 + 14 * sc, r * 2 + 14 * sc);
+      ctx.textBaseline = 'bottom'; ctx.fillStyle = '#ffd27a'; ctx.fillText('⚒ FORGED' + (isMega(g.pk, g.pk2) ? ' · MEGA 1 SHOT' : ''), x, by - r - 10 * sc); ctx.textBaseline = 'top';
+    } else if (g.pk && isMega(g.pk) && !g.recruit && !g.piece) { ctx.strokeStyle = '#ffd27a'; ctx.lineWidth = 3 * sc; ctx.strokeRect(x - r - 4 * sc, by - r - 4 * sc, r * 2 + 8 * sc, r * 2 + 8 * sc); ctx.fillStyle = '#ffd27a'; ctx.fillText('MEGA · 1 SHOT', x, by + r + 17); }
     return;
   }
   if (g.type === 'cloud') return;
@@ -5667,6 +5679,35 @@ function frame(ts) {
 /* ---------- quiver: plain arrows + up to 3 special arrow types per player, tap a slot to load it ---------- */
 const QUIVER_SLOTS = 3;
 // host only: add arrows of type k to player P
+/* ---------- forged arrows: forging UNLOCKS a linked arrow for the run; it turns up in the field as a FORGED crate ---------- */
+const FORGED_CHANCE = .12, FORGED_LEVEL = .55;   // any crate may be a forged one; plus a good chance of an extra forged crate each level
+function forgeCrate(g) {
+  const U = st.unlocks || [];
+  if (!U.length || !g || g.type !== 'crate') return g;
+  const u = U[Math.floor(Math.random() * U.length)];   // forging the same pair twice makes it turn up more often
+  g.pk = u.k; g.pk2 = u.k2; g.forged = true;
+  return g;
+}
+const forgedShots = (k, k2) => isMega(k, k2) ? 1 : Math.min(POWERS[k].shots, POWERS[k2].shots);
+const forgedName = o => { const c = COMBOS[comboKey(o.k || o.pk, o.k2 || o.pk2)]; return c ? c[0] : POWERS[o.k || o.pk].short + '+' + POWERS[o.k2 || o.pk2].short; };
+const forgedCol = o => { const c = COMBOS[comboKey(o.k || o.pk, o.k2 || o.pk2)]; return c ? c[1] : POWERS[o.k || o.pk].col; };
+// a linked arrow from a FORGED crate goes into P's quiver like any pickup (same pair adds shots)
+function giveLinked(P, k, k2, n) {
+  P.quiver = P.quiver || [];
+  let q = P.quiver.find(o => o.k2 && ((o.k === k && o.k2 === k2) || (o.k === k2 && o.k2 === k)));
+  if (q) q.shots += n;
+  else {
+    if (P.quiver.length >= QUIVER_SLOTS) {
+      const drop = P.quiver.reduce((a, o) => o.shots < a.shots ? o : a);
+      P.quiver = P.quiver.filter(o => o !== drop);
+      if (P.power === drop) P.power = null;
+      text(feet(P).x, feet(P).y - 160, 'DROPPED ' + powShort(drop), '#f6eedf', 13, 1.3);
+    }
+    q = { k, k2, shots: n }; P.quiver.push(q);
+  }
+  if (isMega(k, k2)) q.shots = 1;
+  P.power = q;
+}
 function givePower(P, k, n) {
   P.quiver = P.quiver || [];
   let q = P.quiver.find(o => o.k === k && !o.k2);
@@ -5745,7 +5786,7 @@ function startForge() {
   pushForge();
 }
 function forgeView(P) {
-  return { bank: P.bank || 0, list: (P.forged || []).map(q => ({ k: q.k, k2: q.k2 })), done: !!P.forgeDone, wait: st.players.filter(p => !p.forgeDone).map(p => p.name) };
+  return { bank: P.bank || 0, list: (st.unlocks || []).map(q => ({ k: q.k, k2: q.k2 })), done: !!P.forgeDone, wait: st.players.filter(p => !p.forgeDone).map(p => p.name) };
 }
 function pushForge() {
   if (!isHost() || !st || !st.forge) return;
@@ -5756,11 +5797,12 @@ function pushForge() {
 }
 function forgeMake(P, a, b) {
   if (!st || !st.forge || P.forgeDone || !FORGE_COST[a] || !FORGE_COST[b] || a === b) return;
-  const cost = forgeCost(a, b), list = P.forged = P.forged || [];
-  if (list.length >= FORGE_MAX || (P.bank || 0) < cost) return;
+  const cost = forgeCost(a, b), list = st.unlocks = st.unlocks || [];   // one shared team pool, no limit
+  if ((P.bank || 0) < cost) return;
   if (b === 'cluster') [a, b] = [b, a];   // cluster first, so its split arrows carry the other power
   const n = forgeShots(a, b);
-  list.push({ k: a, k2: b, shots: n, max: n, forged: true });
+  list.push({ k: a, k2: b, by: P.name });
+  text(feet(P).x, feet(P).y - 150, 'FORGED ' + forgedName({ k: a, k2: b }), forgedCol({ k: a, k2: b }), 14, 1.4);
   P.bank -= cost;
   pushForge();
 }
@@ -5773,7 +5815,7 @@ function forgeDone(P) {
 // every screen: draw the forge from a view (the two powers you are picking stay on your own screen until you press FORGE)
 function showForge(v) {
   forgeLast = v;
-  const full = v.list.length >= FORGE_MAX, [a, b] = forgePick;
+  const full = false, [a, b] = forgePick;
   $('forgeBank').textContent = v.bank + ' FORGE POINTS';
   let hint;
   if (full) hint = 'Your forge rack is full (' + FORGE_MAX + ' arrows). They stay with you until game over.';
@@ -5781,7 +5823,7 @@ function showForge(v) {
   else if (!b) hint = POWERS[a].short + ' + … tap a second power';
   else {
     const c = COMBOS[comboKey(a, b)];
-    hint = POWERS[a].short + ' + ' + POWERS[b].short + (c ? '  =  ★' + c[2] : '') + '  ·  ' + forgeShots(a, b) + (forgeShots(a, b) === 1 ? ' MEGA shot' : ' shots') + ' every level  ·  ' + forgeCost(a, b) + ' points';
+    hint = POWERS[a].short + ' + ' + POWERS[b].short + (c ? '  =  ★' + c[2] : '') + '  ·  ' + forgedShots(a, b) + (isMega(a, b) ? ' MEGA shot' : ' shots') + ' per FORGED crate  ·  ' + forgeCost(a, b) + ' points';
   }
   $('forgeHint').textContent = hint;
   let h = '';
@@ -5793,7 +5835,7 @@ function showForge(v) {
   const cost = b ? forgeCost(a, b) : 0;
   $('forgeMake').disabled = !(b && !full && !v.done && v.bank >= cost);
   $('forgeMake').textContent = b ? (v.bank >= cost ? 'FORGE · ' + cost : 'NEED ' + cost + ' POINTS') : 'FORGE';
-  $('forgeMine').innerHTML = v.list.length ? 'YOUR FORGED ARROWS: ' + v.list.map(q => '<b style="color:' + POWERS[q.k].col + '">' + powShort(q) + '</b>').join(' · ') : '';
+  $('forgeMine').innerHTML = v.list.length ? 'TEAM FORGED ARROWS (turn up as crates): ' + v.list.map(q => '<b style="color:' + POWERS[q.k].col + '">' + powShort(q) + '</b>').join(' · ') : '';
   $('forgeDone').disabled = v.done;
   $('forgeDone').textContent = v.done ? 'WAITING…' : 'TO THE SHOP ▶';
   $('forgeWait').textContent = v.wait.length && v.done ? 'Waiting for: ' + v.wait.join(', ') : '';
