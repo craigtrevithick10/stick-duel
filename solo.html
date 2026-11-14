@@ -1888,7 +1888,7 @@ function startHorde() {
   const keep = { x: P.x, h: P.h, pw: P.pw };
   st.horde = { t: 0, score: 0, kills: 0, spawnT: 1.5, giantT: 4, batT: 6, growT: 30, itemT: 14, kegT: 18,
     keep, outer: { x: keep.x + 1150, h: 105, pw: 64, hp: 0, max: 450, hitT: 0, down: true, gone: true },   // one castle for now
-    on: 'keep', far: keep.x + 3500, kegs: [], over: false, overT: 0, h0, pieces: {}, cat: null };
+    on: 'keep', far: keep.x + 3500, kegs: [], over: false, overT: 0, h0, pieces: {}, cat: null, rams: [], ramT: 22 };
   // things in the field to help: windows, an arrow crate, a medkit and powder kegs
   const H = st.horde;
   hordeItem('win', [keep.x + 350, H.outer.x - 150]);
@@ -1915,6 +1915,59 @@ function hordeSpawn(type, dx) {
   st.marchers.push({ type, horde: 1, x: st.horde.far + dx + rand(0, 220), hp: D.hp, max: D.hp, s: T.s * HORDE_SCALE, spd: T.spd * D.spd * rand(.9, 1.1),
     ph: rand(0, 6), dead: false, deadT: 0, rot: 0, hitT: 0, burn: 0, frozen: 0, stuck: [], off: rand(0, 40) });
 }
+// battering ram: 4 soldiers carry a log. At the gate it counts RAM_W; kill 3 carriers and they drop it.
+const RAM_W = 5, RAM_GAP = 18;
+function hordeRam() {
+  const H = st.horde, R = { x: H.far + rand(0, 200), spd: MT.footman.spd * HORDE.footman.spd * .8, drop: false, at: false, logT: 0 };
+  H.rams.push(R);
+  for (let i = 0; i < 4; i++) {
+    hordeSpawn('footman', 0);
+    const m = st.marchers[st.marchers.length - 1];
+    m.ram = R; m.ri = i; m.x = R.x + i * RAM_GAP;
+  }
+  st.banner = { t: 'BATTERING RAM!', sub: 'SHOOT THE CARRIERS', life: 1.8 };
+}
+function ramStep(dt) {
+  const H = st.horde;
+  for (const R of H.rams) {
+    if (R.drop) { R.logT -= dt; continue; }
+    const cs = st.marchers.filter(m => m.ram === R && !m.dead);
+    if (cs.length < 2) {
+      R.drop = true; R.at = false; R.logT = 6;
+      for (const m of cs) delete m.ram;
+      H.score += 3; text(R.x + RAM_GAP * 1.5, -115, 'RAM DROPPED! +3', '#ffd27a', 16, 1.2);
+      for (let q = 0; q < 14; q++) P_(R.x + rand(0, RAM_GAP * 3), -10, rand(-90, 90), rand(-160, -40), .5, 2.6, '#7a4a2c', 'shard');
+      sfx('thud');
+      continue;
+    }
+    if (cs.some(m => m.frozen > 0)) continue;   // a frozen carrier holds the whole ram up
+    const stop = hordeFront() + 6;
+    if (R.x > stop) R.x = Math.max(stop, R.x - R.spd * dt);
+    else {
+      R.at = true;
+      if ((R.bangT = (R.bangT || 0) - dt) <= 0) {
+        R.bangT = 1.3; shake(4); sfx('thud');
+        text(R.x - 10, -125, 'BOOM!', '#ffd27a', 14, .7); ring(R.x - 16, -45, 26, '#dcc29a', .3, 3);
+      }
+    }
+  }
+  H.rams = H.rams.filter(R => !R.drop || R.logT > 0);
+}
+function drawRam(R) {
+  const a = R.drop ? clamp(R.logT / 1.5, 0, 1) : 1;
+  if (a <= 0) return;
+  const s = MT.footman.s * HORDE_SCALE, swing = R.at ? -Math.max(0, Math.sin(st.t * 4.8)) * 9 : 0;
+  const x1 = R.x - 16 + swing, x2 = R.x + 3 * RAM_GAP + 14 + swing;
+  const yy = R.drop ? -5 : -58 * s + Math.sin(st.t * 8) * 1.2;
+  const X1 = SX(x1), X2 = SX(x2), Y = SY(yy), th = 10 * sc;
+  if (X2 < -40 || X1 > W + 40) return;
+  ctx.save(); ctx.globalAlpha = a;
+  ctx.fillStyle = '#7a4a2c'; ctx.fillRect(X1, Y - th / 2, X2 - X1, th);
+  ctx.fillStyle = 'rgba(40,20,10,.35)'; ctx.fillRect(X1, Y + th * .15, X2 - X1, th * .35);
+  ctx.fillStyle = '#4a4e57'; for (const u of [.3, .7]) ctx.fillRect(X1 + (X2 - X1) * u - 1.5 * sc, Y - th * .6, 3 * sc, th * 1.2);
+  ctx.fillStyle = '#6b6f78'; ctx.beginPath(); ctx.moveTo(X1 - 9 * sc, Y); ctx.lineTo(X1, Y - th * .8); ctx.lineTo(X1 + 6 * sc, Y - th * .8); ctx.lineTo(X1 + 6 * sc, Y + th * .8); ctx.lineTo(X1, Y + th * .8); ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
 function hordeKeg() {
   const H = st.horde;
   let x = 0;
@@ -1938,6 +1991,11 @@ function kegBoom(K) {
 // soldiers walk to the first castle still standing, then hack at it (the keep: they hurt you)
 function hordeMarch(m, dt) {
   const H = st.horde;
+  if (m.ram) {
+    const R = m.ram;
+    if (!R.drop) { m.x = R.x + m.ri * RAM_GAP; m.ph += dt * (R.at ? 5 : m.spd * .22); return; }
+    delete m.ram;
+  }
   if (!m.at) {
     const stop = hordeFront() + (m.type === 'giant' ? m.off : H.pileW || 0);
     if (m.x > stop) { m.x = Math.max(stop, m.x - m.spd * dt); m.ph += dt * m.spd * .22; return; }
@@ -2049,7 +2107,10 @@ function hordeStep(dt, rdt) {
   H.t += dt;
   const t = H.t;
   hordePile();
-  H.press = 0; for (const m of st.marchers) if (m.at && !m.dead) H.press += gateW(m);
+  ramStep(dt);
+  if (t > 30 && (H.ramT -= dt) <= 0) { hordeRam(); H.ramT = rand(24, 34) * Math.max(.6, 1 - t / 600); }
+  H.press = 0; for (const m of st.marchers) if (m.at && !m.dead && !m.ram) H.press += gateW(m);
+  for (const R of H.rams) if (R.at && !R.drop) H.press += RAM_W;
   if (H.press >= OVERRUN * .75 && !H.warned) { H.warned = true; text(feet(st.P).x, feet(st.P).y - 170, 'THE GATE IS BUCKLING!', '#ff5a4e', 18, 1.6, 1); shake(6); }
   if (H.press < OVERRUN * .5) H.warned = false;
   if (H.press >= OVERRUN) { hordeOver(); return; }
@@ -2181,6 +2242,7 @@ function drawHordeHUD() {
   ctx.fillStyle = '#ffd27a'; for (const K of H.kegs) ctx.fillRect(X(K.x) - 1.5, y0 + 8, 3, 3);
   for (const m of st.marchers) if (!m.dead) { const r = m.type === 'giant' ? 3 : 1.5; ctx.fillStyle = m.type === 'giant' ? '#ff9a45' : '#ff5a4e'; ctx.fillRect(X(m.x) - r, y0 + 6 - r, r * 2, r * 2); }
   ctx.fillStyle = '#8cff5a'; for (const e of st.enemies) if (!e.dead && e.flyer) ctx.fillRect(X(e.x) - 2, y0 + 1, 4, 4);
+  ctx.fillStyle = '#c08040'; for (const R of H.rams) if (!R.drop) ctx.fillRect(X(R.x) - 1, y0 + 3, 8, 5);
   ctx.strokeStyle = 'rgba(246,238,223,.75)'; ctx.lineWidth = 1; ctx.strokeRect(X(camX), y0 - 2, Math.max(4, X(camX + W / sc) - X(camX)), 16);
   ctx.font = '700 10px Silkscreen, monospace'; ctx.fillStyle = '#f6eedf'; ctx.lineWidth = 3;
   const info = H.kills + ' KILLS'; ctx.strokeText(info + '  ·  ' + Math.floor(H.t) + ' S', cx, y0 + 18);
@@ -4443,6 +4505,7 @@ function draw() {
   for (const e of st.enemies) drawArcher(e);
   drawBossFX();
   for (const m of st.horde ? [...st.marchers].sort((a, b) => (b.y || 0) - (a.y || 0)) : st.marchers) drawMarcher(m);
+  if (st.horde) for (const R of st.horde.rams) drawRam(R);
   for (const a of st.allies) drawMarcher(a);
   trackTrails(); drawTrails();
   for (const ar of st.arrows) {
