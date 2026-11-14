@@ -265,6 +265,7 @@ const POWERS = {
   confuse:{ name: 'CONFUSION', short: 'CONFUSE', col: '#ff3df2', shots: 4 },
   magnet: { name: 'MAGNET ARROW', short: 'MAGNET', col: '#ff3b5c', shots: 3 },
   bounce: { name: 'BOUNCY ARROW', short: 'BOUNCE', col: '#ffb02e', shots: 4 },
+  web: { name: 'WEB ARROW', short: 'WEB', col: '#eef3fa', shots: 4 },
   clone:  { name: 'CLONE ARROWS', short: 'CLONE', col: '#4fe3c1', shots: 2, rare: true },
   meteor: { name: 'METEOR SHOWER', short: 'METEOR', col: '#ff7b3a', shots: 1, mega: true },
   blackhole:{ name: 'BLACK HOLE', short: 'VOID',   col: '#b07cff', shots: 1, ultra: true }
@@ -293,7 +294,7 @@ const RIDE = {   // [glow rgb, main colour, light colour, particle kind]
 };
 const rideOf = k => RIDE[k] || [hexRgb(POWERS[k].col), POWERS[k].col, '#ffffff', 'spark'];
 const RIDE_NAME = { fire: 'FIRE', ice: 'ICE', boom: 'BOMB', heavy: 'GIANT', storm: 'THUNDER', slowmo: 'SLOW', shrink: 'SHRINK', grow: 'HUGE', tele: 'WARP', homing: 'HUNTER',
-  blackhole: 'VOID', tornado: 'WINDY', meteor: 'BURNING', triple: 'TRIPLE', rapid: 'QUICK', pierce: 'SHARP', scope: 'SCOPED', cluster: 'CONFETTI', confuse: 'DIZZY', magnet: 'MAGNETIC', bounce: 'BOUNCY' };
+  blackhole: 'VOID', tornado: 'WINDY', meteor: 'BURNING', triple: 'TRIPLE', rapid: 'QUICK', pierce: 'SHARP', scope: 'SCOPED', cluster: 'CONFETTI', confuse: 'DIZZY', magnet: 'MAGNETIC', bounce: 'BOUNCY', web: 'STICKY' };
 const RIDE_ON = { fire: 1, ice: 1, slowmo: 1, shrink: 1, grow: 1, boom: 1, storm: 1, heavy: 1 };   // a twister hands these to the arrows it turns round
 // combo arrows: some linked pairs make a special effect of their own (key = both powers, sorted)
 const COMBOS = {
@@ -307,7 +308,9 @@ const COMBOS = {
   'magnet+storm': ['LIGHTNING ROD', '#fff36b', 'ROD'], 'homing+magnet': ['PAYBACK', '#ff8ad8', 'PAYBACK'], 'boom+magnet': ['SPIKE MINE', '#ff5a4e', 'MINE'],
   'fire+magnet': ['HOT MAGNET', '#ff9a45', 'HOT MAG'], 'grow+magnet': ['BIG MAGNET', '#ff6bd6', 'BIG MAG'],
   'boom+bounce': ['BOUNCING BOMB', '#ff5a4e', 'BOUNCE BOMB'], 'bounce+fire': ['FIRE SKIPPER', '#ff9a45', 'SKIPPER'], 'bounce+storm': ['PINBALL', '#fff36b', 'PINBALL'],
-  'bounce+pierce': ['RICOCHET', '#e0e0ff', 'RICOCHET'], 'bounce+heavy': ['WRECKING BALL', '#ffd27a', 'WRECKER']
+  'bounce+pierce': ['RICOCHET', '#e0e0ff', 'RICOCHET'], 'bounce+heavy': ['WRECKING BALL', '#ffd27a', 'WRECKER'],
+  'fire+web': ['BURNING WEB', '#ff9a45', 'BURN WEB'], 'ice+web': ['FROZEN WEB', '#bfe9ff', 'ICE WEB'], 'boom+web': ['STICKY BOMB', '#ff5a4e', 'STICKY'],
+  'storm+web': ['ELECTRIC WEB', '#fff36b', 'ZAP WEB']
 };
 const comboKey = (a, b) => a && b ? [a, b].sort().join('+') : null;
 const comboOf = ar => !ar ? null : comboKey(ar.pk, ar.pk2);
@@ -329,7 +332,9 @@ const COMBO_DESC = {
   'grow+magnet': 'The magnet pulls from much further and holds 8 arrows',
   'boom+bounce': 'Bounces up to 3 times, then blows up where it stops', 'bounce+fire': 'Leaves a fire everywhere it bounces',
   'bounce+storm': 'Every bounce zaps the nearest enemy', 'bounce+pierce': 'Goes through archers and bounces up to 5 times',
-  'bounce+heavy': 'Every bounce off an enemy tower cracks it'
+  'bounce+heavy': 'Every bounce off an enemy tower cracks it',
+  'fire+web': 'The web burns them the whole time they are stuck', 'ice+web': 'A frozen web that holds twice as long',
+  'boom+web': 'The blast webs everyone it hits', 'storm+web': 'The web zaps whoever is stuck in it'
 };
 // linking two arrows that make a combo: show its name and what it does
 function comboAnnounce(P, a, b) {
@@ -349,7 +354,7 @@ const ICON = {
   armour: '🛡️', leech: '🧛', revive: '💨', glass: '🪟', helper: '🤝',
   pw_triple: '🔱', pw_fire: '🔥', pw_ice: '❄️', pw_boom: '💥', pw_heavy: '🪨', pw_rapid: '⏩', pw_pierce: '📌',
   pw_homing: '🎯', pw_storm: '⚡', pw_cluster: '🎆', pw_scope: '🔭', pw_slowmo: '🐢', pw_tornado: '🌪️',
-  pw_shrink: '🤏', pw_grow: '🍄', pw_tele: '🌀', pw_blackhole: '🕳️', pw_meteor: '☄️', pw_clone: '👥', pw_confuse: '😵', pw_magnet: '🧲', pw_bounce: '🏀', pw_shield: '🧱'
+  pw_shrink: '🤏', pw_grow: '🍄', pw_tele: '🌀', pw_blackhole: '🕳️', pw_meteor: '☄️', pw_clone: '👥', pw_confuse: '😵', pw_magnet: '🧲', pw_bounce: '🏀', pw_web: '🕸️', pw_shield: '🧱'
 };
 
 let W = 0, H = 0, DPR = 1, sc = 1, camX = 0, camY = 0, scBase = 1, zoom = 1, forcePortrait = false;
@@ -569,7 +574,7 @@ function updateDirector(dt) {
   if ((st.dirT -= dt) > 0) return;
   st.dirT = rand(5, 9);
   const live = st.gadgets.filter(g => !g.gone && g.type !== 'portal');
-  const free = live.filter(g => !g.falling && !(g.hold > 0) && !(g.rain > 0) && !(g.appearT > 0) && !(g.type === 'clock' && st.clockPending));
+  const free = live.filter(g => !g.falling && !(g.webT > 0) && !(g.hold > 0) && !(g.rain > 0) && !(g.appearT > 0) && !(g.type === 'clock' && st.clockPending));
   const cap = gadgetCap(), r = Math.random();
   if ((live.length < cap && r < .3) || !free.length) { if (live.length <= cap) popIn(addGadget(pickGadgetType())); return; }
   const g = free[Math.floor(Math.random() * free.length)];
@@ -809,8 +814,9 @@ function refillGive(P, k, k2, n) {
   return q;
 }
 function gadgetStep(ar, sdt) {
-  const cl = ar.owner.isP && hasPk(ar, 'clone');
+  const cl = ar.owner.isP && hasPk(ar, 'clone'), wb = ar.owner.isP && hasPk(ar, 'web');
   for (const g of st.gadgets) {
+    if (wb && !g.gone && !g.falling && !(g.appearT > 0) && webTouch(g, ar) && shotOnce(ar, 'web' + g.id)) { ar.done = true; webGadget(g, ar); return; }
     if (cl && !g.gone && !g.falling && !(g.appearT > 0) && cloneTouch(g, ar) && shotOnce(ar, 'clone')) { ar.done = true; cloneGadget(g); return; }
     if (g.type === 'hp') {
       if (!g.gone && ar.owner.isP && Math.abs(ar.x - g.x) < 14 && Math.abs(ar.y - (g.y + Math.sin(st.t * 2 + g.bob) * 6)) < 14) {
@@ -953,7 +959,7 @@ function gadgetStep(ar, sdt) {
       }
       continue;
     }
-    if (g.type === 'fan' && ar.magic) continue;
+    if (g.type === 'fan' && (ar.magic || g.webT > 0)) continue;   // a webbed fan has stopped
     if (g.type === 'fan' && g.reverse) {
       const dx = Math.cos(g.ang), dy = Math.sin(g.ang), rx = ar.x - g.x, ry = ar.y - g.y;
       const u = rx * dx + ry * dy, v = -rx * dy + ry * dx;
@@ -1276,6 +1282,7 @@ function onHit(ar, a, z) {
     text(f.x, f.y - 150, 'TAGGED: NEXT ARROW SENDS THEM THERE', '#d58cff', 13, 1.6);
     ring(f.x, f.y - 50, 60, '#d58cff', .6, 3);
   }
+  if (hasPk(ar, 'web') && !a.isP) webA(a, ar, ar.owner && ar.owner.isP ? ar.owner : null);
   if (hasPk(ar, 'ice') && !a.isP) { a.frozen = 3.5; a.aiAim = null; a.pow = 0; text(f.x, f.y - 132, 'FROZEN', '#bfe9ff', 14, .9); }
   if (hasPk(ar, 'fire')) for (let i = 0; i < 8; i++) st.parts.push({ x: ar.x, y: ar.y, vx: rand(-80, 80), vy: rand(-160, 0), life: .5, max: .5, r: 2.4, col: '#ff9a45' });
   if (hasPk(ar, 'storm') && !a.isP && shotOnce(ar, 'storm')) {
@@ -1703,6 +1710,8 @@ function infuse(a, k, by, seen, weak) {
     if (a.hp <= 0) kill(a, { vx: -1, owner: by }, 'body');
   } else if (k === 'boom') {
     if (by) blast(f.x, f.y - 55, by, null);
+  } else if (k === 'web') {
+    webA(a, null, by, (a.boss ? WEB_BOSS : WEB_T) * m);
   } else if (k === 'confuse') {
     confuse(a, 5 * m);
   } else if (k === 'tele') {
@@ -2093,6 +2102,82 @@ function bounceZap(ar, x, y, first) {
   best.hp -= dmg; best.hitT = .15; best.lastBy = ar.owner;
   text(p.x, p.y - 50, '-' + dmg, '#fff36b', 15, .8); sfx('zap');
   if (best.hp <= 0) kill(best, { vx: Math.sign(p.x - x) || 1, owner: ar.owner }, 'body');
+}
+/* ---------- web arrow: sticky web that holds archers, soldiers, bats and objects in place (enemies only) ---------- */
+// archers can't move, dodge or fire (5 s, bosses 2.5 s); soldiers and bats stuck 5 s; objects held 20 s (fans stop).
+// Linked: BURNING WEB (fire), FROZEN WEB (ice, twice as long), STICKY BOMB (boom webs everyone in the blast), ELECTRIC WEB (storm zaps)
+const WEB_COL = '#eef3fa', WEB_T = 5, WEB_BOSS = 2.5, WEB_GAD = 20;
+function webA(a, ar, by, t) {
+  if (!a || a.dead || a.isP) return;
+  const f = feet(a), ice = ar && hasPk(ar, 'ice');
+  t = t || (a.boss ? WEB_BOSS : WEB_T) * (ice ? 2 : 1);
+  if (!(a.webT > 0)) text(f.x, f.y - 140, ice ? 'FROZEN WEB' : 'WEBBED', WEB_COL, 14, 1);
+  a.webT = Math.max(a.webT || 0, t); a.webMax = a.webT; a.aiAim = null; a.pow = 0;
+  if (ar && hasPk(ar, 'storm')) a.webZap = 1;
+  if (ar && hasPk(ar, 'fire')) a.burn = Math.max(a.burn || 0, a.webT);   // BURNING WEB burns the whole time
+  if (by) a.lastBy = by;
+  for (let i = 0; i < 12; i++) P_(f.x + rand(-20, 20), f.y - rand(20, 100), rand(-60, 60), rand(-60, 30), .5, rand(1.5, 2.5), WEB_COL, 'spark');
+  sfx('glass');
+}
+// in the enemy loop: true while the archer is webbed (it does nothing else)
+function webStep(E, dt) {
+  if (!(E.webT > 0)) return false;
+  E.webT -= dt;
+  if (E.flyer && E.h > 40) E.h -= 35 * dt;   // a webbed bat glides down
+  if (E.webZap && !E.dead && (E.webZT = (E.webZT || 0) - dt) <= 0) {   // ELECTRIC WEB
+    E.webZT = .8; const f = feet(E), d = 6;
+    E.hp -= d; E.hitT = .12; st.bolts.push({ x1: f.x + rand(-30, 30), y1: f.y - 120, x2: f.x, y2: f.y - 50, life: .2, col: '#fff36b' });
+    text(f.x + rand(-10, 10), f.y - 110, '-' + d, '#fff36b', 13, .6); sfx('zap');
+    if (E.hp <= 0) kill(E, { vx: -1, owner: E.lastBy }, 'body');
+  }
+  if (E.webT <= 0) { E.webZap = 0; const f = feet(E); for (let i = 0; i < 10; i++) P_(f.x, f.y - 55, rand(-120, 120), rand(-140, 20), .5, 2, WEB_COL, 'spark'); }
+  return true;
+}
+function webTouch(g, ar) {
+  const dx = Math.abs(ar.x - g.x), dy = Math.abs(ar.y - g.y), z = g.size || 1;
+  if (g.type === 'win') return dx < 44 * z && dy < 48 * z;
+  if (g.type === 'fan') return dx < 30 * z && dy < 40 * z;
+  if (g.type === 'cloud') return dx < g.w / 2 && dy < 30;
+  if (g.type === 'bounce') { const c = Math.cos(g.ang), sn = Math.sin(g.ang), rx = ar.x - g.x, ry = ar.y - g.y; return Math.abs(rx * c + ry * sn) < 46 && Math.abs(-rx * sn + ry * c) < 10; }
+  if (g.type === 'portal' || g.type === 'magnet' || g.type === 'bell') return Math.hypot(dx, dy) < 28;
+  return false;
+}
+function webGadget(g, ar) {
+  g.webT = WEB_GAD * (hasPk(ar, 'ice') ? 1.5 : 1);
+  text(g.x, g.y - 70, 'WEBBED ' + Math.round(g.webT) + 's', WEB_COL, 14, 1.2);
+  for (let i = 0; i < 16; i++) P_(g.x + rand(-30, 30), g.y + rand(-30, 30), rand(-80, 80), rand(-80, 40), .5, 2, WEB_COL, 'spark');
+  st.pinned.push({ x: ar.x, y: ar.y, ang: Math.atan2(ar.vy, ar.vx), col: ar.col, g });
+  sfx('glass');
+}
+// a web drawn over something: strands out from the middle and rings; it breaks up as it wears off
+function drawWeb(x, y, R, left, seed) {
+  const k = clamp(left / 1.5, 0, 1);
+  ctx.save(); ctx.strokeStyle = 'rgba(238,243,250,' + (.35 + .5 * Math.min(1, left)) + ')'; ctx.lineWidth = Math.max(1, 1.4 * sc);
+  const N = 9;
+  for (let i = 0; i < N; i++) {
+    if (hash(seed + i * 1.7) > k + .15) continue;
+    const a = i / N * 6.283 + hash(seed) * .5;
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + Math.cos(a) * R, y + Math.sin(a) * R); ctx.stroke();
+  }
+  for (let r = 1; r <= 3; r++) {
+    ctx.beginPath();
+    for (let i = 0; i <= N; i++) {
+      const a = i / N * 6.283 + hash(seed) * .5, rr = R * r / 3.4 * (1 + (hash(seed + i + r) - .5) * .15);
+      const px = x + Math.cos(a) * rr, py = y + Math.sin(a) * rr;
+      if (i === 0 || hash(seed + i * 3 + r) > k + .2) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+function drawWebs() {
+  for (const E of st.enemies) {
+    if (!(E.webT > 0) || E.dead) continue;
+    const f = feet(E), k = sizeOf(E);
+    drawWeb(SX(f.x), SY(f.y - 55 * k), (E.boss ? 90 : 62) * k * sc, E.webT, E.id || 1);
+  }
+  for (const m of st.marchers || []) if (m.web > 0 && !m.dead) drawWeb(SX(m.x), SY((m.y || 0) - 40 * (m.s || 1)), 40 * (m.s || 1) * sc, m.web, m.x);
+  for (const g of st.gadgets) if (g.webT > 0 && !g.gone) drawWeb(SX(g.x), SY(g.y), 52 * (g.size || 1) * sc, g.webT, g.id || 1);
 }
 function updateVortices(dt) {
   comboStep(dt);
@@ -2832,6 +2917,7 @@ function onMarcherHit(ar, m, z) {
   if (z === 'head') text(m.x, -128 * m.s, 'HEADSHOT', '#ff5a4e', 14, .9);
   if (hasPk(ar, 'fire')) m.burn = 3.5;
   if (hasPk(ar, 'ice')) m.frozen = 4;
+  if (hasPk(ar, 'web')) { m.frozen = Math.max(m.frozen || 0, WEB_T); m.web = WEB_T; }
   hurtMarcher(m, base * rand(.9, 1.15) * (ar.dmgMul || 1), ar);
   sfx(z === 'head' ? 'head' : 'hit');
   if (hasPk(ar, 'boom')) blast(ar.x, ar.y, ar.owner, riderOf(ar, 'boom'));
@@ -2848,6 +2934,7 @@ function updateMarchers(dt) {
       if (Math.random() < .5) P_(m.x + rand(-6, 6), -rand(20, 80) * m.s, rand(-15, 15), rand(-80, -30), .4, rand(2, 3.5), Math.random() < .5 ? '#ff9a45' : '#ffd27a', 'flame');
       if (m.hp <= 0) hurtMarcher(m, 0);
     }
+    if (m.web > 0) m.web -= dt;
     if (m.frozen > 0) { m.frozen -= dt; continue; }
     if (m.engaged) { m.engaged = false; m.ph += dt * 10; continue; }
     if (st.horde) { hordeMarch(m, dt); continue; }
@@ -3937,7 +4024,7 @@ function update(rdt) {
       if (Math.random() < .5) { const f = feet(E); P_(f.x + rand(-8, 8), f.y - rand(30, 90), rand(-20, 20), rand(-90, -30), .45, rand(2.4, 4), Math.random() < .5 ? '#ff9a45' : '#ffd27a', 'flame'); }
       if (E.hp <= 0) kill(E, { vx: -1 }, 'body');
     }
-    if (E.ship && !E.dead) shipStep(E, dt);
+    if (E.ship && !E.dead && !(E.webT > 0)) shipStep(E, dt);
     if (E.topple) updateTopple(E, dt);
     if (E.shrink > 0) {
       if ((E.shrinkT -= dt) <= 0) {
@@ -3947,6 +4034,7 @@ function update(rdt) {
     }
     if (E.confT > 0 && E.aiAim && !E.aiAim.conf) confuseAim(E, E.aiAim);
     if (E.slowT > 0) { E.slowT -= dt; if (E.slowT <= 0) { E.slowM = 1; if (!E.dead) text(feet(E).x, feet(E).y - 130, 'SPEED BACK', '#7ad7ff', 12, .8); } }
+    if (webStep(E, dt)) continue;
     if (E.frozen > 0) { E.frozen -= dt; continue; }
     if (E.stun > 0) { E.stun -= dt; continue; }
     if (E.blind > 0) { E.blind -= dt; continue; }
@@ -4049,17 +4137,18 @@ function update(rdt) {
   for (const g of st.gadgets) {
     const k = Math.min(1, rdt * 6);
     g.x += (g.tx - g.x) * k; g.y += (g.ty - g.y) * k;
-    if (g.type === 'fan') { g.ang += (g.tang - g.ang) * k; g.spin += dt * 18; }
+    if (g.type === 'fan') { g.ang += (g.tang - g.ang) * k; if (!(g.webT > 0)) g.spin += dt * 18; }
     if (g.type === 'portal') {
       g.spin += dt * 3;
       if (g.popT > 0) g.popT -= rdt;
-      if (st.nextT <= 0 && (g.jumpT -= dt) <= 0) portalJump(g);
+      if (st.nextT <= 0 && !(g.webT > 0) && (g.jumpT -= dt) <= 0) portalJump(g);
     }
     if (g.flash > 0) g.flash -= rdt;
+    if (g.webT > 0) g.webT -= dt;
     if ((g.type === 'fan' || g.type === 'win' || g.type === 'bounce' || g.type === 'magnet') && !g.falling) {
       if (g.type === 'bounce') g.ang += (g.tang - g.ang) * k;
       if (g.hold > 0) g.hold -= dt;
-      else if (st.nextT <= 0) { g.relocT -= dt; if (g.relocT <= 0) relocate(g); }
+      else if (st.nextT <= 0 && !(g.webT > 0)) { g.relocT -= dt; if (g.relocT <= 0) relocate(g); }
     }
   }
   updateDirector(dt);
@@ -5034,6 +5123,7 @@ function draw() {
     ctx.save(); ctx.translate(SX(p.x), SY(p.y)); ctx.scale(sc, sc); ctx.rotate(p.ang); drawArrowShape(26, p.col); ctx.restore();
   }
   drawMags();
+  drawWebs();
   for (const h of st.helpers) { if (h.clone && !h.dead) cloneAura(h); drawArcher(h); }
   drawArcher(st.P);
   for (const e of st.enemies) drawArcher(e);
@@ -5504,7 +5594,7 @@ function pickSlot(i) {   // -1 = plain arrows
   st.power = q; sfx('click');
 }
 /* ---------- the forge: spend horde points on a linked arrow you keep for the whole run (lost at game over) ---------- */
-const FORGE_COST = { triple: 10, rapid: 10, pierce: 10, heavy: 10, scope: 8, homing: 12, fire: 15, ice: 15, tele: 15, slowmo: 18, shrink: 18, grow: 18, confuse: 18, magnet: 16, bounce: 12,
+const FORGE_COST = { triple: 10, rapid: 10, pierce: 10, heavy: 10, scope: 8, homing: 12, fire: 15, ice: 15, tele: 15, slowmo: 18, shrink: 18, grow: 18, confuse: 18, magnet: 16, bounce: 12, web: 14,
   boom: 20, storm: 20, cluster: 20, tornado: 30, blackhole: 60, meteor: 60 };
 const FORGE_MAX = 2, FORGE_SHOTS = 5, FORGE_BIG = ['blackhole', 'meteor'];
 let forgePick = [];
@@ -5814,13 +5904,13 @@ $('musicBtn').onclick = () => {
 
 /* ---------- practice range: straw dummies, any arrow from the rack, unlimited shots ---------- */
 const PRAC_X = [650, 1050, 1500, 1950], PRAC_H = [70, 135, 175, 110];
-const RACK = ['triple', 'fire', 'ice', 'boom', 'heavy', 'rapid', 'pierce', 'homing', 'storm', 'cluster', 'scope', 'slowmo', 'tornado', 'shrink', 'grow', 'tele', 'confuse', 'magnet', 'bounce', 'clone', 'meteor', 'blackhole'];
+const RACK = ['triple', 'fire', 'ice', 'boom', 'heavy', 'rapid', 'pierce', 'homing', 'storm', 'cluster', 'scope', 'slowmo', 'tornado', 'shrink', 'grow', 'tele', 'confuse', 'magnet', 'bounce', 'web', 'clone', 'meteor', 'blackhole'];
 const RACK_DESC = {
   plain: 'A normal arrow', triple: '3 arrows at once', fire: 'Sets them on fire', ice: 'Freezes them solid', boom: 'Explodes; 3 hits topple a tower',
   heavy: 'Hits much harder', rapid: 'Very fast reload', pierce: 'Goes through archers', homing: 'Steers into the nearest archer',
   storm: 'Lightning jumps between archers', cluster: 'Tap the screen to split it', scope: 'Shows where your arrow will go',
   slowmo: 'Slows down whoever it hits', tornado: 'A twister that turns arrows round', shrink: 'Each hit shrinks them', grow: 'Each hit makes them 25% bigger and 15% slower, and their shots overshoot. Hit a window or fan in the middle to make it bigger',
-  tele: 'Tag one; your next arrow moves them there', confuse: 'They aim backwards for 6 s and can hit their own side', bounce: 'Bounces off the ground, towers and cover up to 3 times. Bank it round cover', magnet: 'Sticks in where it lands for 6 s. Enemy arrows that fly near it bend in and get caught (holds 5)', clone: 'Copies what it hits. A cloned archer fights for you', meteor: 'Rocks rain down. They hit you too!', blackhole: 'Sucks everything in',
+  tele: 'Tag one; your next arrow moves them there', confuse: 'They aim backwards for 6 s and can hit their own side', web: 'Webs what it hits: archers can\'t move or shoot for 5 s, objects stay put 20 s', bounce: 'Bounces off the ground, towers and cover up to 3 times. Bank it round cover', magnet: 'Sticks in where it lands for 6 s. Enemy arrows that fly near it bend in and get caught (holds 5)', clone: 'Copies what it hits. A cloned archer fights for you', meteor: 'Rocks rain down. They hit you too!', blackhole: 'Sucks everything in',
   shield: 'Puts a wall up in front of you'
 };
 function makeDummy(i) {
