@@ -217,9 +217,10 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
       <h2 class="title" id="overTitle" style="font-size:clamp(38px,11vw,54px)">YOU <em>FELL</em></h2>
       <p class="newbest" id="newBest" hidden>NEW BEST</p>
       <div class="stats">
+        <div class="stat"><span>Level</span><b id="oLevel">1</b></div>
         <div class="stat"><span>Kills</span><b id="oKills">0</b></div>
         <div class="stat"><span>Headshots</span><b id="oHeads">0</b></div>
-        <div class="stat"><span>Best</span><b id="oBest">0</b></div>
+        <div class="stat"><span>Best kills</span><b id="oBest">0</b></div>
       </div>
       <button class="btn" id="againBtn" type="button">FIGHT AGAIN</button>
     </div>
@@ -5336,7 +5337,7 @@ function gameOver() {
   const isBest = st.kills > best;
   if (isBest) { best = st.kills; try { localStorage.setItem('stickDuelBest', best); } catch (e) {} }
   $('overTitle').innerHTML = st.overReason === 'castle' ? 'CASTLE <em>FELL</em>' : 'YOU <em>FELL</em>';
-  $('oKills').textContent = st.kills; $('oHeads').textContent = st.heads; $('oBest').textContent = best;
+  $('oLevel').textContent = st.level; $('oKills').textContent = st.kills; $('oHeads').textContent = st.heads; $('oBest').textContent = best;
   $('newBest').hidden = !isBest || st.kills === 0;
   show('overScreen', true);
 }
