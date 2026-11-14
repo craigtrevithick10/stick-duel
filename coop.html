@@ -3072,8 +3072,8 @@ function update(rdt) {
         const pf = feet(E.tgt), headP = Math.min(.45, .1 + st.level * .025);
         const ty = Math.random() < headP ? pf.y - 84 : pf.y - 58;
         const sol = solve(E, pf.x, ty, E.kind === 'crossbow');
-        const search = 1 + 2.2 * Math.pow(.55, E.aiShots);
-        const se = Math.max(.6, 4.6 - st.level * .28) * search, sv = Math.max(8, 50 - st.level * 3) * search;
+        const search = 1.4 + 2.2 * Math.pow(.55, E.aiShots);   // enemies never get dead-on (Craig: miss more)
+        const se = Math.max(1.4, 5.2 - st.level * .22) * search, sv = Math.max(22, 58 - st.level * 2.4) * search;
         const e = (sol.e + gauss() * se) * Math.PI / 180, v = sol.v + gauss() * sv;
         const dir = pf.x < shoulder(E).x ? -1 : 1, ang = dir < 0 ? Math.PI + e : -e;
         E.f = dir;
