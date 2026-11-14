@@ -261,6 +261,7 @@ const POWERS = {
   grow:   { name: 'ENLARGE ARROWS', short: 'ENLARGE', col: '#ff6bd6', shots: 6 },
   tele:   { name: 'TELEPORT ARROWS', short: 'TELEPORT', col: '#d58cff', shots: 4 },
   confuse:{ name: 'CONFUSION', short: 'CONFUSE', col: '#ff3df2', shots: 4 },
+  magnet: { name: 'MAGNET ARROW', short: 'MAGNET', col: '#ff3b5c', shots: 3 },
   clone:  { name: 'CLONE ARROWS', short: 'CLONE', col: '#4fe3c1', shots: 2, rare: true },
   meteor: { name: 'METEOR SHOWER', short: 'METEOR', col: '#ff7b3a', shots: 1, mega: true },
   blackhole:{ name: 'BLACK HOLE', short: 'VOID',   col: '#b07cff', shots: 1, ultra: true }
@@ -289,7 +290,7 @@ const RIDE = {   // [glow rgb, main colour, light colour, particle kind]
 };
 const rideOf = k => RIDE[k] || [hexRgb(POWERS[k].col), POWERS[k].col, '#ffffff', 'spark'];
 const RIDE_NAME = { fire: 'FIRE', ice: 'ICE', boom: 'BOMB', heavy: 'GIANT', storm: 'THUNDER', slowmo: 'SLOW', shrink: 'SHRINK', grow: 'HUGE', tele: 'WARP', homing: 'HUNTER',
-  blackhole: 'VOID', tornado: 'WINDY', meteor: 'BURNING', triple: 'TRIPLE', rapid: 'QUICK', pierce: 'SHARP', scope: 'SCOPED', cluster: 'CONFETTI', confuse: 'DIZZY' };
+  blackhole: 'VOID', tornado: 'WINDY', meteor: 'BURNING', triple: 'TRIPLE', rapid: 'QUICK', pierce: 'SHARP', scope: 'SCOPED', cluster: 'CONFETTI', confuse: 'DIZZY', magnet: 'MAGNETIC' };
 const RIDE_ON = { fire: 1, ice: 1, slowmo: 1, shrink: 1, grow: 1, boom: 1, storm: 1, heavy: 1 };   // a twister hands these to the arrows it turns round
 // combo arrows: some linked pairs make a special effect of their own (key = both powers, sorted)
 const COMBOS = {
@@ -299,7 +300,9 @@ const COMBOS = {
   'blackhole+tele': ['WORMHOLE', '#d58cff', 'WORMHOLE'], 'blackhole+shrink': ['GIANT SLAYER', '#b6ff5c', 'SLAYER'],
   'boom+heavy': ['MEGA BOMB', '#ffd27a', 'MEGA BOMB'], 'pierce+storm': ['RAIL LIGHTNING', '#fff36b', 'RAIL ZAP'], 'cluster+meteor': ['STAR BURST', '#ff7b3a', 'STAR BURST'],
   'grow+shrink': ['SIZE WOBBLE', '#ff6bd6', 'WOBBLE'], 'boom+grow': ['BIG BANG', '#ff9a45', 'BIG BANG'], 'grow+tornado': ['MEGA TWISTER', '#ff6bd6', 'MEGA TWISTER'],
-  'blackhole+grow': ['MEGA VOID', '#c79bff', 'MEGA VOID'], 'grow+meteor': ['GIANT METEORS', '#ff7b3a', 'GIANT ROCKS'], 'grow+heavy': ['TITAN ARROW', '#ffd27a', 'TITAN']
+  'blackhole+grow': ['MEGA VOID', '#c79bff', 'MEGA VOID'], 'grow+meteor': ['GIANT METEORS', '#ff7b3a', 'GIANT ROCKS'], 'grow+heavy': ['TITAN ARROW', '#ffd27a', 'TITAN'],
+  'magnet+storm': ['LIGHTNING ROD', '#fff36b', 'ROD'], 'homing+magnet': ['PAYBACK', '#ff8ad8', 'PAYBACK'], 'boom+magnet': ['SPIKE MINE', '#ff5a4e', 'MINE'],
+  'fire+magnet': ['HOT MAGNET', '#ff9a45', 'HOT MAG'], 'grow+magnet': ['BIG MAGNET', '#ff6bd6', 'BIG MAG']
 };
 const comboKey = (a, b) => a && b ? [a, b].sort().join('+') : null;
 const comboOf = ar => !ar ? null : comboKey(ar.pk, ar.pk2);
@@ -310,7 +313,10 @@ const COMBO_DESC = {
   'boom+heavy': 'A huge blast that knocks an archer off their tower', 'pierce+storm': 'Lightning down the whole flight path', 'cluster+meteor': 'Tap the screen: it bursts into 5 flaming rocks',
   'grow+shrink': "They flicker big and small and can't shoot for 4 s", 'boom+grow': 'A blast twice as big that enlarges everyone in it',
   'grow+tornado': 'A twister twice as wide', 'blackhole+grow': 'A bigger hole that pulls from much further away',
-  'grow+meteor': 'Huge rocks that enlarge whoever they hit', 'grow+heavy': 'A huge arrow that hits 60% harder'
+  'grow+meteor': 'Huge rocks that enlarge whoever they hit', 'grow+heavy': 'A huge arrow that hits 60% harder',
+  'magnet+storm': 'Every arrow the magnet catches zaps the nearest enemy', 'homing+magnet': 'When the magnet ends, its arrows fly back at whoever shot them',
+  'boom+magnet': 'When the magnet ends it blows up and throws its arrows at the enemy', 'fire+magnet': 'Caught arrows melt, so the magnet never fills up',
+  'grow+magnet': 'The magnet pulls from much further and holds 8 arrows'
 };
 // linking two arrows that make a combo: show its name and what it does
 function comboAnnounce(P, a, b) {
@@ -330,7 +336,7 @@ const ICON = {
   armour: '🛡️', leech: '🧛', revive: '💨', glass: '🪟', helper: '🤝',
   pw_triple: '🔱', pw_fire: '🔥', pw_ice: '❄️', pw_boom: '💥', pw_heavy: '🪨', pw_rapid: '⏩', pw_pierce: '📌',
   pw_homing: '🎯', pw_storm: '⚡', pw_cluster: '🎆', pw_scope: '🔭', pw_slowmo: '🐢', pw_tornado: '🌪️',
-  pw_shrink: '🤏', pw_grow: '🍄', pw_tele: '🌀', pw_blackhole: '🕳️', pw_meteor: '☄️', pw_clone: '👥', pw_confuse: '😵', pw_shield: '🧱'
+  pw_shrink: '🤏', pw_grow: '🍄', pw_tele: '🌀', pw_blackhole: '🕳️', pw_meteor: '☄️', pw_clone: '👥', pw_confuse: '😵', pw_magnet: '🧲', pw_shield: '🧱'
 };
 
 let W = 0, H = 0, DPR = 1, sc = 1, camX = 0, camY = 0, scBase = 1, zoom = 1, forcePortrait = false;
@@ -433,7 +439,7 @@ function spawnLevel(first) {
   st.wind = lv >= 4 ? Math.round(rand(-1, 1) * Math.min(100, (lv - 3) * 14)) : 0;
   st.pinned = st.pinned.filter(p => p.x < 200);
   st.marchers = []; if (SOLDIERS) buildMarchQueue(); else st.marchQ = []; st.allies = []; st.allyQ = 0; st.gateCD = Math.min(st.gateCD, 3);
-  st.tornados = []; st.holes = []; st.showers = []; st.rocks = []; st.boulders = []; st.timeScale = 1;
+  st.tornados = []; st.mags = []; st.holes = []; st.showers = []; st.rocks = []; st.boulders = []; st.timeScale = 1;
   const wr = Math.random();
   st.weather = lv < 3 || bossLv ? 'clear' : wr < .45 ? 'clear' : wr < .63 ? 'night' : wr < .82 ? 'storm' : 'fog';
   if (st.weather === 'storm') { st.wind = Math.round(rand(-120, 120)); st.windT = st.wind; st.stormT = rand(2.5, 4); }
@@ -1062,6 +1068,8 @@ function impactFX(ar, x, y, onBody) {
   } else if (pk === 'grow') {
     ring(x, y, 40, GROW_COL, .45, 3);
     for (let i = 0; i < 14; i++) P_(x, y, rand(-170, 170), rand(-200, 30), rand(.35, .65), rand(2, 3.4), i % 2 ? GROW_COL : '#ffd6f4', 'spark');
+  } else if (pk === 'magnet') {
+    if (ar.owner && ar.owner.isP && shotOnce(ar, 'magnet')) spawnMag(x, y, ar.owner, riderOf(ar, 'magnet'));
   } else if (pk === 'confuse') {
     ring(x, y, 30, CONF_COL, .4, 2.5);
     for (let i = 0; i < 12; i++) P_(x, y, rand(-140, 140), rand(-170, 30), rand(.35, .6), 2.2, i % 2 ? CONF_COL : '#fff36b', 'spark');
@@ -1796,6 +1804,147 @@ function drawMeteors() {
   }
 }
 const TWIST_HIT = 52;   // a twister passing through someone counts as two body hits (once each)
+/* ---------- magnet arrow ---------- */
+// a magnet arrow sticks in where it lands; for a few seconds enemy arrows that fly near it bend in and get caught.
+// Linked: LIGHTNING ROD (zap), PAYBACK (homing), SPIKE MINE (bomb), HOT MAGNET (fire), BIG MAGNET (enlarge)
+const MAG_COL = '#ff3b5c', MAG_T = 6, MAG_R = 185, MAG_CAP = 5, MAG_EACH = 2;
+function spawnMag(x, y, owner, k, air) {
+  st.mags = st.mags || [];
+  const big = k === 'grow', key = k ? comboKey('magnet', k) : null;
+  const M = { id: ++uid, x, y: air ? y : Math.min(y, -4) - 30, gy: air ? null : Math.min(y, -4), life: MAG_T, max: MAG_T, r: MAG_R * (big ? 1.6 : 1), cap: big ? 8 : k === 'fire' ? 99 : MAG_CAP,
+    k: k || null, owner, caught: [], oids: [], n: 0, t: 0 };
+  st.mags.push(M);
+  const mine = st.mags.filter(o => o.owner === owner && !o.done);
+  if (mine.length > MAG_EACH) magEnd(mine[0]);
+  ring(M.x, M.y, M.r, MAG_COL, .6, 3); ring(M.x, M.y, 30, '#ffffff', .4, 2);
+  for (let i = 0; i < 14; i++) { const a = i / 14 * 6.283; P_(M.x + Math.cos(a) * M.r, M.y + Math.sin(a) * M.r, -Math.cos(a) * 160, -Math.sin(a) * 160, .5, 2.2, i % 2 ? MAG_COL : '#e8eef5', 'spark'); }
+  if (key && COMBOS[key]) comboText(M.x, M.y - 70, key); else text(M.x, M.y - 60, 'MAGNET', MAG_COL, 15, 1.1);
+  sfx('click');
+  return M;
+}
+// enemy arrows near a magnet turn towards it (arrows only: fireballs, acid and breath are not metal)
+function magPull(ar, sdt) {
+  if (!st.mags || !st.mags.length || ar.magic || ar.acid || ar.el || ar.rock || ar.ret) return false;
+  if (ar.sx !== undefined && Math.hypot(ar.x - ar.sx, ar.y - ar.sy) < 200) return false;   // it can't plug a bow at the source
+  for (const M of st.mags) {
+    if (M.done) continue;
+    const dx = M.x - ar.x, dy = M.y - ar.y, d = Math.hypot(dx, dy);
+    if (d > M.r) continue;
+    if (d < 22) { magCatch(M, ar); return true; }
+    const cur = Math.atan2(ar.vy, ar.vx), want = Math.atan2(dy, dx), sp = Math.hypot(ar.vx, ar.vy);
+    const dA = ((want - cur + Math.PI * 3) % (Math.PI * 2)) - Math.PI, turn = 3 + 10 * (1 - d / M.r);
+    const na = cur + clamp(dA, -turn * sdt, turn * sdt);
+    ar.vx = Math.cos(na) * sp; ar.vy = Math.sin(na) * sp;
+    if (Math.random() < .15) P_(ar.x, ar.y, 0, 0, .25, 1.8, MAG_COL, 'spark');
+    return false;
+  }
+  return false;
+}
+function magCatch(M, ar) {
+  ar.done = true; M.n++;
+  const a = Math.atan2(ar.vy, ar.vx);
+  if (M.k === 'fire') {   // HOT MAGNET: it melts what it catches
+    for (let i = 0; i < 10; i++) P_(M.x, M.y, rand(-80, 80), rand(-160, -20), rand(.3, .6), rand(2, 3.5), i % 2 ? '#ff9a45' : '#ffd27a', 'flame');
+    text(M.x, M.y - 44, 'MELTED', '#ff9a45', 12, .7);
+  } else {
+    M.caught.push([Math.round(a * 100) / 100, Math.round(rand(-7, 7)), ar.col || null]);
+    M.oids.push(ar.owner && ar.owner.id);
+    text(M.x, M.y - 44, 'CAUGHT ' + M.caught.length + '/' + M.cap, MAG_COL, 12, .7);
+  }
+  ring(M.x, M.y, 26, MAG_COL, .3, 2.5);
+  for (let i = 0; i < 8; i++) P_(M.x, M.y, rand(-100, 100), rand(-100, 60), .3, 2, i % 2 ? MAG_COL : '#e8eef5', 'spark');
+  sfx('thud');
+  if (M.k === 'storm') magZap(M);
+  if (M.caught.length >= M.cap) { text(M.x, M.y - 64, 'MAGNET FULL', '#f6eedf', 14, 1); magEnd(M); }
+}
+// LIGHTNING ROD: every catch zaps the nearest enemy
+function magZap(M) {
+  let best = null, bd = 750;
+  for (const E of st.enemies) { if (E.dead) continue; const f = feet(E), d = Math.hypot(f.x - M.x, f.y - 60 - M.y); if (d < bd) { bd = d; best = E; } }
+  if (!best) return;
+  const p = htPt(best), dmg = 14;
+  st.bolts.push({ x1: M.x, y1: M.y - 10, x2: p.x, y2: p.y, life: .35, col: '#fff36b' });
+  st.bolts.push({ x1: M.x, y1: M.y - 10, x2: (M.x + p.x) / 2 + rand(-40, 40), y2: (M.y + p.y) / 2 + rand(-60, 20), life: .25, col: '#ffffff' });
+  best.hp -= dmg; best.hitT = .15; if (M.owner) best.lastBy = M.owner;
+  text(p.x, p.y - 50, '-' + dmg, '#fff36b', 16, .9); sfx('zap');
+  if (best.hp <= 0) kill(best, { vx: Math.sign(p.x - M.x) || 1, owner: M.owner }, 'body');
+}
+// a player arrow sent back from a magnet: it chases one archer and flies past everything else
+function magShot(M, ang, sp, E) {
+  const ar = { x: M.x, y: M.y, sx: M.x, sy: M.y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, owner: M.owner, done: false, via: new Set(), pk: null, pk2: null, dmgMul: 1, col: MAG_COL };
+  if (E) { ar.pay = E.id; ar.htGo = E.id; }
+  st.arrows.push(ar);
+  return ar;
+}
+function payStep(ar, sdt) {
+  const E = st.enemies.find(e => e.id === ar.pay && !e.dead);
+  if (!E) { ar.pay = 0; ar.htGo = 0; return; }
+  const p = htPt(E), cur = Math.atan2(ar.vy, ar.vx), want = Math.atan2(p.y - ar.y, p.x - ar.x), sp = Math.hypot(ar.vx, ar.vy);
+  const dA = ((want - cur + Math.PI * 3) % (Math.PI * 2)) - Math.PI, na = cur + clamp(dA, -8 * sdt, 8 * sdt);
+  ar.vx = Math.cos(na) * sp; ar.vy = Math.sin(na) * sp;
+  if (Math.random() < .2) P_(ar.x, ar.y, 0, 0, .3, 2, MAG_COL, 'spark');
+}
+function magEnd(M) {
+  if (M.done) return;
+  M.done = true;
+  const live = st.enemies.filter(E => !E.dead && !E.dummyDown);
+  if (M.k === 'homing' && M.caught.length && live.length) {   // PAYBACK: back at whoever shot them
+    comboText(M.x, M.y - 70, 'homing+magnet');
+    M.caught.forEach((c, i) => {
+      let E = live.find(e => e.id === M.oids[i]);
+      if (!E) E = live.reduce((b, e) => !b || Math.abs(feet(e).x - M.x) < Math.abs(feet(b).x - M.x) ? e : b, null);
+      const p = htPt(E), dir = Math.sign(p.x - M.x) || 1;
+      magShot(M, Math.atan2(p.y - M.y, p.x - M.x) - .5 * dir - rand(0, .2) * dir, 1250, E);
+    });
+    sfx('twang');
+  } else if (M.k === 'boom') {   // SPIKE MINE: blows up and throws what it caught at the enemy side
+    comboText(M.x, M.y - 70, 'boom+magnet');
+    blast(M.x, M.y + 10, M.owner, null);
+    let best = null; for (const E of live) if (!best || Math.abs(feet(E).x - M.x) < Math.abs(feet(best).x - M.x)) best = E;
+    const dir = best ? Math.sign(feet(best).x - M.x) || 1 : 1;
+    M.caught.forEach((c, i) => { const a = dir > 0 ? -.25 - i * .12 : Math.PI + .25 + i * .12; magShot(M, a, 1150, null).dmgMul = .9; });
+  } else {   // the caught arrows drop where it stood
+    for (const c of M.caught) st.pinned.push({ x: M.x + rand(-14, 14), y: -2, ang: Math.PI / 2 + rand(-.5, .5), col: c[2] });
+  }
+  ring(M.x, M.y, 34, '#e8eef5', .35, 2);
+  for (let i = 0; i < 10; i++) P_(M.x, M.y, rand(-90, 90), rand(-120, 20), .4, 2, i % 2 ? MAG_COL : '#e8eef5', 'spark');
+  M.caught = [];
+}
+// a tap while your magnet arrow flies sticks it right there in the air
+function plantMag(ar) {
+  if (ar.done) return;
+  ar.done = true;
+  if (shotOnce(ar, 'magnet')) spawnMag(ar.x, ar.y, ar.owner, riderOf(ar, 'magnet'), true);
+}
+const magFlying = P => st.arrows.filter(a => !a.done && a.owner === P && hasPk(a, 'magnet') && !(hasPk(a, 'cluster') && !a.split));
+function magStep(dt) {
+  if (!st.mags || !st.mags.length) return;
+  for (const M of st.mags) { M.t += dt; M.life -= dt; if (M.life <= 0) magEnd(M); }
+  st.mags = st.mags.filter(M => !M.done);
+}
+function drawMags() {
+  for (const M of st.mags || []) {
+    const x = SX(M.x), y = SY(M.y), fade = clamp(M.life / .5, 0, 1), pulse = .5 + .5 * Math.sin((M.t || 0) * 6);
+    ctx.save(); ctx.globalAlpha = fade;
+    ctx.setLineDash([7 * sc, 8 * sc]); ctx.lineDashOffset = -(M.t || 0) * 30 * sc;
+    ctx.strokeStyle = 'rgba(255,59,92,' + (.28 + .2 * pulse) + ')'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(x, y, M.r * sc, 0, 6.283); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(255,59,92,' + (.05 + .04 * pulse) + ')'; ctx.beginPath(); ctx.arc(x, y, M.r * sc, 0, 6.283); ctx.fill();
+    ctx.strokeStyle = 'rgba(246,238,223,.8)'; ctx.lineWidth = 2.5;   // time left
+    ctx.beginPath(); ctx.arc(x, y, 26 * sc, -Math.PI / 2, -Math.PI / 2 + 6.283 * Math.max(0, M.life / M.max)); ctx.stroke();
+    for (const c of M.caught) {   // caught arrows stuck to it, tips in
+      ctx.save(); ctx.translate(x - Math.cos(c[0]) * 10 * sc, y + c[1] * sc - Math.sin(c[0]) * 10 * sc); ctx.scale(sc, sc); ctx.rotate(c[0]); drawArrowShape(26, c[2]); ctx.restore();
+    }
+    ctx.translate(x, y); ctx.scale(sc, sc);
+    if (M.gy != null) { ctx.strokeStyle = '#6a5470'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(0, 6); ctx.lineTo(0, M.gy - M.y); ctx.stroke(); }   // stake (none when stuck in the air)
+    ctx.lineCap = 'butt'; ctx.lineWidth = 7; ctx.strokeStyle = M.k ? rideOf(M.k)[1] : MAG_COL;
+    ctx.beginPath(); ctx.moveTo(-8, -10); ctx.lineTo(-8, 0); ctx.arc(0, 0, 8, Math.PI, 0, true); ctx.lineTo(8, -10); ctx.stroke();
+    ctx.strokeStyle = MAG_COL; if (M.k) { ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(0, 0, 8, Math.PI, 0, true); ctx.stroke(); ctx.lineWidth = 7; }
+    ctx.strokeStyle = '#e8eef5'; ctx.beginPath(); ctx.moveTo(-8, -10); ctx.lineTo(-8, -16); ctx.moveTo(8, -10); ctx.lineTo(8, -16); ctx.stroke();
+    if (Math.random() < .3) { ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(-8, -17); ctx.quadraticCurveTo(0, -24 - Math.random() * 6, 8, -17); ctx.stroke(); }
+    ctx.restore();
+  }
+}
 function updateVortices(dt) {
   comboStep(dt);
   for (const T of st.tornados) {
@@ -2036,7 +2185,7 @@ function startHorde() {
   st.clones = [];
   st.helpers = st.helpers.filter(h => !h.dead && !h.clone);
   st.enemies = []; st.marchers = []; st.marchQ = []; st.allies = []; st.arrows = []; st.pinned = [];
-  st.tornados = []; st.holes = []; st.showers = []; st.rocks = []; st.boulders = []; st.steams = []; st.fires = [];
+  st.tornados = []; st.mags = []; st.holes = []; st.showers = []; st.rocks = []; st.boulders = []; st.steams = []; st.fires = [];
   st.gadgets = []; st.dirT = undefined; st.wind = 0; st.weather = 'clear'; st.timeScale = 1; st.nextT = 0;
   const P = st.P;
   Object.assign(P, { big: .75, hp: P.max, confT: 0, acidT: 0, burn: 0, frozen: 0, headRed: 0, stuck: [], dead: false, rot: 0, vr: 0, dx: 0, dy: 0 });
@@ -3685,6 +3834,7 @@ function update(rdt) {
   acidStep(dt);
   confStep(dt);
   growStep(dt);
+  magStep(dt);
   updateWeather(dt);
   if (st.nextT <= 0 && !P.dead) {
     if (SOLDIERS) updateAllies(dt);
@@ -3738,6 +3888,7 @@ function update(rdt) {
         }
       }
       if (hasPk(ar, 'cluster') && !ar.split && !ar.owner.isP && ar.vy > 0) splitCluster(ar);
+      if (ar.pay) payStep(ar, sdt);
       gadgetStep(ar, sdt);
       if (ar.done) break;
       if (ar.owner.isP) {
@@ -3771,6 +3922,7 @@ function update(rdt) {
         }
         if (!ar.done && ar.y > -260) for (const m of st.marchers) { if (ar.mhit && ar.mhit.has(m)) continue; const z = mZone(m, ar.x, ar.y); if (z) { onMarcherHit(ar, m, z); break; } }
       } else {
+        if (magPull(ar, sdt)) break;
         const B = st.barrier, bx = barrierX();
         if (B && Math.abs(ar.x - bx) < 7 && ar.y > barrierTop() && ar.y < barrierBot()) {
           const dmg = hasPk(ar, 'boom') ? 40 : 20;
@@ -4674,6 +4826,7 @@ function draw() {
     if (p.g) { if (p.g.gone) continue; if (p.ox === undefined) { p.ox = p.x - p.g.x; p.oy = p.y - p.g.y; } p.x = p.g.x + p.ox; p.y = p.g.y + p.oy; }
     ctx.save(); ctx.translate(SX(p.x), SY(p.y)); ctx.scale(sc, sc); ctx.rotate(p.ang); drawArrowShape(26, p.col); ctx.restore();
   }
+  drawMags();
   for (const h of st.helpers) { if (h.clone && !h.dead) cloneAura(h); drawArcher(h); }
   drawArcher(st.P);
   for (const e of st.enemies) drawArcher(e);
@@ -5077,7 +5230,7 @@ function pickSlot(i) {   // -1 = plain arrows
   st.power = q; sfx('click');
 }
 /* ---------- the forge: spend horde points on a linked arrow you keep for the whole run (lost at game over) ---------- */
-const FORGE_COST = { triple: 10, rapid: 10, pierce: 10, heavy: 10, scope: 8, homing: 12, fire: 15, ice: 15, tele: 15, slowmo: 18, shrink: 18, grow: 18, confuse: 18,
+const FORGE_COST = { triple: 10, rapid: 10, pierce: 10, heavy: 10, scope: 8, homing: 12, fire: 15, ice: 15, tele: 15, slowmo: 18, shrink: 18, grow: 18, confuse: 18, magnet: 16,
   boom: 20, storm: 20, cluster: 20, tornado: 30, blackhole: 60, meteor: 60 };
 const FORGE_MAX = 2, FORGE_SHOTS = 5, FORGE_BIG = ['blackhole', 'meteor'];
 let forgePick = [];
@@ -5271,15 +5424,17 @@ function release(e) {
   const P = st && st.P;
   if (drag && P && !P.dead && running && !paused) {
     const cl = P.pow <= .1 ? st.arrows.filter(a => !a.done && !a.split && a.owner === P && hasPk(a, 'cluster')) : [];
+    const mg = P.pow <= .1 ? magFlying(P) : [];
     const hp = P.pow <= .1 && e && htOn(P) ? htPick(toWorld(e)) : null;   // a tap on an archer or object locks your homing arrows on it
     if (hp) htLock(P, hp);
-    else if (cl.length) { for (const a of cl) splitCluster(a); }   // a tap (no pull) bursts any cluster arrow in the air
+    else if (cl.length || mg.length) { for (const a of cl) splitCluster(a); for (const a of mg) plantMag(a); }   // a tap sticks a magnet arrow in the air   // a tap (no pull) bursts any cluster arrow in the air
     else if (P.pow > .1 && st.reload <= 0) {
       const pk = st.power ? st.power.k : null, pk2 = st.power ? st.power.k2 || null : null;
       const n0 = st.arrows.length;
       fire(P, P.aim, 300 + P.pow * 1100, pk, pk2);
       if (catArmed()) catLaunch(n0);
       if ((pk === 'cluster' || pk2 === 'cluster') && (st.splitHints = (st.splitHints || 0) + 1) <= 3) text(feet(P).x, feet(P).y - 150, 'TAP THE SCREEN TO SPLIT IT', '#ffb3f0', 14, 1.6);
+      else if ((pk === 'magnet' || pk2 === 'magnet') && (st.magHints = (st.magHints || 0) + 1) <= 3) text(feet(P).x, feet(P).y - 150, 'TAP TO STICK IT IN THE AIR', MAG_COL, 14, 1.6);
       const vol = { alive: st.arrows.length - n0, hits: 0 };
       for (let q = n0; q < st.arrows.length; q++) st.arrows[q].vol = vol;
       if (st.practice) st.shotDmg = 0;
@@ -5385,13 +5540,13 @@ $('musicBtn').onclick = () => {
 
 /* ---------- practice range: straw dummies, any arrow from the rack, unlimited shots ---------- */
 const PRAC_X = [650, 1050, 1500, 1950], PRAC_H = [70, 135, 175, 110];
-const RACK = ['triple', 'fire', 'ice', 'boom', 'heavy', 'rapid', 'pierce', 'homing', 'storm', 'cluster', 'scope', 'slowmo', 'tornado', 'shrink', 'grow', 'tele', 'confuse', 'clone', 'meteor', 'blackhole'];
+const RACK = ['triple', 'fire', 'ice', 'boom', 'heavy', 'rapid', 'pierce', 'homing', 'storm', 'cluster', 'scope', 'slowmo', 'tornado', 'shrink', 'grow', 'tele', 'confuse', 'magnet', 'clone', 'meteor', 'blackhole'];
 const RACK_DESC = {
   plain: 'A normal arrow', triple: '3 arrows at once', fire: 'Sets them on fire', ice: 'Freezes them solid', boom: 'Explodes; 3 hits topple a tower',
   heavy: 'Hits much harder', rapid: 'Very fast reload', pierce: 'Goes through archers', homing: 'Steers into the nearest archer',
   storm: 'Lightning jumps between archers', cluster: 'Tap the screen to split it', scope: 'Shows where your arrow will go',
   slowmo: 'Slows down whoever it hits', tornado: 'A twister that turns arrows round', shrink: 'Each hit shrinks them', grow: 'Each hit makes them bigger, and their shots overshoot. Hit a window or fan in the middle to make it bigger',
-  tele: 'Tag one; your next arrow moves them there', confuse: 'They aim backwards for 6 s and can hit their own side', clone: 'Copies what it hits. A cloned archer fights for you', meteor: 'Rocks rain down. They hit you too!', blackhole: 'Sucks everything in',
+  tele: 'Tag one; your next arrow moves them there', confuse: 'They aim backwards for 6 s and can hit their own side', magnet: 'Sticks in where it lands for 6 s. Enemy arrows that fly near it bend in and get caught (holds 5)', clone: 'Copies what it hits. A cloned archer fights for you', meteor: 'Rocks rain down. They hit you too!', blackhole: 'Sucks everything in',
   shield: 'Puts a wall up in front of you'
 };
 function makeDummy(i) {
@@ -5402,7 +5557,7 @@ function makeDummy(i) {
 }
 function setupPractice() {
   st.practice = true; st.level = 6; st.wind = 0; st.weather = 'clear';
-  st.gadgets = []; st.dirT = undefined; st.tornados = []; st.holes = []; st.showers = []; st.rocks = [];
+  st.gadgets = []; st.dirT = undefined; st.tornados = []; st.mags = []; st.holes = []; st.showers = []; st.rocks = [];
   st.enemies = PRAC_X.map((x, i) => makeDummy(i));
   st.quiver = []; st.power = null; st.links = 0; st.shotDmg = 0; st.bestDmg = 0;
   st.banner = { t: 'PRACTICE RANGE', sub: 'TAP THE ARROW BUTTON TO PICK ANY ARROW', life: 3 };
