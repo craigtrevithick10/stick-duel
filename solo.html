@@ -255,6 +255,7 @@ const POWERS = {
   slowmo: { name: 'SLOW-MO',     short: 'SLOW',   col: '#7ad7ff', shots: 3, rare: true },
   tornado:{ name: 'TORNADO',     short: 'TWISTER', col: '#d6e4f0', shots: 3 },
   shrink: { name: 'SHRINK ARROWS', short: 'SHRINK', col: '#b6ff5c', shots: 6 },
+  grow:   { name: 'ENLARGE ARROWS', short: 'ENLARGE', col: '#ff6bd6', shots: 6 },
   tele:   { name: 'TELEPORT ARROWS', short: 'TELEPORT', col: '#d58cff', shots: 4 },
   confuse:{ name: 'CONFUSION', short: 'CONFUSE', col: '#ff3df2', shots: 4 },
   clone:  { name: 'CLONE ARROWS', short: 'CLONE', col: '#4fe3c1', shots: 2, rare: true },
@@ -266,7 +267,7 @@ const hasPk = (ar, k) => !!ar && (ar.pk === k || ar.pk2 === k);
 const pkMul = k => k === 'fire' ? 1.2 : k === 'heavy' ? 1.35 : k === 'slowmo' ? .3 : 1;
 // damage of a (linked) arrow: slow-mo's low damage only counts when it is on its own
 const slowFree = k => k === 'slowmo' ? 1 : pkMul(k);
-const dmgOf = (k, k2) => k2 ? slowFree(k) * slowFree(k2) : pkMul(k);
+const dmgOf = (k, k2) => k2 ? slowFree(k) * slowFree(k2) * ([k, k2].sort().join('+') === 'grow+heavy' ? 1.6 : 1) : pkMul(k);
 // big area powers (twister, black hole, chain lightning) go off once per SHOT, however many arrows
 // the shot turns into (triple, cluster split, windows, piercing). Meteor rocks are shared out instead.
 const shotOf = ar => { const R = ar.root || ar; return R.vol || R; };
@@ -279,21 +280,23 @@ const RIDE = {   // [glow rgb, main colour, light colour, particle kind]
   fire: ['255,140,60', '#ff9a45', '#ffd27a', 'flame'], ice: ['170,225,255', '#9fd8ff', '#ffffff', 'shard'],
   boom: ['255,110,80', '#ff5a4e', '#ffd27a', 'flame'], heavy: ['255,210,122', '#ffd27a', '#fff2c8', 'spark'],
   storm: ['255,243,107', '#fff36b', '#ffffff', 'spark'], slowmo: ['122,215,255', '#7ad7ff', '#e0f6ff', 'spark'],
-  shrink: ['182,255,92', '#b6ff5c', '#eaffd0', 'spark'], tele: ['213,140,255', '#d58cff', '#f2ddff', 'spark'], confuse: ['255,61,242', '#ff3df2', '#ffd0fb', 'spark'],
+  shrink: ['182,255,92', '#b6ff5c', '#eaffd0', 'spark'], grow: ['255,107,214', '#ff6bd6', '#ffd6f4', 'spark'], tele: ['213,140,255', '#d58cff', '#f2ddff', 'spark'], confuse: ['255,61,242', '#ff3df2', '#ffd0fb', 'spark'],
   homing: ['255,138,216', '#ff8ad8', '#ffd0f0', 'spark'], blackhole: ['176,124,255', '#b07cff', '#ffffff', 'spark'],
   tornado: ['214,228,240', '#d6e4f0', '#ffffff', 'spark'], meteor: ['255,123,58', '#ff7b3a', '#ffd27a', 'flame']
 };
 const rideOf = k => RIDE[k] || [hexRgb(POWERS[k].col), POWERS[k].col, '#ffffff', 'spark'];
-const RIDE_NAME = { fire: 'FIRE', ice: 'ICE', boom: 'BOMB', heavy: 'GIANT', storm: 'THUNDER', slowmo: 'SLOW', shrink: 'SHRINK', tele: 'WARP', homing: 'HUNTER',
+const RIDE_NAME = { fire: 'FIRE', ice: 'ICE', boom: 'BOMB', heavy: 'GIANT', storm: 'THUNDER', slowmo: 'SLOW', shrink: 'SHRINK', grow: 'HUGE', tele: 'WARP', homing: 'HUNTER',
   blackhole: 'VOID', tornado: 'WINDY', meteor: 'BURNING', triple: 'TRIPLE', rapid: 'QUICK', pierce: 'SHARP', scope: 'SCOPED', cluster: 'CONFETTI', confuse: 'DIZZY' };
-const RIDE_ON = { fire: 1, ice: 1, slowmo: 1, shrink: 1, boom: 1, storm: 1, heavy: 1 };   // a twister hands these to the arrows it turns round
+const RIDE_ON = { fire: 1, ice: 1, slowmo: 1, shrink: 1, grow: 1, boom: 1, storm: 1, heavy: 1 };   // a twister hands these to the arrows it turns round
 // combo arrows: some linked pairs make a special effect of their own (key = both powers, sorted)
 const COMBOS = {
   'fire+ice': ['STEAM', '#e8f0ff', 'STEAM'], 'boom+fire': ['NAPALM', '#ff7a2e', 'NAPALM'], 'fire+meteor': ['FIRE RAIN', '#ff9a45', 'FIRE RAIN'],
   'meteor+storm': ['THUNDER METEORS', '#fff36b', 'THUNDER'], 'storm+tornado': ['STORM CELL', '#fff36b', 'STORM CELL'],
   'blackhole+meteor': ['GRAVITY WELL', '#c79bff', 'GRAVITY'], 'blackhole+tornado': ['WANDERING VOID', '#b07cff', 'WANDER'],
   'blackhole+tele': ['WORMHOLE', '#d58cff', 'WORMHOLE'], 'blackhole+shrink': ['GIANT SLAYER', '#b6ff5c', 'SLAYER'],
-  'boom+heavy': ['MEGA BOMB', '#ffd27a', 'MEGA BOMB'], 'pierce+storm': ['RAIL LIGHTNING', '#fff36b', 'RAIL ZAP'], 'cluster+meteor': ['STAR BURST', '#ff7b3a', 'STAR BURST']
+  'boom+heavy': ['MEGA BOMB', '#ffd27a', 'MEGA BOMB'], 'pierce+storm': ['RAIL LIGHTNING', '#fff36b', 'RAIL ZAP'], 'cluster+meteor': ['STAR BURST', '#ff7b3a', 'STAR BURST'],
+  'grow+shrink': ['SIZE WOBBLE', '#ff6bd6', 'WOBBLE'], 'boom+grow': ['BIG BANG', '#ff9a45', 'BIG BANG'], 'grow+tornado': ['MEGA TWISTER', '#ff6bd6', 'MEGA TWISTER'],
+  'blackhole+grow': ['MEGA VOID', '#c79bff', 'MEGA VOID'], 'grow+meteor': ['GIANT METEORS', '#ff7b3a', 'GIANT ROCKS'], 'grow+heavy': ['TITAN ARROW', '#ffd27a', 'TITAN']
 };
 const comboKey = (a, b) => a && b ? [a, b].sort().join('+') : null;
 const comboOf = ar => !ar ? null : comboKey(ar.pk, ar.pk2);
@@ -301,7 +304,10 @@ const COMBO_DESC = {
   'fire+ice': "A steam cloud: nobody inside can aim", 'boom+fire': 'Sets the floor under the blast on fire', 'fire+meteor': 'Rocks leave burning patches',
   'meteor+storm': 'Every rock zaps the nearest enemy', 'storm+tornado': 'The twister throws lightning', 'blackhole+meteor': 'The hole eats the rocks, then one huge blast',
   'blackhole+tornado': 'The twister carries the black hole', 'blackhole+tele': 'Pulls the tagged enemy in from anywhere', 'blackhole+shrink': 'Can swallow a boss you have shrunk',
-  'boom+heavy': 'A huge blast that knocks an archer off their tower', 'pierce+storm': 'Lightning down the whole flight path', 'cluster+meteor': 'Tap the screen: it bursts into 5 flaming rocks'
+  'boom+heavy': 'A huge blast that knocks an archer off their tower', 'pierce+storm': 'Lightning down the whole flight path', 'cluster+meteor': 'Tap the screen: it bursts into 5 flaming rocks',
+  'grow+shrink': "They flicker big and small and can't shoot for 4 s", 'boom+grow': 'A blast twice as big that enlarges everyone in it',
+  'grow+tornado': 'A twister twice as wide', 'blackhole+grow': 'A bigger hole that pulls from much further away',
+  'grow+meteor': 'Huge rocks that enlarge whoever they hit', 'grow+heavy': 'A huge arrow that hits 60% harder'
 };
 // linking two arrows that make a combo: show its name and what it does
 function comboAnnounce(P, a, b) {
@@ -321,7 +327,7 @@ const ICON = {
   armour: '🛡️', leech: '🧛', revive: '💨', glass: '🪟', helper: '🤝',
   pw_triple: '🔱', pw_fire: '🔥', pw_ice: '❄️', pw_boom: '💥', pw_heavy: '🪨', pw_rapid: '⏩', pw_pierce: '📌',
   pw_homing: '🎯', pw_storm: '⚡', pw_cluster: '🎆', pw_scope: '🔭', pw_slowmo: '🐢', pw_tornado: '🌪️',
-  pw_shrink: '🤏', pw_tele: '🌀', pw_blackhole: '🕳️', pw_meteor: '☄️', pw_clone: '👥', pw_confuse: '😵', pw_shield: '🧱'
+  pw_shrink: '🤏', pw_grow: '🍄', pw_tele: '🌀', pw_blackhole: '🕳️', pw_meteor: '☄️', pw_clone: '👥', pw_confuse: '😵', pw_shield: '🧱'
 };
 
 let W = 0, H = 0, DPR = 1, sc = 1, camX = 0, camY = 0, scBase = 1, zoom = 1, forcePortrait = false;
@@ -352,7 +358,7 @@ function mkArcher(x, h, f, hp, isP, pw) {
     aiT: 0, aiAim: null, aiShots: 0 };
 }
 const feet = a => ({ x: a.x + a.dx, y: -a.h + a.dy });
-const sizeOf = a => (a.big || 1) * (1 - (a.shrink || 0));
+const sizeOf = a => (a.big || 1) * (1 - (a.shrink || 0)) * (1 + (a.grow || 0)) * (a.wobT > 0 ? 1 + .3 * Math.sin(st.t * 16) : 1);
 const shoulder = a => { const f = feet(a); return { x: f.x, y: f.y - 64 * sizeOf(a) }; };
 const alive = () => st.enemies.filter(e => !e.dead);
 const farX = () => st.horde ? st.horde.far + 400 : Math.max(...st.enemies.map(e => e.x));
@@ -550,7 +556,7 @@ function updateDirector(dt) {
 const topY = () => -(H - GROUND) / scBase + 8;
 const attachY = g => g.y - (g.type === 'fan' ? 30 : 33);
 const BTN_W = 20, BTN_H = 11;
-const halfH = g => ({ fan: 45, win: 50, bounce: 24, magnet: 32, bell: 30, clock: 20 })[g.type] || 40;
+const halfH = g => (({ fan: 45, win: 50, bounce: 24, magnet: 32, bell: 30, clock: 20 })[g.type] || 40) * (g.size || 1);
 const sideW = g => g.type === 'fan' ? 33 : 46;
 const ROPED = { fan: 1, win: 1, bounce: 1, magnet: 1, bell: 1, clock: 1 };
 const cutY = g => topY() + (g.cutF || .5) * (ropeBot(g) - topY());
@@ -647,6 +653,49 @@ function padAction(g, k, ar) {
   for (let i = 0; i < 10; i++) st.parts.push({ x: ar.x, y: ar.y, vx: rand(-120, 120), vy: rand(-160, 20), life: .4, max: .4, r: 2, col: k === 'MOVE' ? '#ffd27a' : k === 'BOOST' ? '#7dff9a' : '#8fc8ff' });
   sfx('click');
 }
+/* ---------- enlarge arrow: hit archers grow (easier to hit, and their bow overshoots); hit a window or fan in the middle and it grows ---------- */
+const GROW_COL = '#ff6bd6', GROW_MAX = .6, GROW_STEP = .15, GADGET_GROW = [1, 1.3, 1.6];
+// bow speed: shrunk archers shoot short, enlarged ones overshoot
+const bowK = a => (1 - (a.shrink || 0)) * (1 + (a.grow || 0) * .35);
+// arrows carrying the power are drawn bigger (a TITAN arrow even more)
+const arZ = ar => (hasPk(ar, 'grow') ? 1.35 : 1) * (comboOf(ar) === 'grow+heavy' ? 1.5 : 1);
+// is the arrow loaded on this screen an enlarge arrow? (shows the target spot on windows and fans)
+const growHeld = () => { const q = st.players ? (st.P && st.P.power) : st.power; return !!q && (q.k === 'grow' || q.k2 === 'grow'); };
+// one enlarge hit: a shrunk archer is un-shrunk first, then they grow (max 4 hits)
+function growA(a, m = 1) {
+  if (!a || a.dead) return;
+  const f = feet(a);
+  if (a.shrink > 0) {
+    a.shrink = Math.max(0, Math.round((a.shrink - .1 * m) * 10) / 10); a.shrinkT = 7;
+    text(f.x, f.y - 132, 'UNSHRUNK', GROW_COL, 14, 1);
+  } else {
+    if (a.grow >= GROW_MAX) { a.growT = 7; text(f.x, f.y - 140 * sizeOf(a), 'MAX SIZE', GROW_COL, 13, .9); return; }
+    a.grow = Math.min(GROW_MAX, Math.round(((a.grow || 0) + GROW_STEP * m) * 100) / 100); a.growT = 7;
+    text(f.x, f.y - 120 * sizeOf(a) - 14, 'ENLARGED ×' + (1 + a.grow).toFixed(2).replace(/0$/, ''), GROW_COL, 14, 1.1);
+  }
+  ring(f.x, f.y - 50 * sizeOf(a), 70, GROW_COL, .5, 3);
+  for (let k = 0; k < 12; k++) P_(f.x + rand(-24, 24), f.y - rand(10, 100) * sizeOf(a), rand(-70, 70), rand(-90, 10), .55, 2.4, k % 2 ? GROW_COL : '#ffd6f4', 'spark');
+}
+// enlarged archers go back down slowly after 7 s; the size wobble wears off
+function growStep(dt) {
+  for (const a of [...PEOPLE(), ...st.helpers, ...st.enemies]) {
+    if (a.wobT > 0) a.wobT -= dt;
+    if (!(a.grow > 0) || (a.growT -= dt) > 0) continue;
+    a.grow = Math.max(0, a.grow - dt * .05);
+    if (a.grow <= 0 && !a.dead) text(feet(a).x, feet(a).y - 130, 'NORMAL SIZE', GROW_COL, 12, .8);
+  }
+}
+// an enlarge arrow in the middle of a window or fan: it grows (twice at most) and does more
+function growGadget(g) {
+  const i = g.gz || 0;
+  if (i >= 2) { text(g.x, g.y - 70 * (g.size || 1), 'MAX SIZE', GROW_COL, 14, .9); sfx('thud'); return; }
+  g.gz = i + 1; g.size = GADGET_GROW[g.gz]; g.flash = .3;
+  if (g.type === 'win') { g.mult = Math.min(16, g.mult + 1); text(g.x, g.y - 75 * g.size, 'BIG WINDOW ×' + g.mult, GROW_COL, 17, 1.3, 1); }
+  else text(g.x, g.y - 75 * g.size, 'BIG FAN · POWER ×' + (1 + g.gz * .5), GROW_COL, 17, 1.3, 1);
+  ring(g.x, g.y, 90 * g.size, GROW_COL, .6, 4); ring(g.x, g.y, 50 * g.size, '#ffffff', .4, 2);
+  for (let q = 0; q < 22; q++) P_(g.x, g.y, rand(-200, 200), rand(-200, 120), .6, 2.6, q % 2 ? GROW_COL : '#ffd6f4', 'spark');
+  sfx('heal');
+}
 function gadgetStep(ar, sdt) {
   const cl = ar.owner.isP && hasPk(ar, 'clone');
   for (const g of st.gadgets) {
@@ -713,6 +762,8 @@ function gadgetStep(ar, sdt) {
       }
       continue;
     }
+    // an enlarge arrow in the very middle of a window or fan makes it bigger (once per shot)
+    if ((g.type === 'win' || g.type === 'fan') && ar.owner.isP && hasPk(ar, 'grow') && Math.hypot(ar.x - g.x, ar.y - g.y) < 13 * (g.size || 1) && shotOnce(ar, 'grow' + g.id)) { ar.done = true; growGadget(g); return; }
     // pads (tiny, like a headshot)
     for (const p of padsOf(g)) {
       if (ar.x > p.x0 && ar.x < p.x1 && ar.y > p.y0 && ar.y < p.y1) { ar.done = true; padAction(g, p.k, ar); return; }
@@ -788,8 +839,8 @@ function gadgetStep(ar, sdt) {
         ar.x = g.x + Math.cos(out) * 30; ar.y = g.y + Math.sin(out) * 30; ar.vx = Math.cos(out) * sp; ar.vy = Math.sin(out) * sp;
         g.flash = .2; text(g.x, g.y - 60, 'LAUNCH', '#ff8a5a', 14, .7); sfx('whoosh');
         for (let q = 0; q < 10; q++) P_(ar.x, ar.y, Math.cos(out) * rand(60, 200), Math.sin(out) * rand(60, 200), .3, 2.2, '#ffffff', 'spark');
-      } else if (u > 0 && u < 330 && Math.abs(v) < 66) {
-        const f = 1500 * (g.boost || 1) * (1 - u / 400);
+      } else if (u > 0 && u < 330 * (g.size || 1) && Math.abs(v) < 66 * (g.size || 1)) {
+        const f = 1500 * (g.boost || 1) * (1 + (g.gz || 0) * .5) * (1 - u / (400 * (g.size || 1)));
         ar.vx -= dx * f * sdt; ar.vy -= dy * f * sdt;
         ar.vx += dy * v * 4 * sdt; ar.vy -= dx * v * 4 * sdt;
       }
@@ -798,12 +849,13 @@ function gadgetStep(ar, sdt) {
     if (g.type === 'fan') {
       const dx = Math.cos(g.ang), dy = Math.sin(g.ang), rx = ar.x - g.x, ry = ar.y - g.y;
       const u = rx * dx + ry * dy, v = -rx * dy + ry * dx;
-      if (u > 0 && u < 360 + ((g.boost || 1) - 1) * 50 && Math.abs(v) < 66) {
-        const f = 1700 * (g.boost || 1) * (1 - u / 420);
+      const gz = g.size || 1;
+      if (u > 0 && u < (360 + ((g.boost || 1) - 1) * 50) * gz && Math.abs(v) < 66 * gz) {
+        const f = 1700 * (g.boost || 1) * (1 + (g.gz || 0) * .5) * (1 - u / (420 * gz));
         ar.vx += dx * f * sdt; ar.vy += dy * f * sdt;
       }
     } else if (g.type === 'win') {
-      if (Math.abs(ar.x - g.x) < 34 && Math.abs(ar.y - g.y) < 41 && !ar.via.has(g.id)) {
+      if (Math.abs(ar.x - g.x) < 34 * (g.size || 1) && Math.abs(ar.y - g.y) < 41 * (g.size || 1) && !ar.via.has(g.id)) {
         ar.via.add(g.id); g.flash = .25;
         if (g.cracked && --g.left <= 0) {
           g.gone = true; text(g.x, g.y - 60, 'SHATTERED', '#e8f8ff', 16, 1); sfx('glass'); shake(4);
@@ -856,7 +908,7 @@ function fire(a, ang, v, pk, pk2) {
   const angs = has('triple') ? [ang - .06, ang, ang + .06] : [ang];
   if (has('heavy')) v *= 1.18;
   const tp = a.tpTag || null; a.tpTag = null;
-  v *= 1 - (a.shrink || 0);
+  v *= bowK(a);
   for (const an of angs) {
     const dx = Math.cos(an), dy = Math.sin(an);
     st.arrows.push({ x: s.x + dx * 24, y: s.y + dy * 24, sx: s.x + dx * 24, sy: s.y + dy * 24, vx: dx * v, vy: dy * v, owner: a, done: false, via: new Set(),
@@ -914,6 +966,9 @@ function impactFX(ar, x, y, onBody) {
     if (ar.owner.isP && shotOnce(ar, 'blackhole')) spawnHole(x, Math.min(y, -40), riderOf(ar, 'blackhole'));
   } else if (pk === 'meteor') {
     if (ar.owner.isP) { const n = meteorShare(ar); if (n > 0) spawnShower(x, Math.sign(ar.vx) || 1, n, riderOf(ar, 'meteor')); }
+  } else if (pk === 'grow') {
+    ring(x, y, 40, GROW_COL, .45, 3);
+    for (let i = 0; i < 14; i++) P_(x, y, rand(-170, 170), rand(-200, 30), rand(.35, .65), rand(2, 3.4), i % 2 ? GROW_COL : '#ffd6f4', 'spark');
   } else if (pk === 'confuse') {
     ring(x, y, 30, CONF_COL, .4, 2.5);
     for (let i = 0; i < 12; i++) P_(x, y, rand(-140, 140), rand(-170, 30), rand(.35, .6), 2.2, i % 2 ? CONF_COL : '#fff36b', 'spark');
@@ -947,6 +1002,8 @@ function splitCluster(ar) {
 }
 function blast(x, y, owner, rider) {
   if (rider === 'heavy' && owner && owner.isP) return megaBomb(x, y, owner);
+  const bz = rider === 'grow' ? 2 : 1;
+  if (bz > 1) { if (owner && owner.isP) comboText(x, y - 90, 'boom+grow'); ring(x, y, 180, '#ff9a45', .6, 6); ring(x, y, 120, '#ffd27a', .45, 4); shake(14); }
   const RB = rider ? rideOf(rider) : null;
   if (rider === 'fire' && owner && owner.isP) {   // NAPALM: the floor under the blast catches fire
     comboText(x, y - 90, 'boom+fire');
@@ -955,15 +1012,15 @@ function blast(x, y, owner, rider) {
   for (let i = 0; i < 26; i++) st.parts.push({ x, y, vx: rand(-260, 260), vy: rand(-300, 80), life: rand(.3, .6), max: .6, r: rand(2, 4), col: RB ? (i % 2 ? RB[1] : RB[2]) : i % 3 ? '#ff9a45' : '#ffd27a' });
   shake(9); sfx('boom');
   if (RB) {
-    glow(x, y, 110, 'rgba(' + RB[0] + ',', .4); ring(x, y, 90, RB[1], .45, 4);
-    if (owner && owner.isP) for (const a of st.enemies) { if (a.dead) continue; const f = feet(a); if (Math.hypot(f.x - x, f.y - 55 - y) < 85) infuse(a, rider, owner); }
+    glow(x, y, 110 * bz, 'rgba(' + RB[0] + ',', .4); ring(x, y, 90 * bz, RB[1], .45, 4);
+    if (owner && owner.isP) for (const a of st.enemies) { if (a.dead) continue; const f = feet(a); if (Math.hypot(f.x - x, f.y - 55 - y) < 85 * bz) infuse(a, rider, owner); }
   }
   const targets = owner.isP ? st.enemies : [st.P];
   for (const a of targets) {
     if (a.dead) continue;
     const f = feet(a), d = Math.hypot(f.x - x, f.y - 55 - y);
-    if (d < 85) {
-      const dmg = Math.round(28 * (1 - d / 110));
+    if (d < 85 * bz) {
+      const dmg = Math.round(28 * (1 - d / (110 * bz)));
       a.hp -= dmg; a.hitT = .12;
       text(f.x, f.y - 104, '-' + dmg, '#ffd27a', 18, .9);
       if (a.hp <= 0) kill(a, { vx: f.x - x || 1 }, 'body');
@@ -975,7 +1032,7 @@ function blast(x, y, owner, rider) {
   if (owner.isP) for (const m of st.marchers) {
     if (m.dead) continue;
     const d = Math.hypot(m.x - x, -(m.y || 0) - 50 * m.s - y);
-    if (d < 95) hurtMarcher(m, 34 * (1 - d / 120));
+    if (d < 95 * bz) hurtMarcher(m, 34 * (1 - d / (120 * bz)));
   }
 }
 function toLocal(a, x, y) {
@@ -1076,7 +1133,10 @@ function onHit(ar, a, z) {
     text(f.x, f.y - 132, 'SLOWED ×' + (1 / a.slowM).toFixed(a.slowM < .1 ? 0 : 1), '#7ad7ff', 14, 1.1);
     for (let k = 0; k < 2; k++) ring(f.x, f.y - 60, 60 + k * 30, '#7ad7ff', .6 + k * .2, 2.5);
   }
-  if (hasPk(ar, 'shrink') && !a.isP) {
+  if (comboOf(ar) === 'grow+shrink' && !a.isP) { a.wobT = 4; a.stun = Math.max(a.stun || 0, 4); a.aiAim = null; a.pow = 0; text(f.x, f.y - 150, 'SIZE WOBBLE!', GROW_COL, 16, 1.2); }
+  else if (hasPk(ar, 'grow') && !a.isP) growA(a);
+  if (hasPk(ar, 'shrink') && !a.isP && !hasPk(ar, 'grow') && a.grow > 0) { a.grow = Math.max(0, Math.round((a.grow - GROW_STEP) * 100) / 100); a.growT = 7; text(f.x, f.y - 132, 'SHRUNK BACK', '#b6ff5c', 14, 1); }
+  else if (hasPk(ar, 'shrink') && !a.isP && !hasPk(ar, 'grow')) {
     a.shrink = Math.min(.5, Math.round(((a.shrink || 0) + .1) * 10) / 10); a.shrinkT = 7;
     text(f.x, f.y - 132, 'SHRUNK · POWER ' + Math.round((1 - a.shrink) * 100) + '%', '#b6ff5c', 14, 1.1);
     for (let k = 0; k < 10; k++) P_(f.x + rand(-20, 20), f.y - rand(10, 90), rand(-40, 40), rand(-60, 20), .5, 2.2, '#b6ff5c', 'spark');
@@ -1493,6 +1553,8 @@ function infuse(a, k, by, seen, weak) {
   } else if (k === 'slowmo') {
     if (!(a.slowT > 0)) { a.slowM = .4; text(f.x, f.y - 132, 'SLOWED', '#7ad7ff', 14, .9); }
     a.slowT = Math.max(a.slowT || 0, 4 * m);
+  } else if (k === 'grow') {
+    growA(a, m);
   } else if (k === 'shrink') {
     a.shrink = Math.min(.5, Math.round(((a.shrink || 0) + .1) * 10) / 10); a.shrinkT = 7;
     text(f.x, f.y - 132, 'SHRUNK', '#b6ff5c', 13, .9);
@@ -1521,7 +1583,7 @@ function homingSpot(x) {
   return c.length ? feet(c[Math.floor(Math.random() * c.length)]).x + rand(-30, 30) : null;
 }
 function spawnTornado(x, dir, k = null) {
-  st.tornados.push({ x, dir, life: 4.5, max: 4.5, t: 0, hitG: new Set(), k, hitE: new Set(), w: k === 'heavy' ? 1.5 : 1 });
+  st.tornados.push({ x, dir, life: 4.5, max: 4.5, t: 0, hitG: new Set(), k, hitE: new Set(), w: k === 'heavy' ? 1.5 : k === 'grow' ? 2 : 1 });
   text(x, -120, (k ? RIDE_NAME[k] + ' ' : '') + 'TORNADO!', k ? rideOf(k)[1] : '#d6e4f0', 18, 1.2); sfx('whoosh');
 }
 function spawnHole(x, y, k = null) {
@@ -1548,7 +1610,7 @@ function spawnShower(x, dir, n = 16, k = null) {
 }
 function meteorHit(R) {
   const x = R.x, y = R.y;
-  const RK = R.k ? rideOf(R.k) : null, rad = R.k === 'boom' ? 1.4 : 1, hv = R.k === 'heavy' ? 1.5 : 1;
+  const RK = R.k ? rideOf(R.k) : null, rad = R.k === 'boom' ? 1.4 : 1, hv = R.k === 'heavy' ? 1.5 : R.k === 'grow' ? 1.7 : 1;
   if (RK) {
     glow(x, y, 120 * rad, 'rgba(' + RK[0] + ',', .4); ring(x, y, 90 * rad, RK[1], .45, 5); ring(x, y, 55 * rad, RK[2], .3, 3);
     for (let i = 0; i < 16; i++) P_(x, y, rand(-220, 220), rand(-280, -20), rand(.4, .9), rand(2.5, 5), i % 2 ? RK[1] : RK[2], RK[3]);
@@ -1589,7 +1651,7 @@ function updateMeteors(dt) {
       S.n--; S.next += rand(.07, .2) * (S.k === 'rapid' ? .5 : 1);
       const hx = S.k === 'homing' ? homingSpot(S.x) : null, tx = hx !== null ? hx : S.x + rand(-240, 240), y0 = topY() - 120, slant = rand(.28, .42), sp = rand(780, 920);
       const ang = Math.atan(slant), hgt = -y0;
-      st.rocks.push({ x: tx - S.dir * hgt * slant, y: y0, vx: S.dir * Math.sin(ang) * sp, vy: Math.cos(ang) * sp, r: rand(7, 12) * (S.k === 'heavy' ? 1.5 : 1), spin: rand(0, 6), k: S.k, seen: S.seen });
+      st.rocks.push({ x: tx - S.dir * hgt * slant, y: y0, vx: S.dir * Math.sin(ang) * sp, vy: Math.cos(ang) * sp, r: rand(7, 12) * (S.k === 'heavy' ? 1.5 : S.k === 'grow' ? 1.9 : 1), spin: rand(0, 6), k: S.k, seen: S.seen });
     }
   }
   st.showers = st.showers.filter(S => S.n > 0);
@@ -1678,13 +1740,13 @@ function updateVortices(dt) {
   st.tornados = st.tornados.filter(T => T.life > 0);
   for (const B of st.holes) {
     comboHole(B, dt);
-    B.life -= dt; B.r = Math.min(B.k === 'heavy' ? 48 : 34, B.r + 80 * dt);
+    B.life -= dt; B.r = Math.min(B.k === 'heavy' ? 48 : B.k === 'grow' ? 62 : 34, B.r + 80 * dt);
     if (B.life < .4) B.r *= .9;
     for (const E of st.enemies) {
       if (E.dead) continue;
       const f = feet(E), d = Math.hypot(f.x - B.x, f.y - 50 - B.y);
-      if (d < (B.k === 'heavy' ? 150 : 110) && slayable(E, B)) { E.hp = 0; kill(E, { vx: (B.x - f.x) * 2, owner: st.P }, 'body'); swallow(E, B); text(f.x, f.y - 120, 'SWALLOWED', '#b07cff', 16, 1.2); continue; }
-      if (d < 300) { infuse(E, B.k, st.P, B.hitE); if (E.dead) continue; const k = 1 - d / 300; E.hp -= 40 * k * dt; E.hitT = .05; if (E.hp <= 0) kill(E, { vx: (B.x - f.x) * 2, owner: st.P }, 'body'); }
+      if (d < (B.k === 'heavy' ? 150 : B.k === 'grow' ? 190 : 110) && slayable(E, B)) { E.hp = 0; kill(E, { vx: (B.x - f.x) * 2, owner: st.P }, 'body'); swallow(E, B); text(f.x, f.y - 120, 'SWALLOWED', '#b07cff', 16, 1.2); continue; }
+      if (d < (B.k === 'grow' ? 430 : 300)) { infuse(E, B.k, st.P, B.hitE); if (E.dead) continue; const k = 1 - d / 300; E.hp -= 40 * k * dt; E.hitT = .05; if (E.hp <= 0) kill(E, { vx: (B.x - f.x) * 2, owner: st.P }, 'body'); }
     }
     for (const ar of st.arrows) {
       if (ar.owner.isP) continue;
@@ -3529,6 +3591,7 @@ function update(rdt) {
   updateBoulders(dt);
   acidStep(dt);
   confStep(dt);
+  growStep(dt);
   updateWeather(dt);
   if (st.nextT <= 0 && !P.dead) {
     if (SOLDIERS) updateAllies(dt);
@@ -4291,6 +4354,8 @@ function drawGadget(g) {
     ctx.fillStyle = `rgb(${c1})`; ctx.fillText(g.side ? 'OUT' : 'IN', x, y + r + 6);
     return;
   }
+  const gz = g.size || 1;
+  if (gz !== 1) { ctx.save(); ctx.translate(x, y); ctx.scale(gz, gz); ctx.translate(-x, -y); }
   if (g.type === 'win') {
     const w = 84 * sc, h = 99 * sc;
     const TINT = { fire: 'rgba(255,120,60,.42)', ice: 'rgba(170,225,255,.5)', boom: 'rgba(255,200,70,.45)' };
@@ -4336,6 +4401,8 @@ function drawGadget(g) {
     if (g.reverse) { ctx.font = '700 9px Silkscreen, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillStyle = '#ff8a5a'; ctx.fillText('REVERSE', x, y + 50 * sc); }
     if (g.boost > 1) { ctx.font = '700 11px Silkscreen, monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#7dff9a'; ctx.fillText('×' + g.boost, x + 27 * sc, y - 54 * sc); }
   }
+  if (gz !== 1) ctx.restore();
+  if (growHeld() && (g.gz || 0) < 2) { const r = (8 + 3 * Math.sin(st.t * 6)) * sc * gz; ctx.strokeStyle = GROW_COL; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(x, y, r, 0, 6.283); ctx.stroke(); ctx.fillStyle = GROW_COL; ctx.beginPath(); ctx.arc(x, y, 2.5, 0, 6.283); ctx.fill(); }
   drawPads(g);
 }
 function drawPreview() {
@@ -4512,7 +4579,7 @@ function draw() {
   for (const ar of st.arrows) {
     if (ar.rock) { drawRock(ar); continue; }
     const hk = holeK(ar);
-    ctx.save(); ctx.translate(SX(ar.x), SY(ar.y)); ctx.scale(sc * hk, sc * hk); ctx.rotate(Math.atan2(ar.vy, ar.vx));
+    ctx.save(); ctx.translate(SX(ar.x), SY(ar.y)); ctx.scale(sc * hk * arZ(ar), sc * hk * arZ(ar)); ctx.rotate(Math.atan2(ar.vy, ar.vx));
     const tg = ctx.createLinearGradient(-36, 0, -110, 0);
     tg.addColorStop(0, ar.col ? ar.col : 'rgba(255,255,255,.55)'); tg.addColorStop(1, 'rgba(255,255,255,0)');
     ctx.strokeStyle = tg; ctx.lineWidth = 2; ctx.globalAlpha = .6; ctx.beginPath(); ctx.moveTo(-36, 0); ctx.lineTo(-110, 0); ctx.stroke(); ctx.globalAlpha = 1;
@@ -4894,7 +4961,7 @@ function pickSlot(i) {   // -1 = plain arrows
   st.power = q; sfx('click');
 }
 /* ---------- the forge: spend horde points on a linked arrow you keep for the whole run (lost at game over) ---------- */
-const FORGE_COST = { triple: 10, rapid: 10, pierce: 10, heavy: 10, scope: 8, homing: 12, fire: 15, ice: 15, tele: 15, slowmo: 18, shrink: 18, confuse: 18,
+const FORGE_COST = { triple: 10, rapid: 10, pierce: 10, heavy: 10, scope: 8, homing: 12, fire: 15, ice: 15, tele: 15, slowmo: 18, shrink: 18, grow: 18, confuse: 18,
   boom: 20, storm: 20, cluster: 20, tornado: 30, blackhole: 60, meteor: 60 };
 const FORGE_MAX = 2, FORGE_SHOTS = 5, FORGE_BIG = ['blackhole', 'meteor'];
 let forgePick = [];
@@ -5195,12 +5262,12 @@ $('musicBtn').onclick = () => {
 
 /* ---------- practice range: straw dummies, any arrow from the rack, unlimited shots ---------- */
 const PRAC_X = [650, 1050, 1500, 1950], PRAC_H = [70, 135, 175, 110];
-const RACK = ['triple', 'fire', 'ice', 'boom', 'heavy', 'rapid', 'pierce', 'homing', 'storm', 'cluster', 'scope', 'slowmo', 'tornado', 'shrink', 'tele', 'confuse', 'clone', 'meteor', 'blackhole'];
+const RACK = ['triple', 'fire', 'ice', 'boom', 'heavy', 'rapid', 'pierce', 'homing', 'storm', 'cluster', 'scope', 'slowmo', 'tornado', 'shrink', 'grow', 'tele', 'confuse', 'clone', 'meteor', 'blackhole'];
 const RACK_DESC = {
   plain: 'A normal arrow', triple: '3 arrows at once', fire: 'Sets them on fire', ice: 'Freezes them solid', boom: 'Explodes; 3 hits topple a tower',
   heavy: 'Hits much harder', rapid: 'Very fast reload', pierce: 'Goes through archers', homing: 'Steers into the nearest archer',
   storm: 'Lightning jumps between archers', cluster: 'Tap the screen to split it', scope: 'Shows where your arrow will go',
-  slowmo: 'Slows down whoever it hits', tornado: 'A twister that turns arrows round', shrink: 'Each hit shrinks them',
+  slowmo: 'Slows down whoever it hits', tornado: 'A twister that turns arrows round', shrink: 'Each hit shrinks them', grow: 'Each hit makes them bigger, and their shots overshoot. Hit a window or fan in the middle to make it bigger',
   tele: 'Tag one; your next arrow moves them there', confuse: 'They aim backwards for 6 s and can hit their own side', clone: 'Copies what it hits. A cloned archer fights for you', meteor: 'Rocks rain down. They hit you too!', blackhole: 'Sucks everything in',
   shield: 'Puts a wall up in front of you'
 };
