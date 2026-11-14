@@ -467,6 +467,7 @@ function newGame() {
 }
 
 function spawnLevel(first) {
+  if (isHost()) st.cy = ceilNow();   // this level's ceiling = the host's screen top
   for (const p of st.players) for (const q of p.forged || []) q.shots = q.max;   // forged arrows refill every level
   if (GC_TEST && !st.gcGiven) gcGive();
   const lv = st.level, np = Math.max(1, st.players.length), n = Math.min(lv, 20) + Math.min(4, np - 1);   // one more enemy every level (up to 20 + team bonus)
@@ -573,7 +574,7 @@ function gadgetSpot(type, near) {
   let x = 0, y = 0;
   for (let tries = 0; tries < 40; tries++) {
     x = near ? rand(near[0], near[1]) : rand(L + 100, Math.max(L + 200, far - 120));
-    y = type === 'cloud' ? rand(Math.max(-310, topY() + 40), -230) : rand(Math.max(-310, topY() + 60), -140);
+    y = type === 'cloud' ? rand(topY() + 40, -230) : rand(topY() + 60, -140);
     if (st.gadgets.every(o => o.gone || Math.abs(o.tx - x) > 320 || Math.abs(o.ty - y) > 190)) break;
   }
   return { x, y };
@@ -643,8 +644,8 @@ function spawnGadgets() {
   // portal pair (from level 2): switched off at Craig's word 2026-11-15 (PORTALS), code kept
   if (PORTALS && st.level >= 2 && Math.random() < .6) {
     const pid = ++uid;
-    const ax = rand(L + 260, Math.max(L + 300, L + (far - L) * .45)), ay = rand(Math.max(-280, topY() + 60), -110);
-    const bx = rand(Math.max(ax + 200, L + (far - L) * .5), Math.max(ax + 260, far - 80)), by = rand(Math.max(-300, topY() + 60), -90);
+    const ax = rand(L + 260, Math.max(L + 300, L + (far - L) * .45)), ay = rand(topY() + 60, -110);
+    const bx = rand(Math.max(ax + 200, L + (far - L) * .5), Math.max(ax + 260, far - 80)), by = rand(topY() + 60, -90);
     st.gadgets.push({ id: pid, type: 'portal', side: 0, x: ax, y: ay, tx: ax, ty: ay, spin: 0, jumpT: rand(5, 8), popT: 0 });
     st.gadgets.push({ id: pid + .5, type: 'portal', side: 1, x: bx, y: by, tx: bx, ty: by, spin: 0, pair: pid, jumpT: rand(8, 11), popT: 0 });
     st.gadgets[st.gadgets.length - 2].pair = pid + .5;
@@ -682,7 +683,10 @@ function updateDirector(dt) {
   if (live.length > 2) { poof(g); g.gone = true; text(g.x, g.y - 30, 'GONE', '#f6eedf', 12, .8); }   // vanishes, nothing replaces it
   else popIn(addGadget(pickGadgetType()));
 }
-const topY = () => -337; // fixed in co-op so every screen agrees where the ropes and weak spots are
+// the level's ceiling (where ropes hang from) is the top of the screen. In co-op the host's ceiling is sent to everyone (m.cy) so every screen agrees where ropes and weak spots are. Zoomed out, that is much higher, so objects can hang higher.
+// It is set at the start of each level and only ever rises during it (so ropes never end below an object).
+const ceilNow = () => Math.max(-900, -(H - GROUND) / (scBase * Math.min(1, zoom)) + 8);
+const topY = () => (st && st.cy) || -(H - GROUND) / scBase + 8;
 const attachY = g => g.y - (g.type === 'fan' ? 30 : 33);
 const BTN_W = 20, BTN_H = 11;
 const halfH = g => (({ fan: 45, win: 50, bounce: 24, magnet: 32, bell: 30, clock: 20 })[g.type] || 40) * (g.size || 1);
@@ -709,7 +713,7 @@ function portalJump(g) {
   const o = st.gadgets.find(q => q.id === g.pair), far = farX(), L = fieldL();
   let x = g.x, y = g.y;
   for (let tries = 0; tries < 30; tries++) {
-    x = rand(L + 220, Math.max(L + 260, far - 100)); y = rand(Math.max(-300, topY() + 60), -90);
+    x = rand(L + 220, Math.max(L + 260, far - 100)); y = rand(topY() + 60, -90);
     if ((!o || Math.abs(o.x - x) > 260) && Math.abs(x - g.x) > 150 &&
         st.gadgets.every(q => q === g || Math.abs(q.tx - x) > 150 || Math.abs(q.ty - y) > 130)) break;
   }
@@ -724,7 +728,7 @@ function relocate(g) {
   const far = farX();
   let x = 0, y = 0;
   for (let tries = 0; tries < 20; tries++) {
-    x = rand(fieldL() + 120, far - 140); y = rand(Math.max(-310, topY() + 100), -150);
+    x = rand(fieldL() + 120, far - 140); y = rand(topY() + 100, -150);
     if (st.gadgets.every(o => o === g || Math.abs(o.tx - x) > 300 || Math.abs(o.ty - y) > 180)) break;
   }
   g.tx = x; g.ty = y;
@@ -734,7 +738,7 @@ function relocate(g) {
 }
 /* ---------- MOVE pad: the player who hit it chooses where the object goes (the game keeps going) ---------- */
 const PLACE_T = 8, PLACE_NAME = { win: 'WINDOW', fan: 'FAN', bounce: 'BOUNCE PAD', magnet: 'MAGNET' };
-function placeSpot(x, y) { return { x: clamp(x, fieldL() + 120, farX() - 100), y: clamp(y, Math.max(-330, topY() + 80), -110) }; }
+function placeSpot(x, y) { return { x: clamp(x, fieldL() + 120, farX() - 100), y: clamp(y, topY() + 80, -110) }; }
 function placedFX(g, x, y) { ring(x, y, 44, '#ffd27a', .5, 3); text(x, y - 64, 'PLACED', '#ffd27a', 15, 1); sfx('whoosh'); }
 function drawPlaceBox(g, secs, dim) {
   if (dim) { ctx.fillStyle = 'rgba(20,10,30,.28)'; ctx.fillRect(0, 0, W, H); }
@@ -6256,6 +6260,7 @@ function draw() {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   drawBG();
   if (!st) return;
+  if (isHost()) st.cy = Math.min(st.cy || 0, ceilNow());
   gcSkyDim();
   const shx = st.shake > .3 ? rand(-st.shake, st.shake) : 0, shy = st.shake > .3 ? rand(-st.shake, st.shake) : 0;
   ctx.translate(shx, shy);
@@ -7558,7 +7563,7 @@ function applySnap(m) {
   if (drag && !drag.spec && inPlay(st.P)) { st.P.aim = NET.myAim; st.P.pow = NET.myPow; st.P.f = Math.cos(st.P.aim) < 0 ? -1 : 1; }
   st.pinned = (m.pin || []).map(p => Object.assign(p, { g: p.gid ? NET.gads.get(p.gid) || null : null }));
   st.arrows = (m.ar || []).map(a => Object.assign(a, { owner: NET.objs.get(a.o) || { isP: false }, bx: a.x, by: a.y, bvx: a.vx, bvy: a.vy }));
-  st.tornados = m.tn || []; st.holes = m.bh || []; st.mags = m.mg || []; st.fires = m.fi || []; st.rocks = m.rk || []; st.planets = m.pq || []; st.gcfx = m.gx || []; st.fogT = m.fg || 0; st.steams = m.sm || [];
+  st.tornados = m.tn || []; st.holes = m.bh || []; st.mags = m.mg || []; st.fires = m.fi || []; st.rocks = m.rk || []; st.planets = m.pq || []; st.gcfx = m.gx || []; st.fogT = m.fg || 0; if (m.cy) st.cy = m.cy; st.steams = m.sm || [];
   st.boulders = (m.bo || []).map(R => Object.assign(R, { bx: R.x, by: R.y, bvx: R.vx, bvy: R.vy }));
   applyHorde(m);
   for (const e of st.enemies) if (e.flyer) { e.gx = e.x; e.gh = e.h; }
@@ -7639,6 +7644,7 @@ function netTick(rdt) {
   m.gx = (st.gcfx || []).map(F => ({ ty: F.ty, x: F.x, y: F.y, t: F.t, life: F.life, r: F.r, dir: F.dir, spin: F.spin, n: F.n, z: F.z, b: F.b ? F.b.filter(q => !q.out).map(q => [Math.round(q.x), Math.round(q.y), q.r, +q.spin.toFixed(2)]) : undefined, bid: F.by ? F.by.id : null }));
   m.pq = (st.planets || []).map(Q => ({ x: Q.x, y: Q.y, tx: Q.tx, t: Q.t, r: Q.r, spin: Q.spin, bid: Q.by ? Q.by.id : null }));
   if (st.weather === 'fog') m.fg = Math.round((st.fogT || 0) * 10) / 10;
+  m.cy = Math.round(st.cy || 0);
   m.rk = (st.rocks || []).map(R => ({ x: R.x, y: R.y, vx: R.vx, vy: R.vy, r: R.r, spin: R.spin, k: R.k || null }));
   m.tn = st.tornados.map(T => pack(T, new Set(['hitG', 'by', 'hitE', 'hit2', 'hitM'])));
   m.bh = st.holes.map(B => pack(B, new Set(['by', 'hitE', 'tw'])));

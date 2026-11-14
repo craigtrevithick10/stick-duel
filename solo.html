@@ -432,6 +432,7 @@ function newGame() {
 }
 
 function spawnLevel(first) {
+  st.cy = ceilNow();   // this level's ceiling = the top of the screen
   if (st.P && st.P.home) { st.P.x = st.P.home.x; st.P.h = st.P.home.h; st.P.home = null; }   // a teleport only lasts the level
   for (const q of st.forged || []) q.shots = q.max;   // forged arrows refill every level
   if (GC_TEST && !st.gcGiven) gcGive();
@@ -512,7 +513,7 @@ function gadgetSpot(type, near) {
   let x = 0, y = 0;
   for (let tries = 0; tries < 40; tries++) {
     x = near ? rand(near[0], near[1]) : rand(L + 100, Math.max(L + 200, far - 120));
-    y = type === 'cloud' ? rand(Math.max(-310, topY() + 40), -230) : rand(Math.max(-310, topY() + 60), -140);
+    y = type === 'cloud' ? rand(topY() + 40, -230) : rand(topY() + 60, -140);
     if (st.gadgets.every(o => o.gone || Math.abs(o.tx - x) > 320 || Math.abs(o.ty - y) > 190)) break;
   }
   return { x, y };
@@ -581,8 +582,8 @@ function spawnGadgets() {
   // portal pair (from level 2): switched off at Craig's word 2026-11-15 (PORTALS), code kept
   if (PORTALS && st.level >= 2 && Math.random() < .6) {
     const pid = ++uid;
-    const ax = rand(260, Math.max(300, far * .45)), ay = rand(Math.max(-280, topY() + 60), -110);
-    const bx = rand(Math.max(ax + 200, far * .5), Math.max(ax + 260, far - 80)), by = rand(Math.max(-300, topY() + 60), -90);
+    const ax = rand(260, Math.max(300, far * .45)), ay = rand(topY() + 60, -110);
+    const bx = rand(Math.max(ax + 200, far * .5), Math.max(ax + 260, far - 80)), by = rand(topY() + 60, -90);
     st.gadgets.push({ id: pid, type: 'portal', side: 0, x: ax, y: ay, tx: ax, ty: ay, spin: 0, jumpT: rand(5, 8), popT: 0 });
     st.gadgets.push({ id: pid + .5, type: 'portal', side: 1, x: bx, y: by, tx: bx, ty: by, spin: 0, pair: pid, jumpT: rand(8, 11), popT: 0 });
     st.gadgets[st.gadgets.length - 2].pair = pid + .5;
@@ -619,7 +620,10 @@ function updateDirector(dt) {
   if (live.length > 2) { poof(g); g.gone = true; text(g.x, g.y - 30, 'GONE', '#f6eedf', 12, .8); }   // vanishes, nothing replaces it
   else popIn(addGadget(pickGadgetType()));
 }
-const topY = () => -(H - GROUND) / scBase + 8;
+// the level's ceiling (where ropes hang from) is the top of the screen. Zoomed out, that is much higher, so objects can hang higher.
+// It is set at the start of each level and only ever rises during it (so ropes never end below an object).
+const ceilNow = () => Math.max(-900, -(H - GROUND) / (scBase * Math.min(1, zoom)) + 8);
+const topY = () => (st && st.cy) || -(H - GROUND) / scBase + 8;
 const attachY = g => g.y - (g.type === 'fan' ? 30 : 33);
 const BTN_W = 20, BTN_H = 11;
 const halfH = g => (({ fan: 45, win: 50, bounce: 24, magnet: 32, bell: 30, clock: 20 })[g.type] || 40) * (g.size || 1);
@@ -646,7 +650,7 @@ function portalJump(g) {
   const o = st.gadgets.find(q => q.id === g.pair), far = farX(), L = 0;
   let x = g.x, y = g.y;
   for (let tries = 0; tries < 30; tries++) {
-    x = rand(L + 220, Math.max(L + 260, far - 100)); y = rand(Math.max(-300, topY() + 60), -90);
+    x = rand(L + 220, Math.max(L + 260, far - 100)); y = rand(topY() + 60, -90);
     if ((!o || Math.abs(o.x - x) > 260) && Math.abs(x - g.x) > 150 &&
         st.gadgets.every(q => q === g || Math.abs(q.tx - x) > 150 || Math.abs(q.ty - y) > 130)) break;
   }
@@ -661,7 +665,7 @@ function relocate(g) {
   const far = farX();
   let x = 0, y = 0;
   for (let tries = 0; tries < 20; tries++) {
-    x = rand(220, far - 140); y = rand(Math.max(-310, topY() + 100), -150);
+    x = rand(220, far - 140); y = rand(topY() + 100, -150);
     if (st.gadgets.every(o => o === g || Math.abs(o.tx - x) > 300 || Math.abs(o.ty - y) > 180)) break;
   }
   g.tx = x; g.ty = y;
@@ -671,7 +675,7 @@ function relocate(g) {
 }
 /* ---------- MOVE pad: you choose where the object goes (the game waits while you tap) ---------- */
 const PLACE_T = 8, PLACE_NAME = { win: 'WINDOW', fan: 'FAN', bounce: 'BOUNCE PAD', magnet: 'MAGNET' };
-function placeSpot(x, y) { return { x: clamp(x, 180, farX() - 100), y: clamp(y, Math.max(-330, topY() + 80), -110) }; }
+function placeSpot(x, y) { return { x: clamp(x, 180, farX() - 100), y: clamp(y, topY() + 80, -110) }; }
 function placedFX(g, x, y) { ring(x, y, 44, '#ffd27a', .5, 3); text(x, y - 64, 'PLACED', '#ffd27a', 15, 1); sfx('whoosh'); }
 function drawPlaceBox(g, secs, dim) {
   if (dim) { ctx.fillStyle = 'rgba(20,10,30,.28)'; ctx.fillRect(0, 0, W, H); }
@@ -6061,6 +6065,7 @@ function draw() {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   drawBG();
   if (!st) return;
+  st.cy = Math.min(st.cy || 0, ceilNow());
   gcSkyDim();
   const shx = st.shake > .3 ? rand(-st.shake, st.shake) : 0, shy = st.shake > .3 ? rand(-st.shake, st.shake) : 0;
   ctx.translate(shx, shy);
