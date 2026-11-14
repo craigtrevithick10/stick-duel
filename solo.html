@@ -313,7 +313,7 @@ function resize() {
   const r = cv.getBoundingClientRect();
   W = r.width; H = r.height;
   cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
-  scBase = Math.min((H - GROUND) / 345, W / 470); sc = scBase * zoom;
+  scBase = Math.min((H - GROUND) / 345, W / 470); sc = scBase * zoom * viewK();
   if (st) camX = homeCam();
 }
 
@@ -945,7 +945,7 @@ function blast(x, y, owner, rider) {
   }
   if (owner.isP) for (const m of st.marchers) {
     if (m.dead) continue;
-    const d = Math.hypot(m.x - x, -50 * m.s - y);
+    const d = Math.hypot(m.x - x, -(m.y || 0) - 50 * m.s - y);
     if (d < 95) hurtMarcher(m, 34 * (1 - d / 120));
   }
 }
@@ -1545,7 +1545,7 @@ function meteorHit(R) {
     if (e.cover && Math.abs(e.x - e.pw / 2 + 4 - x) < 70 && Math.abs(-e.h - 29 - y) < 80) damageCover(e, 2);
     if (Math.abs(x - e.x) < e.pw / 2 + 14 && y > -e.h - 12 && y < -8) chopPillar(e, { x, y });   // cracks towers
   }
-  for (const m of st.marchers) { if (m.dead) continue; const d = Math.hypot(m.x - x, -50 * m.s - y); if (d < 100) hurtMarcher(m, 40 * (1 - d / 125)); }
+  for (const m of st.marchers) { if (m.dead) continue; const d = Math.hypot(m.x - x, -(m.y || 0) - 50 * m.s - y); if (d < 100) hurtMarcher(m, 40 * (1 - d / 125)); }
 }
 function updateMeteors(dt) {
   st.showers = st.showers || []; st.rocks = st.rocks || [];
@@ -1830,7 +1830,8 @@ const HORDE = {
   footman: { hp: 12, pts: 1, spd: 2.2 }, runner: { hp: 10, pts: 2, spd: 1.7 }, shield: { hp: 12, pts: 2, spd: 2.2 },
   knight: { hp: 24, pts: 3, spd: 2.3 }, giant: { hp: 70, pts: 5, spd: 2.6 }
 };
-const HORDE_BAT_PTS = 4, HORDE_SCALE = .8;
+const HORDE_BAT_PTS = 4, HORDE_SCALE = .8, HORDE_VIEW = .42;
+const viewK = () => st && st.horde ? HORDE_VIEW : 1;   // the horde is seen from further away: everything looks miniature
 function startHorde() {
   st.hordeLv = st.level;
   for (const c of st.clones || []) if (c.type === 'a') removeClone(c);
@@ -1840,21 +1841,21 @@ function startHorde() {
   st.tornados = []; st.holes = []; st.showers = []; st.rocks = []; st.boulders = []; st.steams = []; st.fires = [];
   st.gadgets = []; st.dirT = undefined; st.wind = 0; st.weather = 'clear'; st.timeScale = 1; st.nextT = 0;
   const P = st.P;
-  Object.assign(P, { big: .6, hp: P.max, confT: 0, acidT: 0, burn: 0, frozen: 0, headRed: 0, stuck: [], dead: false, rot: 0, vr: 0, dx: 0, dy: 0 });
+  Object.assign(P, { big: .75, hp: P.max, confT: 0, acidT: 0, burn: 0, frozen: 0, headRed: 0, stuck: [], dead: false, rot: 0, vr: 0, dx: 0, dy: 0 });
   const h0 = P.h; P.h = 110;   // a small castle
   const keep = { x: P.x, h: P.h, pw: P.pw };
   st.horde = { t: 0, score: 0, kills: 0, spawnT: 1.5, giantT: 4, batT: 6, growT: 30, itemT: 14, kegT: 18,
-    keep, outer: { x: keep.x + 1150, h: 105, pw: 64, hp: 450, max: 450, hitT: 0, down: false },
+    keep, outer: { x: keep.x + 1150, h: 105, pw: 64, hp: 0, max: 450, hitT: 0, down: true, gone: true },   // one castle for now
     on: 'keep', far: keep.x + 3500, kegs: [], over: false, overT: 0, h0 };
   // things in the field to help: windows, an arrow crate, a medkit and powder kegs
   const H = st.horde;
   hordeItem('win', [keep.x + 350, H.outer.x - 150]);
-  hordeItem('win', [H.outer.x + 250, H.outer.x + 1100]);
+  hordeItem('win', [H.outer.x + 50, H.outer.x + 900]);
   hordeItem('crate', [keep.x + 300, H.outer.x + 900]);
   hordeItem('hp', [keep.x + 300, H.outer.x]);
   for (let i = 0; i < 2; i++) hordeKeg();
-  st.banner = { t: 'BONUS: HORDE ATTACK', sub: 'HOLD THE CASTLE · EVERY KILL SCORES · ⇄ SWITCHES CASTLE', life: 3.4 };
-  st.camHold = 0; st.camFocus = null; camX = homeCam();
+  st.banner = { t: 'BONUS: HORDE ATTACK', sub: 'HOLD THE CASTLE · EVERY KILL SCORES', life: 3.4 };
+  resize(); st.camHold = 0; st.camFocus = null; camX = homeCam();
   sfx('wave');
 }
 // field items sit low enough to stay clear of the score bar
@@ -1891,10 +1892,15 @@ function kegBoom(K) {
 }
 // soldiers walk to the first castle still standing, then hack at it (the keep: they hurt you)
 function hordeMarch(m, dt) {
-  const H = st.horde, fx = hordeFront() + m.off;
-  if (m.x > fx) { m.x = Math.max(fx, m.x - m.spd * dt); m.ph += dt * m.spd * .22; return; }
-  m.x = fx; m.ph += dt * 9;
-  const d = MDPS[m.type] * dt;
+  const H = st.horde;
+  if (!m.at) {
+    const stop = hordeFront() + (m.type === 'giant' ? m.off : H.pileW || 0);
+    if (m.x > stop) { m.x = Math.max(stop, m.x - m.spd * dt); m.ph += dt * m.spd * .22; return; }
+    m.at = H.t + Math.random() * .01;
+  }
+  if (m.tx != null) { const k = Math.min(1, dt * 4); m.x += (m.tx - m.x) * k; m.y = (m.y || 0) + (m.ty - (m.y || 0)) * Math.min(1, dt * 5); }
+  m.ph += dt * 9;
+  const d = MDPS[m.type] * dt * ((m.y || 0) >= PILE_OVER ? 2.5 : 1);   // the ones on top of the heap are over the wall
   if (!H.outer.down) {
     const O = H.outer;
     O.hp -= d; O.hitT = .1;
@@ -1903,9 +1909,25 @@ function hordeMarch(m, dt) {
   } else if (!st.P.dead && !H.over) {
     const P = st.P;
     P.hp -= d * .35 * (1 - st.armour); P.hitT = .05;
-    if (Math.random() < dt * 1.5) text(feet(P).x + rand(-12, 12), feet(P).y - 110, 'THEY ARE AT THE GATE!', '#ff5a4e', 12, .8);
+    if (st.t - (H.gateMsg || -9) > 2.5) { H.gateMsg = st.t; text(feet(P).x, feet(P).y - 110, 'THEY ARE AT THE GATE!', '#ff5a4e', 12, 1.2); }
     if (P.hp <= 0) hordeOver();
   }
+}
+// the soldiers waiting at the wall pile into a heap: a ramp that is highest against the castle
+const PILE_DX = 13, PILE_DY = 24, PILE_ROWS = 7, PILE_OVER = 70, HORDE_MAX = 260;
+function hordePile() {
+  const H = st.horde, fx = hordeFront();
+  const pile = st.marchers.filter(m => m.at && !m.dead && m.type !== 'giant').sort((a, b) => a.at - b.at), N = pile.length;
+  const cap = b => { let c = 0; for (let r = 0; r < PILE_ROWS; r++) c += Math.max(0, b - r * 2); return c; };
+  let B = 6; while (cap(B) < N) B++;
+  let i = 0, top = 0;
+  for (let r = 0; r < PILE_ROWS && i < N; r++) for (let c = 0; c < B - r * 2 && i < N; c++, i++) {
+    const m = pile[i]; m.tx = fx + c * PILE_DX + m.off * .1; m.ty = r * PILE_DY; top = m.ty;
+  }
+  H.pileW = Math.min(N, B) * PILE_DX;
+  const over = top >= PILE_OVER;
+  if (over && !H.climb) { const P = st.P; text(feet(P).x, feet(P).y - 175, "THEY'RE CLIMBING THE WALL!", '#ff5a4e', 18, 1.6, 1); shake(6); }
+  H.climb = over;
 }
 function hordeOuterFalls() {
   const H = st.horde, O = H.outer;
@@ -1947,7 +1969,8 @@ function hordeStep(dt, rdt) {
   if (st.P.dead) return;
   H.t += dt;
   const t = H.t;
-  if ((H.spawnT -= dt) <= 0) {
+  hordePile();
+  if ((H.spawnT -= dt) <= 0 && st.marchers.length < HORDE_MAX) {
     const n = Math.min(10, 1 + Math.floor(t / 40) + (Math.random() < .3 ? 1 : 0));
     for (let i = 0; i < n; i++) hordeSpawn(hordePick(t), i * rand(30, 70));
     H.spawnT = Math.max(1.1, 3.4 - t * .02) * rand(.7, 1.3);
@@ -1998,7 +2021,7 @@ function endHorde() {
   const H = st.horde, P = st.P;
   st.hordeShow = false; show('hordeScreen', false);
   st.gp += H.score;
-  st.horde = null;
+  st.horde = null; resize();
   Object.assign(P, { x: H.keep.x, h: H.h0, pw: H.keep.pw, dead: false, hp: P.max, rot: 0, vr: 0, vy: 0, vx: 0, dx: 0, dy: 0, stuck: [], confT: 0, acidT: 0, burn: 0, headRed: 0, pow: 0 });
   delete P.big;
   st.marchers = []; st.enemies = []; st.arrows = []; st.gadgets = []; st.slow = 0;
@@ -2032,7 +2055,7 @@ function drawHordeCastles() {
       ctx.fillStyle = O.hitT > 0 ? '#ffffff' : O.hp / O.max > .35 ? '#7dff9a' : '#ff5a4e'; ctx.fillRect(bx, by, 60 * sc * O.hp / O.max, 6 * sc);
     }
     O.hitT -= 1 / 60;
-  } else {
+  } else if (!O.gone) {
     const x = SX(O.x), gy = SY(0);
     if (x > -120 && x < W + 120) {
       ctx.fillStyle = '#a88c6a';
@@ -2058,7 +2081,8 @@ function drawHordeCastles() {
 function drawHordeHUD() {
   const H = st.horde, cx = W / 2, w = Math.min(340, W * .42), x0 = cx - w / 2, y0 = 40;
   ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-  ctx.font = '700 22px Silkscreen, monospace'; ctx.fillStyle = '#ffd27a'; ctx.fillText('SCORE ' + H.score, cx, 10);
+  ctx.lineJoin = 'round'; ctx.strokeStyle = 'rgba(24,30,20,.6)'; ctx.lineWidth = 4;
+  ctx.font = '700 22px Silkscreen, monospace'; ctx.fillStyle = '#ffd27a'; ctx.strokeText('SCORE ' + H.score, cx, 10); ctx.fillText('SCORE ' + H.score, cx, 10);
   const L = H.keep.x - 100, R = H.far + 320, X = v => x0 + clamp((v - L) / (R - L), 0, 1) * w;
   ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(x0, y0, w, 12);
   const from = H.on === 'outer' ? H.outer.x : H.keep.x;
@@ -2069,8 +2093,9 @@ function drawHordeHUD() {
   for (const m of st.marchers) if (!m.dead) { const r = m.type === 'giant' ? 3 : 1.5; ctx.fillStyle = m.type === 'giant' ? '#ff9a45' : '#ff5a4e'; ctx.fillRect(X(m.x) - r, y0 + 6 - r, r * 2, r * 2); }
   ctx.fillStyle = '#8cff5a'; for (const e of st.enemies) if (!e.dead && e.flyer) ctx.fillRect(X(e.x) - 2, y0 + 1, 4, 4);
   ctx.strokeStyle = 'rgba(246,238,223,.75)'; ctx.lineWidth = 1; ctx.strokeRect(X(camX), y0 - 2, Math.max(4, X(camX + W / sc) - X(camX)), 16);
-  ctx.font = '700 10px Silkscreen, monospace'; ctx.fillStyle = '#f6eedf';
-  ctx.fillText(H.kills + ' KILLS  ·  ' + Math.floor(H.t) + ' S' + (H.outer.down ? '  ·  OUTER CASTLE GONE' : '  ·  OUTER WALL ' + Math.ceil(H.outer.hp / H.outer.max * 100) + '%'), cx, y0 + 18);
+  ctx.font = '700 10px Silkscreen, monospace'; ctx.fillStyle = '#f6eedf'; ctx.lineWidth = 3;
+  const info = H.kills + ' KILLS'; ctx.strokeText(info + '  ·  ' + Math.floor(H.t) + ' S', cx, y0 + 18);
+  ctx.fillText(H.kills + ' KILLS  ·  ' + Math.floor(H.t) + ' S' + (H.outer.gone ? '' : H.outer.down ? '  ·  OUTER CASTLE GONE' : '  ·  OUTER WALL ' + Math.ceil(H.outer.hp / H.outer.max * 100) + '%'), cx, y0 + 18);
   ctx.restore();
 }
 /* ---------- marching soldiers ---------- */
@@ -2158,7 +2183,7 @@ function spawnMarcher(type) {
   const T = MT[type], hp = Math.round(T.hp * (1 + st.level * .08));
   st.marchers.push({ type, x: farX() + 260, hp, max: hp, s: T.s, spd: T.spd * rand(.9, 1.1), ph: rand(0, 6), dead: false, deadT: 0, rot: 0, hitT: 0, burn: 0, frozen: 0, stuck: [] });
 }
-function mLocal(m, x, y) { return { x: (x - m.x) / m.s, y: y / m.s }; }
+function mLocal(m, x, y) { return { x: (x - m.x) / m.s, y: (y + (m.y || 0)) / m.s }; }
 function mZone(m, x, y) {
   if (m.dead) return null;
   const p = mLocal(m, x, y);
@@ -2208,7 +2233,7 @@ function updateMarchers(dt) {
   while (st.marchQ.length && st.marchQ[0].t <= st.marchT) spawnMarcher(st.marchQ.shift().type);
   const cx = castleX();
   for (const m of st.marchers) {
-    if (m.dead) { m.deadT += dt; m.rot = Math.min(1.5, m.rot + dt * 5); continue; }
+    if (m.dead) { m.deadT += dt; m.rot = Math.min(1.5, m.rot + dt * 5); if (m.y > 0) m.y = Math.max(0, m.y - 260 * dt); continue; }
     m.hitT -= dt;
     if (m.burn > 0) {
       m.burn -= dt; m.hp -= 8 * dt;
@@ -2231,7 +2256,7 @@ function updateMarchers(dt) {
   st.marchers = st.marchers.filter(m => !m.dead || m.deadT < 2.5);
 }
 function drawMarcher(m) {
-  const x = SX(m.x), y = SY(0), T = MT[m.type];
+  const x = SX(m.x), y = SY(-(m.y || 0)), T = MT[m.type];
   if (x < -60 || x > W + 60) return;
   ctx.save(); ctx.translate(x, y); ctx.scale(sc * m.s * (m.ally ? -1 : 1), sc * m.s);
   if (m.dead) { ctx.globalAlpha = clamp(1 - (m.deadT - 1.5), 0, 1); ctx.rotate(m.rot); }
@@ -2270,7 +2295,7 @@ function drawMarcher(m) {
   if (m.frozen > 0 && !m.dead) { ctx.fillStyle = 'rgba(191,233,255,.4)'; ctx.fillRect(-20, -100, 40, 100); }
   for (const s2 of m.stuck) { ctx.save(); ctx.translate(s2.x, s2.y); ctx.rotate(s2.ang); drawArrowShape(22); ctx.restore(); }
   ctx.restore();
-  if (!m.dead && m.hp < m.max) {
+  if (!m.dead && m.hp < m.max && !m.horde) {
     const w = 34 * Math.max(.7, m.s), bx = x - w / 2, by = SY(-108 * m.s) - 4;
     ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(bx, by, w, 4);
     ctx.fillStyle = '#ff5a4e'; ctx.fillRect(bx, by, w * m.hp / m.max, 4);
@@ -2980,7 +3005,30 @@ function flyerSpot(T) {
   const px = T ? T.x : st.P.x;
   return clamp(px + rand(420, 1300), 450, 2100);
 }
+// horde bats don't spit: they rush the castle, bite, fly off and come back
+function hordeBatStep(E, dt) {
+  const P = st.P, f = feet(P);
+  E.wingPh += dt * 18;
+  if (E.backT > 0) { E.backT -= dt; E.tx = f.x + 650; E.th = 280; }
+  else { E.tx = f.x + 10; E.th = Math.max(60, -f.y + 5); }
+  E.fvx += ((E.tx - E.x) * 1.2 - E.fvx) * Math.min(1, dt * 2);
+  E.fvh += ((E.th - E.h) * 1.2 - E.fvh) * Math.min(1, dt * 2);
+  E.fvx = clamp(E.fvx, -170, 170); E.fvh = clamp(E.fvh, -130, 130);
+  E.x += E.fvx * dt; E.h = clamp(E.h + E.fvh * dt + Math.sin(E.wingPh * .5) * dt * 34, 50, 560);
+  E.f = E.fvx < 0 ? -1 : 1;
+  if (E.backT > 0 || P.dead || st.horde.over) return;
+  const b = feet(E);
+  if (Math.abs(b.x - f.x) < 45 && Math.abs(b.y - BAT_Y - (f.y - 60)) < 60) {
+    const d = Math.round(8 * (1 - st.armour));
+    P.hp -= d; P.hitT = .1; E.backT = rand(2, 3.5); E.fireT = st.t;
+    text(f.x, f.y - 140, 'BITE -' + d, '#8cff5a', 14, .9);
+    for (let q = 0; q < 8; q++) P_(f.x, f.y - 60, rand(-90, 90), rand(-120, 20), .4, 2.2, q % 2 ? '#8cff5a' : '#ff5a4e', 'spark');
+    sfx('hit');
+    if (P.hp <= 0) hordeOver();
+  }
+}
 function flyerStep(E, dt) {
+  if (E.hordeBat) { hordeBatStep(E, dt); return; }
   E.wingPh += dt * (E.spitP > 0 ? 24 : 15);
   if ((E.wT -= dt) <= 0) { E.wT = rand(2.5, 5); E.tx = flyerSpot(flyerTarget(E)); E.th = rand(175, 375); }
   E.fvx += ((E.tx - E.x) * .9 - E.fvx) * Math.min(1, dt * 1.6);
@@ -3087,7 +3135,7 @@ function drawFlyer(a) {
   }
   ctx.restore();
   // tiny health bar once it's been hurt
-  if (!a.dead && a.hp < a.max) {
+  if (!a.dead && a.hp < a.max && !st.horde) {
     const w = 34, y = cy - 42 * sc * s, fr = clamp(a.hp / a.max, 0, 1);
     ctx.fillStyle = 'rgba(20,20,20,.55)'; ctx.fillRect(cx - w / 2, y, w, 4);
     ctx.fillStyle = fr > .35 ? '#8cff5a' : '#c4141c'; ctx.fillRect(cx - w / 2, y, w * fr, 4);
@@ -3400,11 +3448,15 @@ const SKY_PALS = [
   { name: 'dawn', sky: ['#2b3a6e', '#6e6fae', '#c98fb5', '#f7b6a8', '#ffe3c2'], sunY: .7, sun: '#fff6e0', g1: '#fff0dc', g2: '#ffd6c8', g3: '#f0b4c0', ray: '#ffe6dc', cl1: '#ffe6f0', cl2: '#e6b4d2', lay: [['#a99ac4', '#8a7aa8'], ['#7c6a9e', '#5e4f80'], ['#4c3f6c', '#322850']], tree: '#2a2244', haze: '#ffd2dc', ember: '#fff0dc', stars: .45, sunA: 1 },
   { name: 'day', sky: ['#3d6fbe', '#6a9ce0', '#9cc4ee', '#cfe2f2', '#f3ecd6'], sunY: .2, sun: '#fffbea', g1: '#fffaf0', g2: '#fff4d6', g3: '#ffeac0', ray: '#fffae6', cl1: '#ffffff', cl2: '#dce8f8', lay: [['#93abcc', '#7690b4'], ['#6e84a8', '#57698c'], ['#4e5878', '#363d5a']], tree: '#2a2c44', haze: '#eef2ff', ember: '#ffffff', stars: 0, sunA: .9 },
 ].map(p => { const o = { name: p.name }; for (const k in p) if (k !== 'name') o[k] = typeof p[k] === 'string' ? hexC(p[k]) : Array.isArray(p[k]) ? p[k].map(v => Array.isArray(v) ? v.map(hexC) : hexC(v)) : p[k]; return o; });
+// the horde's open green fields (not in the level rotation)
+const FIELD_PAL = [{ name: 'fields', sky: ['#3f7fd6', '#6aa6ea', '#a0cdf2', '#d2ebf6', '#eef6dc'], sunY: .18, sun: '#fffbea', g1: '#fffaf0', g2: '#fff4d6', g3: '#ffeac0', ray: '#fffae6', cl1: '#ffffff', cl2: '#e4f0fa',
+  lay: [['#a6d09a', '#8cbc84'], ['#78b562', '#62a050'], ['#56963f', '#447f32']], tree: '#2f5e28', haze: '#f2fbe8', ember: '#ffffff', stars: 0, sunA: .9 }]
+  .map(p => { const o = { name: p.name }; for (const k in p) if (k !== 'name') o[k] = typeof p[k] === 'string' ? hexC(p[k]) : Array.isArray(p[k]) ? p[k].map(v => Array.isArray(v) ? v.map(hexC) : hexC(v)) : p[k]; return o; })[0];
 const mixV = (a, b, u) => typeof a === 'number' ? a + (b - a) * u : a.map((v, i) => mixV(v, b[i], u));
 const rgba = (c, al = 1) => `rgba(${Math.round(c[0])},${Math.round(c[1])},${Math.round(c[2])},${al})`;
 const SKY = { lv: null, from: null, to: null, t0: 0 };
 function skyPal() {
-  const lv = st ? st.level : 1, to = SKY_PALS[(Math.max(1, lv) - 1) % SKY_PALS.length], now = performance.now();
+  const hz = !!(st && st.horde), lv = hz ? 'horde' : st ? st.level : 1, to = hz ? FIELD_PAL : SKY_PALS[(Math.max(1, lv) - 1) % SKY_PALS.length], now = performance.now();
   if (SKY.lv === null) { SKY.lv = lv; SKY.from = SKY.to = to; }
   if (lv !== SKY.lv) { SKY.from = skyNow(now); SKY.to = to; SKY.t0 = now; SKY.lv = lv; }
   return skyNow(now);
@@ -3482,9 +3534,10 @@ function drawBG() {
   // ground with grass tufts
   const gy = H - GROUND + camY;
   const gg = ctx.createLinearGradient(0, gy, 0, H);
-  gg.addColorStop(0, '#3a2a48'); gg.addColorStop(1, '#1c1424');
+  const grass = !!(st && st.horde);
+  gg.addColorStop(0, grass ? '#5fa33f' : '#3a2a48'); gg.addColorStop(1, grass ? '#3a6e26' : '#1c1424');
   ctx.fillStyle = gg; ctx.fillRect(0, gy, W, H - gy);
-  ctx.strokeStyle = '#2a1e38'; ctx.lineWidth = 1.6;
+  ctx.strokeStyle = grass ? '#4a8f30' : '#2a1e38'; ctx.lineWidth = 1.6;
   const gs = 9 * sc, startG = Math.floor(camX / 9);
   for (let k = startG; k < startG + W / gs + 2; k++) {
     if (hash(k * 1.7) < .35) continue;
@@ -4035,7 +4088,7 @@ function drawReloadRing() {
 }
 const insetW = () => Math.min(170, W * .26);
 function drawInset() {
-  if (!st || !running) return;
+  if (!st || !running || st.horde) return;
   const away = Math.abs(camX - homeCam()) > 80 && !st.P.dead;
   st.insetA = (st.insetA || 0) + ((away ? 1 : 0) - (st.insetA || 0)) * .2;
   if (st.insetA < .03) return;
@@ -4098,7 +4151,7 @@ function drawHUD() {
   const rx = W - 18 - 52;
   ctx.textAlign = 'right'; ctx.font = '700 12px Silkscreen, monospace'; ctx.fillStyle = '#f6eedf';
   ctx.fillText(st.horde ? 'BONUS · HORDE' : st.practice ? 'LAST SHOT ' + Math.round(st.shotDmg || 0) + ' DMG  ·  BEST ' + Math.round(st.bestDmg || 0) : 'LEVEL ' + st.level + '  ·  ' + alive().length + '/' + st.enemies.length + ' LEFT', rx, 12);
-  st.enemies.forEach((E, i) => {
+  if (!st.horde) st.enemies.forEach((E, i) => {
     const y = 32 + i * 13, ef = clamp(E.hp / E.max, 0, 1);
     ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(rx - 90, y, 90, 6);
     if (!E.dead) { ctx.fillStyle = '#ff5a4e'; ctx.fillRect(rx - 90 * ef, y, 90 * ef, 6); }
@@ -4593,7 +4646,7 @@ const ZMIN = .5, ZMAX = 1.8, fingers = new Map();
 let pinch = null, pinchLock = false, zoomShowT = 0;
 function setZoom(z, cx) {
   z = clamp(z, ZMIN, ZMAX); if (Math.abs(z - zoom) < .001) return;
-  const wx = camX + cx / sc; zoom = z; sc = scBase * zoom; camX = wx - cx / sc; zoomShowT = performance.now();
+  const wx = camX + cx / sc; zoom = z; sc = scBase * zoom * viewK(); camX = wx - cx / sc; zoomShowT = performance.now();
   try { localStorage.setItem('stickZoom', zoom.toFixed(2)); } catch (e) {}
 }
 const twoFingers = () => [...fingers.values()].slice(0, 2);
