@@ -2434,6 +2434,79 @@ function drawCocoon(x, top, bot, hw, left, seed) {
   }
   ctx.restore();
 }
+// a ground soldier is pinned under a blanket of web: it drapes over them and is stuck down to the ground all round (screen units)
+function drawBlanket(x, gy, h, hw, left, seed) {
+  const k = clamp(left / 1.5, 0, 1), al = .5 + .45 * Math.min(1, left), N = 9, W2 = hw * 1.7;
+  const arch = (a, f) => [x + Math.cos(a) * W2 * f, gy - Math.sin(a) * h * f * (1 + .06 * Math.sin(a * 5 + seed))];
+  ctx.save(); ctx.lineCap = 'round';
+  // the sheet over them
+  ctx.beginPath(); ctx.moveTo(x - W2, gy);
+  for (let i = 1; i < 16; i++) ctx.lineTo(...arch(Math.PI * (1 - i / 16), 1));
+  ctx.lineTo(x + W2, gy); ctx.closePath();
+  ctx.fillStyle = 'rgba(236,241,248,' + (.42 * al).toFixed(3) + ')'; ctx.fill();
+  ctx.strokeStyle = 'rgba(238,243,250,' + al.toFixed(3) + ')'; ctx.lineWidth = Math.max(1, 1.4 * sc); ctx.stroke();
+  // strands from the top down to the ground, each stuck down with a blob of web
+  for (let i = 0; i <= N; i++) {
+    if (hash(seed + i * 1.9) > k + .3) continue;
+    const a = Math.PI * (1 - i / N), [px, py] = arch(a, 1), gx = x + Math.cos(a) * W2 * 1.35 + (hash(seed + i) - .5) * hw * .3;
+    ctx.beginPath(); ctx.moveTo(x, gy - h * .96); ctx.quadraticCurveTo((x + px) / 2, py - h * .05, px, py); ctx.lineTo(gx, gy); ctx.stroke();
+    ctx.fillStyle = 'rgba(238,243,250,' + al.toFixed(3) + ')'; ctx.beginPath(); ctx.ellipse(gx, gy, Math.max(1.5, 2.6 * sc), Math.max(1, 1.4 * sc), 0, 0, 6.283); ctx.fill();
+  }
+  // cross threads sagging between the strands
+  for (const f of [.45, .75]) {
+    for (let i = 0; i < N; i++) {
+      if (hash(seed + i * 3 + f * 10) > k + .25) continue;
+      const [ax, ay] = arch(Math.PI * (1 - i / N), f), [bx, by] = arch(Math.PI * (1 - (i + 1) / N), f);
+      ctx.beginPath(); ctx.moveTo(ax, ay); ctx.quadraticCurveTo((ax + bx) / 2, (ay + by) / 2 + h * .06, bx, by); ctx.stroke();
+    }
+  }
+  // a sticky puddle of web on the ground
+  ctx.fillStyle = 'rgba(236,241,248,' + (.35 * al).toFixed(3) + ')'; ctx.beginPath(); ctx.ellipse(x, gy, W2 * 1.45, Math.max(2, 3 * sc), 0, 0, 6.283); ctx.fill();
+  ctx.restore();
+}
+// a webbed object (window, fan...) is tied down: thick sticky strands run from it to the ground (screen units)
+function drawWebTie(x, top, bot, hw, gy, left, seed) {
+  const k = clamp(left / 1.5, 0, 1), al = .5 + .45 * Math.min(1, left), N = 7, h = bot - top;
+  if (gy <= bot + 4) return;
+  const S = [];
+  for (let i = 0; i < N; i++) {
+    const u = i / (N - 1) - .5;
+    const sx = x + u * hw * 1.8, sy = bot - (1 - Math.abs(u) * 2) * h * .08 - Math.abs(u) * h * .45;   // round the bottom and up the sides
+    const ex = x + u * hw * (3.6 + hash(seed + i * 4.1) * 1.4), sway = Math.sin(st.t * 1.6 + seed + i) * hw * .04;
+    S.push({ sx, sy, ex, ey: gy, sway, on: hash(seed + i * 2.7) <= k + .3 });
+  }
+  const pt = (s, t) => [s.sx + (s.ex - s.sx) * t + Math.sin(t * Math.PI) * s.sway, s.sy + (s.ey - s.sy) * t];
+  ctx.save(); ctx.lineCap = 'round';
+  // strands: a soft shadow, then the bright thread on top
+  for (const [lw, col, oy] of [[3, 'rgba(120,130,145,', 1.2], [1.8, 'rgba(244,247,252,', 0]]) {
+    ctx.strokeStyle = col + (al * (oy ? .55 : 1)).toFixed(3) + ')'; ctx.lineWidth = Math.max(1, lw * sc);
+    for (const s of S) {
+      if (!s.on) continue;
+      ctx.beginPath(); ctx.moveTo(s.sx, s.sy + oy * sc);
+      for (let j = 1; j <= 8; j++) { const [px, py] = pt(s, j / 8); ctx.lineTo(px, py + oy * sc); }
+      ctx.stroke();
+    }
+  }
+  // cross threads near the object, sagging between neighbouring strands
+  ctx.strokeStyle = 'rgba(236,241,248,' + (.8 * al).toFixed(3) + ')'; ctx.lineWidth = Math.max(.8, sc);
+  for (const t of [.08, .2, .36]) {
+    for (let i = 0; i < N - 1; i++) {
+      if (!S[i].on || !S[i + 1].on || hash(seed + i * 5 + t * 30) > k + .2) continue;
+      const [ax, ay] = pt(S[i], t), [bx, by] = pt(S[i + 1], t), sag = Math.hypot(bx - ax, by - ay) * .22;
+      ctx.beginPath(); ctx.moveTo(ax, ay); ctx.quadraticCurveTo((ax + bx) / 2, (ay + by) / 2 + sag, bx, by); ctx.stroke();
+    }
+  }
+  // sticky blobs where the strands are glued to the ground, and dew drops on the strands
+  for (const s of S) {
+    if (!s.on) continue;
+    ctx.fillStyle = 'rgba(240,244,250,' + al.toFixed(3) + ')';
+    ctx.beginPath(); ctx.ellipse(s.ex, s.ey, Math.max(2, 4 * sc), Math.max(1.2, 2 * sc), 0, 0, 6.283); ctx.fill();
+    const [dx, dy] = pt(s, .55 + hash(s.ex) * .3);
+    ctx.fillStyle = 'rgba(210,235,255,' + (.9 * al).toFixed(3) + ')';
+    ctx.beginPath(); ctx.arc(dx, dy, Math.max(1, 1.5 * sc), 0, 6.283); ctx.fill();
+  }
+  ctx.restore();
+}
 function drawWebs() {
   for (const E of st.enemies) {
     if (!(E.webT > 0) || E.dead) continue;
@@ -2441,8 +2514,12 @@ function drawWebs() {
     if (E.flyer) drawCocoon(SX(E.x), SY(f.y - BAT_Y - 26 * k), SY(f.y - BAT_Y + 34 * k), 26 * k * sc, E.webT, E.id || 1);
     else drawCocoon(SX(f.x), SY(f.y - 72 * k), SY(f.y + 2), 24 * k * sc, E.webT, E.id || 1);
   }
-  for (const m of st.marchers || []) if (m.web > 0 && !m.dead) { const s = m.s || 1, y = m.y || 0; drawCocoon(SX(m.x), SY(y - 70 * s), SY(y + 2), 15 * s * sc, m.web, m.x); }
-  for (const g of st.gadgets) if (g.webT > 0 && !g.gone) { const z = g.size || 1; drawWeb(SX(g.x), SY(g.y - 46 * z), SY(g.y + 40 * z), 44 * z * sc, g.webT, g.id || 1); }
+  for (const m of st.marchers || []) if (m.web > 0 && !m.dead) { const s = m.s || 1, y = m.y || 0; drawBlanket(SX(m.x), SY(1 - y), 78 * s * sc, 20 * s * sc, m.web, m.x); }
+  for (const g of st.gadgets) if (g.webT > 0 && !g.gone) {
+    const z = g.size || 1, top = SY(g.y - 46 * z), bot = SY(g.y + 40 * z), hw = 44 * z * sc;
+    drawWebTie(SX(g.x), top, bot, hw, SY(0), g.webT, g.id || 1);
+    drawWeb(SX(g.x), top, bot, hw, g.webT, g.id || 1);
+  }
 }
 /* ---------- GAME CHANGERS (tier 4): forge a POWERFUL arrow + one more power. 1 shot, a huge effect, enemies only ---------- */
 const GC_GOLD = '#ffc83a';
