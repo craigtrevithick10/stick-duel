@@ -36,6 +36,10 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 #homeBtn:focus-visible{outline:3px solid var(--blood);outline-offset:3px}
 #castleBtn{position:absolute;right:max(14px,env(safe-area-inset-right,0px));bottom:70px;padding:10px 14px;border:0;cursor:pointer;font:700 13px var(--pixel);letter-spacing:.05em;color:#10240f;background:#7dff9a;box-shadow:0 3px 0 rgba(0,0,0,.35)}
 #castleBtn:focus-visible{outline:3px solid var(--blood);outline-offset:3px}
+#catBtn{position:absolute;right:max(14px,env(safe-area-inset-right,0px));bottom:70px;padding:10px 14px;border:0;cursor:pointer;font:700 13px var(--pixel);letter-spacing:.05em;color:#2a1608;background:#ffb347;box-shadow:0 3px 0 rgba(0,0,0,.35)}
+#catBtn.on{background:#fff36b;outline:3px solid #ff9a45}
+#catBtn.wait{opacity:.6}
+#catBtn:focus-visible{outline:3px solid var(--blood);outline-offset:3px}
 #quiver{position:absolute;left:50%;transform:translateX(-50%);bottom:12px;display:flex;gap:6px}
 #quiver button{min-width:62px;padding:6px 8px 5px;border:2px solid rgba(246,238,223,.25);background:rgba(20,14,30,.62);color:var(--bone);font:700 11px var(--pixel);letter-spacing:.04em;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;line-height:1}
 #quiver button small{font:700 11px var(--pixel);color:var(--bone)}
@@ -101,6 +105,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
   <button id="musicBtn" type="button" aria-label="Music on or off">♪</button>
   <button id="homeBtn" type="button" hidden>◀ ARCHER</button>
   <button id="castleBtn" type="button" hidden>⇄ OUTER CASTLE</button>
+  <button id="catBtn" type="button" hidden>🪨 CATAPULT</button>
   <div id="quiver" hidden></div>
 
   <div class="overlay" id="startScreen">
@@ -650,6 +655,7 @@ function gadgetStep(ar, sdt) {
     if (g.type === 'crate') {
       if (!g.gone && ar.owner.isP && Math.abs(ar.x - g.x) < 15 && Math.abs(ar.y - (g.y + Math.sin(st.t * 2 + g.bob) * 6)) < 15) {
         g.gone = true; ar.done = true;
+        if (g.piece) { hordePiece(g); return; }
         if (g.recruit) { hordeRecruit(g); for (let i = 0; i < 20; i++) P_(g.x, g.y, rand(-180, 180), rand(-220, 60), .6, 2.6, i % 2 ? '#b07a43' : '#7dff9a', 'spark'); sfx('heal'); return; }
         const pw = POWERS[g.pk];
         if (g.pk === 'shield') st.barrier = { hp: 120, max: 120, hitT: 0 };
@@ -1847,7 +1853,7 @@ function startHorde() {
   const keep = { x: P.x, h: P.h, pw: P.pw };
   st.horde = { t: 0, score: 0, kills: 0, spawnT: 1.5, giantT: 4, batT: 6, growT: 30, itemT: 14, kegT: 18,
     keep, outer: { x: keep.x + 1150, h: 105, pw: 64, hp: 0, max: 450, hitT: 0, down: true, gone: true },   // one castle for now
-    on: 'keep', far: keep.x + 3500, kegs: [], over: false, overT: 0, h0 };
+    on: 'keep', far: keep.x + 3500, kegs: [], over: false, overT: 0, h0, pieces: {}, cat: null };
   // things in the field to help: windows, an arrow crate, a medkit and powder kegs
   const H = st.horde;
   hordeItem('win', [keep.x + 350, H.outer.x - 150]);
@@ -1857,6 +1863,7 @@ function startHorde() {
   for (let i = 0; i < 2; i++) hordeKeg();
   st.helpers = st.helpers.slice(0, WALL_MAX); st.helpers.forEach((h, i) => { h.dead = false; h.hp = h.max; toWall(h, i); });   // archers you already have go on the walls
   hordeRecruitCrate();
+  hordePieceCrate();
   st.banner = { t: 'BONUS: HORDE ATTACK', sub: 'HOLD THE CASTLE · EVERY KILL SCORES', life: 3.4 };
   resize(); st.camHold = 0; st.camFocus = null; camX = homeCam();
   sfx('wave');
@@ -1995,6 +2002,7 @@ function hordeStep(dt, rdt) {
   H.t += dt;
   const t = H.t;
   hordePile();
+  if (H.cat && H.cat.reload > 0) H.cat.reload -= dt;
   if ((H.spawnT -= dt) <= 0 && st.marchers.length < HORDE_MAX) {
     const n = Math.min(10, 1 + Math.floor(t / 40) + (Math.random() < .3 ? 1 : 0));
     for (let i = 0; i < n; i++) hordeSpawn(hordePick(t), i * rand(30, 70));
@@ -2012,7 +2020,8 @@ function hordeStep(dt, rdt) {
   if ((H.itemT -= dt) <= 0) {
     H.itemT = rand(13, 19);
     const live = st.gadgets.filter(g => !g.gone);
-    if (st.helpers.filter(h => h.wall).length < WALL_MAX && !live.some(g => g.recruit) && Math.random() < .55) hordeRecruitCrate();
+    if (!H.cat && !live.some(g => g.piece) && Math.random() < .6) hordePieceCrate();
+    else if (st.helpers.filter(h => h.wall).length < WALL_MAX && !live.some(g => g.recruit) && Math.random() < .55) hordeRecruitCrate();
     else if (live.filter(g => g.type === 'crate' || g.type === 'hp').length < 2) { const g = hordeItem(Math.random() < .6 ? 'crate' : 'hp', [H.keep.x + 300, H.outer.x + 900]); g.appearT = .6; }
     else if (live.filter(g => g.type === 'win').length < 2) { const g = hordeItem('win', [H.keep.x + 350, H.outer.x + 1100]); g.appearT = .6; }
   }
@@ -2107,6 +2116,7 @@ function drawHordeCastles() {
 }
 // score, a map of the whole field (castles, soldiers, bats, your view) and the outer wall's health
 function drawHordeHUD() {
+  drawCatHUD();
   const H = st.horde, cx = W / 2, w = Math.min(340, W * .42), x0 = cx - w / 2, y0 = 40;
   ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'top';
   ctx.lineJoin = 'round'; ctx.strokeStyle = 'rgba(24,30,20,.6)'; ctx.lineWidth = 4;
@@ -2328,6 +2338,127 @@ function drawMarcher(m) {
     ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(bx, by, w, 4);
     ctx.fillStyle = '#ff5a4e'; ctx.fillRect(bx, by, w * m.hp / m.max, 4);
   }
+}
+
+/* ---------- horde catapult: collect WHEEL, ARM and ROPE in the field, then it sits on the back wall ---------- */
+const CAT_PARTS = ['wheel', 'arm', 'rope'], CAT_NAMES = { wheel: 'WHEEL', arm: 'ARM', rope: 'ROPE' }, CAT_RELOAD = 7, CAT_R = 120;
+function hordePieceCrate() {
+  const H = st.horde, live = st.gadgets.filter(g => !g.gone && g.piece).map(g => g.piece);
+  const want = CAT_PARTS.filter(k => !H.pieces[k] && !live.includes(k));
+  if (!want.length || H.cat) return null;
+  const g = hordeItem('crate', [H.keep.x + 500, H.outer.x + 1300]); g.piece = want[Math.floor(Math.random() * want.length)]; g.appearT = .6;
+  return g;
+}
+function hordePiece(g) {
+  const H = st.horde;
+  H.pieces[g.piece] = 1;
+  const n = CAT_PARTS.filter(k => H.pieces[k]).length;
+  text(g.x, g.y - 26, CAT_NAMES[g.piece] + '  ' + n + '/3', '#ffb347', 18, 1.4);
+  for (let i = 0; i < 20; i++) P_(g.x, g.y, rand(-180, 180), rand(-220, 60), .6, 2.6, i % 2 ? '#b07a43' : '#ffb347', 'spark');
+  sfx('heal');
+  if (n >= 3) buildCatapult();
+}
+function buildCatapult() {
+  const H = st.horde, K = H.keep;
+  H.cat = { x: K.x - K.pw / 2 - 64, reload: 0, armed: false };
+  for (let q = 0; q < 24; q++) P_(H.cat.x, -WALL_H - 20, rand(-140, 140), rand(-200, 0), .6, 3, q % 2 ? '#b07a43' : '#ffd27a', 'spark');
+  st.banner = { t: 'CATAPULT BUILT!', sub: 'TAP 🪨 CATAPULT, THEN SHOOT', life: 2.4 };
+  sfx('wave');
+}
+const catPt = () => ({ x: st.horde.cat.x + 12, y: -WALL_H - 40 });
+const catArmed = () => !!(st.horde && st.horde.cat && st.horde.cat.armed);
+function catToggle() {
+  const C = st.horde && st.horde.cat;
+  if (!C || C.reload > 0 || st.horde.over) return;
+  C.armed = !C.armed; sfx('click');
+  if (C.armed) text(C.x, -WALL_H - 90, 'CATAPULT READY: SHOOT!', '#ffb347', 14, 1.2);
+}
+// your next shot flies from the catapult as a boulder (it keeps your arrow power, so windows and upgrades still work)
+function catLaunch(n0) {
+  const C = st.horde.cat, p = catPt();
+  for (let q = n0; q < st.arrows.length; q++) { const ar = st.arrows[q]; ar.rock = true; ar.x = ar.sx = p.x; ar.y = ar.sy = p.y; }
+  C.armed = false; C.reload = CAT_RELOAD; shake(5); sfx('whoosh');
+}
+// the boulder lands: everything in the strike zone goes down. Powers change the blast.
+function catBoom(ar) {
+  const H = st.horde;
+  if (!H) return;
+  const x = ar.x, y = Math.min(ar.y, -2);
+  const fire = hasPk(ar, 'fire'), ice = hasPk(ar, 'ice'), boom = hasPk(ar, 'boom'), zap = hasPk(ar, 'storm');
+  const R = CAT_R * (hasPk(ar, 'heavy') ? 1.4 : 1) * (boom ? 1.35 : 1);
+  ring(x, y, R, fire ? '#ff9a45' : ice ? '#bfe9ff' : '#ffd27a', .5, 6); ring(x, y, R * .6, '#f6eedf', .35, 4);
+  shake(boom ? 14 : 9); sfx('boom');
+  for (let q = 0; q < 34; q++) P_(x + rand(-20, 20), y, rand(-280, 280), rand(-400, -60), rand(.5, 1), rand(3, 6), q % 3 ? '#8a7f74' : '#5a4636', 'shard');
+  if (fire) for (let q = 0; q < 30; q++) P_(x + rand(-R, R) * .7, y, rand(-60, 60), rand(-260, -60), rand(.4, .9), rand(2.5, 5), q % 2 ? '#ff9a45' : '#ffd27a', 'flame');
+  if (ice) for (let q = 0; q < 24; q++) P_(x + rand(-R, R), y - rand(0, 40), rand(-60, 60), rand(-160, -20), rand(.4, .8), 2.6, q % 2 ? '#bfe9ff' : '#ffffff', 'spark');
+  let n = 0;
+  for (const m of st.marchers) {
+    if (m.dead) continue;
+    const d = Math.hypot(m.x - x, -(m.y || 0) - 40 * m.s - y);
+    if (d < R) { hurtMarcher(m, m.type === 'giant' ? 60 : 99); if (m.dead) n++; }
+    if (!m.dead && fire && d < R * 1.6) m.burn = Math.max(m.burn, 4);
+    if (!m.dead && ice && d < R * 1.7) m.frozen = Math.max(m.frozen, 4);
+  }
+  if (zap) {   // lightning jumps from the strike zone to the next few soldiers
+    const near = st.marchers.filter(m => !m.dead && Math.abs(m.x - x) < 520).sort((a, b) => Math.abs(a.x - x) - Math.abs(b.x - x)).slice(0, 6);
+    let px = x, py = y;
+    for (const m of near) {
+      const my = -(m.y || 0) - 50 * m.s;
+      for (let k = 0; k < 8; k++) P_(px + (m.x - px) * k / 8, py + (my - py) * k / 8 + rand(-8, 8), 0, 0, .3, 2.2, '#fff36b', 'spark');
+      hurtMarcher(m, 99); if (m.dead) n++;
+      px = m.x; py = my;
+    }
+    sfx('zap');
+  }
+  for (const E of st.enemies) {
+    if (E.dead || !E.flyer) continue;
+    const f = feet(E);
+    if (Math.hypot(f.x - x, f.y - BAT_Y - y) < R) { E.hp = 0; kill(E, ar, 'body'); n++; }
+  }
+  for (const K of H.kegs.slice()) if (Math.abs(K.x - x) < R) kegBoom(K);
+  text(x, y - 110, n > 1 ? 'SMASH! ×' + n : 'SMASH!', '#ffd27a', n > 4 ? 24 : 18, 1.3, n > 4 ? 1 : 0);
+}
+function drawRock(ar) {
+  const x = SX(ar.x), y = SY(ar.y), r = 13 * sc;
+  if (ar.col) { ctx.fillStyle = ar.col + '55'; ctx.beginPath(); ctx.arc(x, y, r * 1.8, 0, 6.283); ctx.fill(); }
+  ctx.fillStyle = '#8a7f74'; ctx.strokeStyle = '#3a3029'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(x, y, r, 0, 6.283); ctx.fill(); ctx.stroke();
+  const a = st.t * 9;
+  ctx.strokeStyle = 'rgba(40,30,25,.5)'; ctx.beginPath(); ctx.moveTo(x + Math.cos(a) * r * .6, y + Math.sin(a) * r * .6); ctx.lineTo(x - Math.cos(a) * r * .3, y - Math.sin(a) * r * .3); ctx.stroke();
+  if (Math.random() < .5) P_(ar.x, ar.y, rand(-20, 20), rand(-20, 20), .35, 2.4, ar.col || 'rgba(160,150,140,.8)', 'smoke');
+}
+// the catapult on the back wall: the arm snaps forward when it fires and cranks back while it reloads
+function drawCatapult() {
+  const H = st.horde, C = H && H.cat;
+  if (!C) return;
+  const x = SX(C.x), y = SY(-WALL_H), k = sc;
+  if (x < -80 || x > W + 80) return;
+  ctx.save(); ctx.translate(x, y); ctx.scale(k, k);
+  ctx.lineCap = 'round';
+  if (C.armed) { ctx.fillStyle = 'rgba(255,179,71,' + (.25 + .15 * Math.sin(st.t * 8)) + ')'; ctx.beginPath(); ctx.arc(0, -24, 46, 0, 6.283); ctx.fill(); }
+  ctx.fillStyle = '#7a4a2c'; ctx.fillRect(-26, -12, 52, 7);
+  ctx.fillStyle = '#3a2418';
+  for (const wx of [-17, 17]) { ctx.beginPath(); ctx.arc(wx, -5, 6, 0, 6.283); ctx.fill(); }
+  ctx.strokeStyle = '#5e3c1c'; ctx.lineWidth = 5;
+  ctx.beginPath(); ctx.moveTo(-14, -12); ctx.lineTo(0, -34); ctx.lineTo(14, -12); ctx.stroke();
+  const rest = Math.PI - .35, fired = Math.PI * 2 - 1.25, u = C.reload > 0 ? C.reload / CAT_RELOAD : 0, ang = rest + (fired - rest) * u;
+  ctx.save(); ctx.translate(0, -32); ctx.rotate(ang);
+  ctx.strokeStyle = '#8a5a34'; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(-10, 0); ctx.lineTo(40, 0); ctx.stroke();
+  ctx.fillStyle = '#5e3c1c'; ctx.beginPath(); ctx.arc(40, 0, 7, 0, Math.PI); ctx.fill();
+  if (C.reload <= 0) { ctx.fillStyle = '#8a7f74'; ctx.strokeStyle = '#3a3029'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(40, -6, 7, 0, 6.283); ctx.fill(); ctx.stroke(); }
+  ctx.restore();
+  ctx.fillStyle = '#3a2418'; ctx.beginPath(); ctx.arc(0, -32, 3.5, 0, 6.283); ctx.fill();
+  ctx.restore();
+}
+function drawCatHUD() {
+  const H = st.horde;
+  if (!H || H.cat) return;
+  const n = CAT_PARTS.filter(k => H.pieces[k]).length;
+  ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.font = '700 10px Silkscreen, monospace';
+  ctx.lineJoin = 'round'; ctx.strokeStyle = 'rgba(24,30,20,.6)'; ctx.lineWidth = 3;
+  const t = 'CATAPULT ' + n + '/3: ' + CAT_PARTS.map(k => (H.pieces[k] ? '✓' : '·') + CAT_NAMES[k]).join(' ');
+  ctx.strokeText(t, W / 2, 78); ctx.fillStyle = '#ffb347'; ctx.fillText(t, W / 2, 78);
+  ctx.restore();
 }
 
 /* ---------- boss airship: wanders at random, leaks when the balloon is hit, crash-lands ---------- */
@@ -3399,7 +3530,7 @@ function update(rdt) {
       }
       if (!ar.done && ar.y >= 0) {
         ar.done = true;
-        st.pinned.push({ x: ar.x, y: -2, ang: Math.atan2(ar.vy, ar.vx), col: ar.col });
+        if (!ar.rock) st.pinned.push({ x: ar.x, y: -2, ang: Math.atan2(ar.vy, ar.vx), col: ar.col });
         for (let q = 0; q < 6; q++) st.parts.push({ x: ar.x, y: -2, vx: rand(-80, 80), vy: rand(-140, -30), life: .4, max: .4, r: 2, col: '#6a5470' });
         impactFX(ar, ar.x, -2, false);
         if (hasPk(ar, 'boom')) blast(ar.x, ar.y, ar.owner, riderOf(ar, 'boom')); else sfx('thud');
@@ -3410,6 +3541,7 @@ function update(rdt) {
   if (st.pinned.length > 40) st.pinned.splice(0, st.pinned.length - 40);
   for (const a of st.arrows) if (a.done && a.vol && !a.volDone) { a.volDone = true; if (--a.vol.alive <= 0 && !a.vol.res) { a.vol.res = true; resolveVolley(a.vol); } }
   for (const a of st.arrows) if (a.done && a.tpE) { const id = a.tpE; a.tpE = null; teleportTo(id, a.x, Math.min(a.y, 0)); }
+  for (const a of st.arrows) if (a.done && a.rock && !a.rockBoom) { a.rockBoom = true; catBoom(a); }
   st.arrows = st.arrows.filter(a => !a.done);
 
   // camera: follow your lead arrow out, hold where it lands, then return home
@@ -3646,21 +3778,22 @@ function drawShip(a) {
 function drawPillarRaw(a, isTop) {
   const x = SX(a.x - a.pw / 2), y = SY(-a.h + (a.isP || !a.rise ? 0 : a.dy)), w = a.pw * sc;
   if (x > W + 30 || x + w < -30) return;
+  const BOT = st && st.horde ? SY(0) + 3 : H;   // horde: the ground is lifted, so the tower stops at the grass
   // stone body
   const g = ctx.createLinearGradient(x, 0, x + w, 0);
   g.addColorStop(0, '#f6e6c8'); g.addColorStop(.55, '#dcc29a'); g.addColorStop(1, '#a88c6a');
-  ctx.fillStyle = g; ctx.fillRect(x, y, w, H - y + 4);
+  ctx.fillStyle = g; ctx.fillRect(x, y, w, BOT - y + 4);
   // block courses
   ctx.strokeStyle = 'rgba(90,60,40,.28)'; ctx.lineWidth = 1.2;
   const bh = 26 * sc;
-  for (let k = 0, yy = y + 10 * sc; yy < H; k++, yy += bh) {
+  for (let k = 0, yy = y + 10 * sc; yy < BOT; k++, yy += bh) {
     ctx.beginPath(); ctx.moveTo(x, yy); ctx.lineTo(x + w, yy); ctx.stroke();
     const off = (k % 2 ? .33 : .66) * w;
     ctx.beginPath(); ctx.moveTo(x + off, yy); ctx.lineTo(x + off, yy + bh); ctx.stroke();
   }
   // sun-side highlight & shade side
-  ctx.fillStyle = 'rgba(255,220,170,.25)'; ctx.fillRect(x + w - 4 * sc, y, 3 * sc, H - y);
-  ctx.fillStyle = 'rgba(60,30,40,.18)'; ctx.fillRect(x, y, 5 * sc, H - y);
+  ctx.fillStyle = 'rgba(255,220,170,.25)'; ctx.fillRect(x + w - 4 * sc, y, 3 * sc, BOT - y);
+  ctx.fillStyle = 'rgba(60,30,40,.18)'; ctx.fillRect(x, y, 5 * sc, BOT - y);
   // cap ledge
   ctx.fillStyle = '#c9ad84'; ctx.fillRect(x - 4 * sc, y, w + 8 * sc, 9 * sc);
   ctx.fillStyle = '#fff1d6'; ctx.fillRect(x - 4 * sc, y, w + 8 * sc, 2.5 * sc);
@@ -3969,7 +4102,7 @@ function drawGadget(g) {
     return;
   }
   if (g.type === 'crate') {
-    const pw = g.recruit ? { col: '#7dff9a', short: '+ARCHER' } : POWERS[g.pk], by = y + Math.sin(st.t * 2 + g.bob) * 6 * sc, r = 15 * sc;
+    const pw = g.recruit ? { col: '#7dff9a', short: '+ARCHER' } : g.piece ? { col: '#ffb347', short: CAT_NAMES[g.piece] } : POWERS[g.pk], by = y + Math.sin(st.t * 2 + g.bob) * 6 * sc, r = 15 * sc;
     ctx.fillStyle = pw.col + '33'; ctx.beginPath(); ctx.arc(x, by, r * 1.9, 0, 6.283); ctx.fill();
     ctx.fillStyle = '#a8743f'; ctx.fillRect(x - r, by - r, r * 2, r * 2);
     ctx.strokeStyle = '#5e3c1c'; ctx.lineWidth = 2.5 * sc; ctx.strokeRect(x - r + 3 * sc, by - r + 3 * sc, r * 2 - 6 * sc, r * 2 - 6 * sc);
@@ -4095,10 +4228,11 @@ function drawPreview() {
   if (!drag || P.pow < .05 || P.dead) return;
   if (inSteam(P)) return;
   const s = shoulder(P), v = 300 + P.pow * 1100;
-  let x = s.x + Math.cos(P.aim) * 24, y = s.y + Math.sin(P.aim) * 24, vx = Math.cos(P.aim) * v, vy = Math.sin(P.aim) * v;
+  const cp = catArmed() ? catPt() : null;
+  let x = cp ? cp.x : s.x + Math.cos(P.aim) * 24, y = cp ? cp.y : s.y + Math.sin(P.aim) * 24, vx = Math.cos(P.aim) * v, vy = Math.sin(P.aim) * v;
   const dt = 1 / 60;
-  ctx.fillStyle = st.reload > 0 ? 'rgba(20,20,20,.3)' : 'rgba(255,255,255,.85)';
-  const scope = st.power && (st.power.k === 'scope' || st.power.k2 === 'scope'), N = scope ? 160 : st.longAim ? 55 : 22;
+  ctx.fillStyle = st.reload > 0 ? 'rgba(20,20,20,.3)' : cp ? 'rgba(255,179,71,.95)' : 'rgba(255,255,255,.85)';
+  const scope = st.power && (st.power.k === 'scope' || st.power.k2 === 'scope'), N = scope ? 160 : cp ? 45 : st.longAim ? 55 : 22;
   for (let i = 0; i < N; i++) {
     for (let k = 0; k < 2; k++) { vx += st.wind * dt; vy += G * dt; x += vx * dt; y += vy * dt; }
     if (y > 0) break;
@@ -4245,7 +4379,7 @@ function draw() {
   ctx.translate(shx, shy);
   for (const g of st.gadgets) { if (g.appearT > 0) ctx.globalAlpha = Math.max(.05, 1 - g.appearT / .6); drawGadget(g); ctx.globalAlpha = 1; }
   for (const h of st.helpers) if (!h.wall) drawPillar(h);
-  if (st.horde) { drawHordeCastles(); hordeWall(st.horde.keep.x - st.horde.keep.pw / 2 - 46, WALL_H, 46, 1); }
+  if (st.horde) { drawHordeCastles(); hordeWall(st.horde.keep.x - st.horde.keep.pw / 2 - 86, WALL_H, 86, 1); drawCatapult(); }
   drawPillar(st.P);
   for (const e of st.enemies) drawPillar(e);
   for (const p of st.pinned) {
@@ -4260,6 +4394,7 @@ function draw() {
   for (const a of st.allies) drawMarcher(a);
   trackTrails(); drawTrails();
   for (const ar of st.arrows) {
+    if (ar.rock) { drawRock(ar); continue; }
     const hk = holeK(ar);
     ctx.save(); ctx.translate(SX(ar.x), SY(ar.y)); ctx.scale(sc * hk, sc * hk); ctx.rotate(Math.atan2(ar.vy, ar.vx));
     const tg = ctx.createLinearGradient(-36, 0, -110, 0);
@@ -4570,6 +4705,7 @@ $('shopNext').onclick = () => {
   st.level++; spawnLevel(false); st.camHold = 0; st.camFocus = null; camX = homeCam();
 };
 $('hordeNext').onclick = () => endHorde();
+$('catBtn').onclick = () => { if (st && st.horde) catToggle(); };
 $('castleBtn').onclick = () => { if (st && st.horde) hordeMove(st.horde.on === 'keep' ? 'outer' : 'keep'); };
 function frame(ts) {
   if (st) { const away = running && !paused && Math.abs(camX - homeCam()) > 60 && !st.camHome; if ($('homeBtn').hidden === away) $('homeBtn').hidden = !away; }
@@ -4578,7 +4714,10 @@ function frame(ts) {
   if ($('rotateScreen').hidden === portrait) show('rotateScreen', portrait);
   if (st && st.placing && running && !paused && (st.placing.t -= dt) <= 0) finishPlace(null);
   if (st) { const H = st.horde, on = !!(H && running && !paused && !H.over && !H.outer.down); if ($('castleBtn').hidden === on) $('castleBtn').hidden = !on;
-    if (on) { const lb = H.on === 'keep' ? '⇄ OUTER CASTLE' : '⇄ BACK TO KEEP'; if ($('castleBtn').textContent !== lb) $('castleBtn').textContent = lb; } }
+    if (on) { const lb = H.on === 'keep' ? '⇄ OUTER CASTLE' : '⇄ BACK TO KEEP'; if ($('castleBtn').textContent !== lb) $('castleBtn').textContent = lb; }
+    const C = H && H.cat, cOn = !!(C && running && !paused && !H.over); if ($('catBtn').hidden === cOn) $('catBtn').hidden = !cOn;
+    if (cOn) { const lb = C.armed ? '🪨 AIM & SHOOT' : C.reload > 0 ? '🪨 RELOAD ' + Math.ceil(C.reload) : '🪨 CATAPULT'; if ($('catBtn').textContent !== lb) $('catBtn').textContent = lb;
+      $('catBtn').classList.toggle('on', C.armed); $('catBtn').classList.toggle('wait', C.reload > 0); } }
   if (running && !paused && !portrait && !(st && (st.shop || st.clockOpen || st.linking || st.rack || st.placing || st.hordeShow))) update(dt);
   camY += (camYTarget() - camY) * Math.min(1, dt * 6);
   draw();
@@ -4673,7 +4812,7 @@ $('quiver').addEventListener('click', e => {
   if (e.target.closest('button[data-reset]')) { resetDummies(); return; }
   if (e.target.closest('button[data-fb]')) { st.dummyFire = !st.dummyFire; for (const d of st.enemies) if (d.dummy) { d.aiT = st.dummyFire ? rand(1.5, 3.5) : 1e9; d.aiAim = null; } quiverSig = ''; sfx('click'); return; }
   if (e.target.closest('button[data-link]')) { toggleLink(); return; } const b = e.target.closest('button[data-i]'); if (b) pickSlot(+b.dataset.i); });
-addEventListener('keydown', e => { if (running && st.horde && (e.key === 'c' || e.key === 'C')) { hordeMove(st.horde.on === 'keep' ? 'outer' : 'keep'); return; } if (running && st.practice && (e.key === 'a' || e.key === 'A')) { if (st.rack) closeRack(); else openRack(); return; } const n = +e.key; if (running && n >= 1 && n <= 4) pickSlot(n - 2); else if (running && (e.key === 'l' || e.key === 'L')) toggleLink(); });
+addEventListener('keydown', e => { if (running && st.horde && (e.key === 'b' || e.key === 'B')) { catToggle(); return; } if (running && st.horde && (e.key === 'c' || e.key === 'C')) { hordeMove(st.horde.on === 'keep' ? 'outer' : 'keep'); return; } if (running && st.practice && (e.key === 'a' || e.key === 'A')) { if (st.rack) closeRack(); else openRack(); return; } const n = +e.key; if (running && n >= 1 && n <= 4) pickSlot(n - 2); else if (running && (e.key === 'l' || e.key === 'L')) toggleLink(); });
 
 /* ---------- input ---------- */
 /* ---------- pinch with two fingers (or the mouse wheel) to zoom in and out ---------- */
@@ -4762,6 +4901,7 @@ function release(e) {
       const pk = st.power ? st.power.k : null, pk2 = st.power ? st.power.k2 || null : null;
       const n0 = st.arrows.length;
       fire(P, P.aim, 300 + P.pow * 1100, pk, pk2);
+      if (catArmed()) catLaunch(n0);
       if ((pk === 'cluster' || pk2 === 'cluster') && (st.splitHints = (st.splitHints || 0) + 1) <= 3) text(feet(P).x, feet(P).y - 150, 'TAP THE SCREEN TO SPLIT IT', '#ffb3f0', 14, 1.6);
       const vol = { alive: st.arrows.length - n0, hits: 0 };
       for (let q = n0; q < st.arrows.length; q++) st.arrows[q].vol = vol;
