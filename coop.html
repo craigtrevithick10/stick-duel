@@ -300,6 +300,7 @@ const POWERS = {
   bounce: { name: 'BOUNCY ARROW', short: 'BOUNCE', col: '#ffb02e', shots: 4 },
   web: { name: 'WEB ARROW', short: 'WEB', col: '#eef3fa', shots: 4 },
   clone:  { name: 'CLONE ARROWS', short: 'CLONE', col: '#4fe3c1', shots: 2, rare: true },
+  portal: { name: 'PORTAL ARROWS', short: 'PORTAL', col: '#8f7bff', shots: 2 },
   meteor: { name: 'METEOR SHOWER', short: 'METEOR', col: '#ff7b3a', shots: 1, mega: true },
   blackhole:{ name: 'BLACK HOLE', short: 'VOID',   col: '#b07cff', shots: 1, ultra: true }
 };
@@ -393,7 +394,7 @@ const ICON = {
   armour: '🛡️', leech: '🧛', revive: '💨', glass: '🪟', helper: '🤝',
   pw_triple: '🔱', pw_fire: '🔥', pw_ice: '❄️', pw_boom: '💥', pw_heavy: '🪨', pw_rapid: '⏩', pw_pierce: '📌',
   pw_homing: '🎯', pw_storm: '⚡', pw_cluster: '🎆', pw_scope: '🔭', pw_slowmo: '🐢', pw_tornado: '🌪️',
-  pw_shrink: '🤏', pw_grow: '🍄', pw_tele: '🌀', pw_blackhole: '🕳️', pw_meteor: '☄️', pw_clone: '👥', pw_confuse: '😵', pw_magnet: '🧲', pw_bounce: '🏀', pw_web: '🕸️', pw_shield: '🧱'
+  pw_shrink: '🤏', pw_grow: '🍄', pw_tele: '🌀', pw_blackhole: '🕳️', pw_meteor: '☄️', pw_clone: '👥', pw_confuse: '😵', pw_magnet: '🧲', pw_bounce: '🏀', pw_web: '🕸️', pw_portal: '🚪', pw_shield: '🧱'
 };
 
 let W = 0, H = 0, DPR = 1, sc = 1, camX = 0, camY = 0, scBase = 1, zoom = 1, forcePortrait = false;
@@ -977,7 +978,7 @@ function gadgetStep(ar, sdt) {
       continue;
     }
     if (g.type === 'portal') {
-      if (Math.hypot(ar.x - g.x, ar.y - g.y) < 24 && !(ar.portT > 0)) {
+      if (!g.gone && Math.hypot(ar.x - g.x, ar.y - g.y) < (g.own ? PORT_R : 24) && !(ar.portT > 0)) {
         const o = st.gadgets.find(q => q.id === g.pair);
         if (o) {
           for (let q = 0; q < 10; q++) P_(ar.x, ar.y, rand(-120, 120), rand(-120, 120), .35, 2.2, g.side ? '#ff9a45' : '#5ab8ff', 'spark');
@@ -1161,6 +1162,7 @@ function ring(x, y, r1, col, life = .45, w = 3) { st.rings.push({ x, y, r1, col,
 function glow(x, y, r, col, life = .3) { st.glows.push({ x, y, r, col, life, max: life }); }
 function impactFX(ar, x, y, onBody) {
   const pk = ar.pk, ang = Math.atan2(ar.vy, ar.vx);
+  if (ar.owner && ar.owner.isP && !ar.owner.helper && hasPk(ar, 'portal') && shotOnce(ar, 'portal')) portalShot(ar.owner, x, y);
   if (ar.acid) {   // acid splat
     glow(x, y, 40, 'rgba(140,255,90,', .3); ring(x, y, 26, '#8cff5a', .35, 2.5);
     for (let i = 0; i < 16; i++) P_(x, y, rand(-140, 140), rand(-220, -30), rand(.35, .7), rand(1.8, 3.4), i % 2 ? '#8cff5a' : '#5fd13a', 'spark');
@@ -1246,6 +1248,7 @@ function splitFor(P) {
   const mg = magFlying(P);   // magnet arrows stick in the air
   for (const a of st.arrows.filter(a => !a.done && !a.split && a.owner === P && hasPk(a, 'cluster'))) splitCluster(a);
   for (const a of mg) plantMag(a);
+  for (const a of portFlying(P)) plantPortal(a);   // a tap opens the portal right there
 }
 function blast(x, y, owner, rider) {
   if (st.weather === 'fog') st.fogT = (st.fogT || 0) + 1.5;   // explosions blow the fog away a little
@@ -1310,7 +1313,50 @@ function blood(x, y, vx, vy, n) {
 function text(x, y, t, col, size, life = 1, pop = 0) { st.texts.push({ x, y, t, col, size, life, max: life, pop }); }
 function shake(v) { if (!reduceMotion) st.shake = Math.max(st.shake, v); }
 
-// teleport arrow: the archer it tagged is sent to wherever the shooter's next arrow lands
+// teleport arrow (Craig 2026-11-15): YOU teleport to where your arrow lands, onto a new tower that high. It never moves enemies.
+function teleportSelf(P, x, y) {
+  if (!P || P.dead) return;
+  const f0 = feet(P);
+  if (st.horde) { text(f0.x, f0.y - 150, "CAN'T TELEPORT IN THE HORDE", '#d58cff', 13, 1.4); return; }
+  const lo = typeof fieldL === 'function' ? fieldL() + 60 : -300, hi = farX() + 150;
+  P.home = P.home || { x: P.x, h: P.h };
+  const others = [...PEOPLE().filter(o => o !== P), ...(st.helpers || []), ...st.enemies.filter(o => !o.dead && !o.flyer)];
+  x = clamp(x, lo, hi);
+  for (let k = 0; k < 12; k++) { const near = others.find(o => Math.abs(o.x - x) < 110); if (!near) break; x = near.x + (x >= near.x ? 120 : -120); }
+  for (let q = 0; q < 18; q++) P_(f0.x + rand(-15, 15), f0.y - rand(0, 90), rand(-120, 120), rand(-160, 40), .5, 2.6, '#d58cff', 'spark');
+  ring(f0.x, f0.y - 50, 60, '#d58cff', .5, 3);
+  P.x = x; P.h = clamp(-y, 30, 240); P.dx = 0; P.dy = 0; P.vy = 0; P.rise = 0; P.pow = 0;
+  const f = feet(P);
+  for (let q = 0; q < 18; q++) P_(f.x + rand(-15, 15), f.y - rand(0, 90), rand(-120, 120), rand(-160, 40), .5, 2.6, '#d58cff', 'spark');
+  ring(f.x, f.y - 50, 70, '#d58cff', .6, 3);
+  text(f.x, f.y - 130, 'TELEPORTED!', '#d58cff', 16, 1.1);
+  sfx('whoosh');
+}
+// portal arrow: your first shot opens a blue IN portal where it lands (or where you tap), the next one opens the orange OUT portal.
+// Every arrow (theirs too) that flies into IN comes out of OUT. The pair lasts PORT_T s; a new IN closes your old pair.
+const PORT_T = 25, PORT_R = 30, PORT_COL = '#8f7bff', NOLINK = ['clone', 'portal'];
+const portFlying = P => st.arrows.filter(a => !a.done && a.owner === P && hasPk(a, 'portal'));
+function plantPortal(ar) {
+  if (ar.done) return;
+  ar.done = true;
+  if (shotOnce(ar, 'portal')) portalShot(ar.owner, ar.x, ar.y);
+}
+function portalClose(g) {
+  g.gone = true;
+  for (let q = 0; q < 12; q++) P_(g.x, g.y, rand(-140, 140), rand(-140, 140), .4, 2.2, g.side ? '#ff9a45' : '#5ab8ff', 'spark');
+}
+function portalShot(A, x, y) {
+  if (!A) return;
+  y = Math.min(y, -45);
+  const mine = st.gadgets.filter(g => g.type === 'portal' && g.own === A.id && !g.gone), lone = mine.length === 1 && !mine[0].pair ? mine[0] : null;
+  const id = ++uid, g = { id, type: 'portal', side: lone ? 1 : 0, x, y, tx: x, ty: y, spin: 0, jumpT: 1e9, popT: .35, own: A.id, life: lone ? PORT_T : 1e9 };
+  if (lone) { g.pair = lone.id; lone.pair = id; lone.life = PORT_T; text(x, y - 46, 'PORTAL OPEN!', '#ff9a45', 16, 1.3); }
+  else { for (const o of mine) portalClose(o); text(x, y - 46, 'PORTAL IN · SHOOT THE EXIT', '#5ab8ff', 14, 1.6); }
+  st.gadgets.push(g);
+  for (let q = 0; q < 16; q++) P_(x, y, rand(-160, 160), rand(-160, 160), .45, 2.4, lone ? '#ff9a45' : '#5ab8ff', 'spark');
+  ring(x, y, 50, lone ? '#ff9a45' : '#5ab8ff', .5, 3); sfx('whoosh');
+}
+// (old) teleport arrow: the archer it tagged is sent to wherever the shooter's next arrow lands
 const PEOPLE = () => st.players || [st.P];
 const isTagged = a => !a.isP && PEOPLE().some(p => p.tpTag === a.id);
 function teleportTo(id, x, y) {
@@ -1399,7 +1445,7 @@ function onHit(ar, a, z) {
     ring(f.x, f.y - 50, 55, '#b6ff5c', .5, 2.5);
   }
   if (hasPk(ar, 'confuse') && !mate && !(ar.owner && a === ar.owner)) confuse(a, CONF_T);
-  if (hasPk(ar, 'tele') && !a.isP && ar.owner) {
+  if (false && hasPk(ar, 'tele') && !a.isP && ar.owner) {   // teleport no longer touches enemies (Craig 2026-11-15)
     ar.owner.tpTag = a.id;
     text(f.x, f.y - 150, 'TAGGED: NEXT ARROW SENDS THEM THERE', '#d58cff', 13, 1.6);
     ring(f.x, f.y - 50, 60, '#d58cff', .6, 3);
@@ -2060,7 +2106,7 @@ function infuse(a, k, by, seen, weak) {
   } else if (k === 'confuse') {
     confuse(a, 5 * m);
   } else if (k === 'tele') {
-    if (by && !by.tpTag) { by.tpTag = a.id; text(f.x, f.y - 150, 'TAGGED', '#d58cff', 13, 1.2); }
+    // teleport is only for the shooter now
   }
 }
 // a HUNTER twister heads for the nearest archer; HUNTER rocks fall on archers
@@ -5160,7 +5206,8 @@ function update(rdt) {
     if (g.type === 'portal') {
       g.spin += dt * 3;
       if (g.popT > 0) g.popT -= rdt;
-      if (st.nextT <= 0 && !(g.webT > 0) && (g.jumpT -= dt) <= 0) portalJump(g);
+      if (g.own) { if ((g.life -= dt) <= 0) portalClose(g); }
+      else if (st.nextT <= 0 && !(g.webT > 0) && (g.jumpT -= dt) <= 0) portalJump(g);
     }
     if (g.flash > 0) g.flash -= rdt;
     if (g.webT > 0) g.webT -= dt;
@@ -5296,6 +5343,10 @@ function update(rdt) {
     if (p.shrink <= 0 && !p.dead) text(feet(p).x, feet(p).y - 130, 'FULL SIZE', '#b6ff5c', 12, .8);
   }
   for (const a of st.arrows) if (a.done && a.tpE) { const id = a.tpE; a.tpE = null; teleportTo(id, a.x, Math.min(a.y, 0)); }
+  for (const a of st.arrows) if (a.done && !a.tpDone && a.owner && a.owner.isP && !a.owner.helper && !a.owner.clone && hasPk(a, 'tele')) {
+    a.tpDone = true;
+    if (a.x > (typeof fieldL === 'function' ? fieldL() - 1200 : -900) && a.x < farX() + 1200 && shotOnce(a, 'teleSelf')) teleportSelf(a.owner, a.x, Math.min(a.y, 0));
+  }
   for (const a of st.arrows) if (a.done && a.rock && !a.rockBoom) { a.rockBoom = true; catBoom(a); }
   st.arrows = st.arrows.filter(a => !a.done);
 
@@ -5948,7 +5999,7 @@ function drawGadget(g) {
     return;
   }
   if (g.type === 'portal') {
-    const c1 = g.side ? '255,154,69' : '90,184,255', warn = g.jumpT < 1.2,
+    const c1 = g.side ? '255,154,69' : '90,184,255', warn = g.own ? g.life < 2.5 : g.jumpT < 1.2,
       r = 24 * sc * (g.popT > 0 ? 1 - g.popT / .35 * .8 : 1) * (warn ? .7 + .3 * Math.abs(Math.sin(st.t * 14)) : 1);
     const pg = ctx.createRadialGradient(x, y, 0, x, y, r * 1.8);
     pg.addColorStop(0, `rgba(${c1},.0)`); pg.addColorStop(.5, `rgba(${c1},${g.flash > 0 ? .7 : .35})`); pg.addColorStop(1, `rgba(${c1},0)`);
@@ -5960,7 +6011,7 @@ function drawGadget(g) {
       ctx.beginPath(); ctx.ellipse(x, y, r * (.85 - k * .22), r * (1.05 - k * .25), 0, g.spin * (k % 2 ? -1 : 1) + k, g.spin * (k % 2 ? -1 : 1) + k + 4.4); ctx.stroke();
     }
     ctx.font = '700 9px Silkscreen, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-    ctx.fillStyle = `rgb(${c1})`; ctx.fillText(g.side ? 'OUT' : 'IN', x, y + r + 6);
+    ctx.fillStyle = `rgb(${c1})`; ctx.fillText(g.side ? 'OUT' : g.own && !g.pair ? 'IN · NEEDS EXIT' : 'IN', x, y + r + 6);
     return;
   }
   const gz = g.size || 1;
@@ -6888,7 +6939,7 @@ function linkSlots(P, i, j) {
 function linkTap(P, i) {
   const q = (P.quiver || [])[i];
   if (!q || q.k2) return;
-  if (q.k === 'clone') { text(feet(P).x, feet(P).y - 150, "CLONE CAN'T BE LINKED", CLONE_COL, 14, 1.4); return; }
+  if (NOLINK.includes(q.k)) { text(feet(P).x, feet(P).y - 150, POWERS[q.k].short + " CAN'T BE LINKED", POWERS[q.k].col, 14, 1.4); return; }
   if (P.linkA < 0 || P.linkA === i) { P.linkA = P.linkA === i ? -1 : i; return; }
   linkSlots(P, P.linkA, i);
 }
@@ -6896,7 +6947,7 @@ function toggleLink(P) {
   if (!P || !P.links) return;
   if (P.linking) { P.linking = false; P.linkA = -1; return; }
   if (slotFull(P.quiver || [], 3)) { text(feet(P).x, feet(P).y - 150, 'POWERFUL SLOTS FULL: FIRE ONE FIRST', TIER_COL[3], 14, 1.6); return; }
-  if ((P.quiver || []).filter(o => !o.k2 && o.k !== 'clone').length < 2) { text(feet(P).x, feet(P).y - 150, 'NEED 2 ARROW TYPES TO LINK', '#7dffe8', 14, 1.6); return; }
+  if ((P.quiver || []).filter(o => !o.k2 && !NOLINK.includes(o.k)).length < 2) { text(feet(P).x, feet(P).y - 150, 'NEED 2 ARROW TYPES TO LINK', '#7dffe8', 14, 1.6); return; }
   P.linking = true; P.linkA = -1;
 }
 // host only: load slot i for player P (-1 = plain arrows)
