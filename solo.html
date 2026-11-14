@@ -38,6 +38,8 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 #castleBtn:focus-visible{outline:3px solid var(--blood);outline-offset:3px}
 #catBtn{position:absolute;right:max(14px,env(safe-area-inset-right,0px));bottom:70px;padding:10px 14px;border:0;cursor:pointer;font:700 13px var(--pixel);letter-spacing:.05em;color:#2a1608;background:#ffb347;box-shadow:0 3px 0 rgba(0,0,0,.35)}
 #catBtn.on{background:#fff36b;outline:3px solid #ff9a45}
+#catBtn.ready{animation:catPulse 1s ease-in-out infinite}
+@keyframes catPulse{50%{transform:scale(1.08);box-shadow:0 0 0 4px rgba(255,179,71,.45),0 3px 0 rgba(0,0,0,.35)}}
 #catBtn.wait{opacity:.6}
 #catBtn:focus-visible{outline:3px solid var(--blood);outline-offset:3px}
 #quiver{position:absolute;left:50%;transform:translateX(-50%);bottom:12px;display:flex;gap:6px}
@@ -1950,14 +1952,26 @@ function hordeMarch(m, dt) {
     if (Math.random() < dt * 3) P_(m.x - 14, -rand(10, 50), rand(-40, 40), rand(-120, -20), .4, 2, '#dcc29a', 'spark');
     if (O.hp <= 0) hordeOuterFalls();
   } else if (!st.P.dead && !H.over) {
-    const P = st.P;
-    P.hp -= d * .35 * (1 - st.armour); P.hitT = .05;
+    const P = st.P;   // no damage: you lose when too many pile up at the gate (hordeStep)
     if (st.t - (H.gateMsg || -9) > 2.5) { H.gateMsg = st.t; text(feet(P).x, feet(P).y - 110, 'THEY ARE AT THE GATE!', '#ff5a4e', 12, 1.2); }
-    if (P.hp <= 0) hordeOver();
   }
 }
 // the soldiers waiting at the wall pack in shoulder to shoulder, a few rows deep, the crowd growing back from the wall
 const PILE_DX = 9, PILE_LANES = 3, PILE_LIFT = 6, HORDE_MAX = 260;
+// overrun = how many are at the gate, not damage: a small soldier counts 1, a giant 3
+const OVERRUN = 30, HORDE_BATS = false, gateW = m => m.type === 'giant' ? 3 : 1;
+function drawGateMeter() {
+  const H = st.horde, n = H.press || 0, p = clamp(n / OVERRUN, 0, 1), w = Math.min(170, W * .24), x = W / 2 - w / 2, y = 76;
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(x, y, w, 9);
+  ctx.fillStyle = p > .75 ? ((st.t * 6) % 2 < 1 ? '#ff5a4e' : '#ffb0a8') : p > .5 ? '#ff9a45' : '#7dff9a'; ctx.fillRect(x, y, w * p, 9);
+  ctx.strokeStyle = 'rgba(246,238,223,.6)'; ctx.lineWidth = 1; ctx.strokeRect(x, y, w, 9);
+  ctx.font = '700 10px Silkscreen, monospace'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(24,30,20,.6)';
+  ctx.textAlign = 'right'; ctx.strokeText('GATE', x - 6, y + 5); ctx.fillStyle = '#f6eedf'; ctx.fillText('GATE', x - 6, y + 5);
+  ctx.textAlign = 'left'; ctx.strokeText(n + '/' + OVERRUN, x + w + 6, y + 5); ctx.fillText(n + '/' + OVERRUN, x + w + 6, y + 5);
+  ctx.restore();
+}
+
 // spots for archers on the walls: two on the gate wall, two on a back wall behind the keep
 const WALL_MAX = 4, WALL_H = 64;
 function wallSpot(i) { const K = st.horde.keep; return i < 2 ? K.x + K.pw / 2 + 12 + i * 22 : K.x - K.pw / 2 - 12 - (i - 2) * 22; }
@@ -2035,6 +2049,10 @@ function hordeStep(dt, rdt) {
   H.t += dt;
   const t = H.t;
   hordePile();
+  H.press = 0; for (const m of st.marchers) if (m.at && !m.dead) H.press += gateW(m);
+  if (H.press >= OVERRUN * .75 && !H.warned) { H.warned = true; text(feet(st.P).x, feet(st.P).y - 170, 'THE GATE IS BUCKLING!', '#ff5a4e', 18, 1.6, 1); shake(6); }
+  if (H.press < OVERRUN * .5) H.warned = false;
+  if (H.press >= OVERRUN) { hordeOver(); return; }
   if (H.cat && H.cat.reload > 0) H.cat.reload -= dt;
   if ((H.spawnT -= dt) <= 0 && st.marchers.length < HORDE_MAX) {
     const n = Math.min(10, 1 + Math.floor(t / 40) + (Math.random() < .3 ? 1 : 0));
@@ -2042,7 +2060,7 @@ function hordeStep(dt, rdt) {
     H.spawnT = Math.max(1.1, 3.4 - t * .02) * rand(.7, 1.3);
   }
   if (t > 25 && (H.giantT -= dt) <= 0) { hordeSpawn('giant', 0); H.giantT = Math.max(5, 16 - t * .06) * rand(.8, 1.2); }
-  if (t > 42 && (H.batT -= dt) <= 0) {
+  if (HORDE_BATS && t > 42 && (H.batT -= dt) <= 0) {
     const k = Math.min(4, 1 + Math.floor((t - 42) / 60));
     for (let i = 0; i < k; i++) { const e = makeFlyer(st.level, i); e.hordeBat = 1; st.enemies.push(e); }
     st.banner = { t: 'FLYING BEASTS!', sub: k + (k === 1 ? ' ACID BAT' : ' ACID BATS'), life: 1.8 };
@@ -2149,7 +2167,7 @@ function drawHordeCastles() {
 }
 // score, a map of the whole field (castles, soldiers, bats, your view) and the outer wall's health
 function drawHordeHUD() {
-  drawCatHUD();
+  drawCatHUD(); drawGateMeter();
   const H = st.horde, cx = W / 2, w = Math.min(340, W * .42), x0 = cx - w / 2, y0 = 40;
   ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'top';
   ctx.lineJoin = 'round'; ctx.strokeStyle = 'rgba(24,30,20,.6)'; ctx.lineWidth = 4;
@@ -2395,7 +2413,7 @@ function buildCatapult() {
   const H = st.horde, K = H.keep;
   H.cat = { x: K.x - K.pw / 2 - 46 - 95, reload: 0, armed: false };   // on the ground behind the castle
   for (let q = 0; q < 24; q++) P_(H.cat.x, -40, rand(-140, 140), rand(-200, 0), .6, 3, q % 2 ? '#b07a43' : '#ffd27a', 'spark');
-  st.banner = { t: 'CATAPULT BUILT!', sub: 'TAP 🪨 CATAPULT, THEN SHOOT', life: 2.4 };
+  st.banner = { t: 'CATAPULT BUILT!', sub: 'TAP THE 🪨 BUTTON (BOTTOM RIGHT), THEN PULL BACK AND SHOOT', life: 3.4 };
   sfx('wave');
 }
 const CAT_K = 1.9;   // how big the catapult is drawn
@@ -2491,7 +2509,7 @@ function drawCatHUD() {
   ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.font = '700 10px Silkscreen, monospace';
   ctx.lineJoin = 'round'; ctx.strokeStyle = 'rgba(24,30,20,.6)'; ctx.lineWidth = 3;
   const t = 'CATAPULT ' + n + '/3: ' + CAT_PARTS.map(k => (H.pieces[k] ? '✓' : '·') + CAT_NAMES[k]).join(' ');
-  ctx.strokeText(t, W / 2, 78); ctx.fillStyle = '#ffb347'; ctx.fillText(t, W / 2, 78);
+  ctx.strokeText(t, W / 2, 94); ctx.fillStyle = '#ffb347'; ctx.fillText(t, W / 2, 94);
   ctx.restore();
 }
 
@@ -4754,7 +4772,7 @@ function frame(ts) {
     if (on) { const lb = H.on === 'keep' ? '⇄ OUTER CASTLE' : '⇄ BACK TO KEEP'; if ($('castleBtn').textContent !== lb) $('castleBtn').textContent = lb; }
     const C = H && H.cat, cOn = !!(C && running && !paused && !H.over); if ($('catBtn').hidden === cOn) $('catBtn').hidden = !cOn;
     if (cOn) { const lb = C.armed ? '🪨 AIM & SHOOT' : C.reload > 0 ? '🪨 RELOAD ' + Math.ceil(C.reload) : '🪨 CATAPULT'; if ($('catBtn').textContent !== lb) $('catBtn').textContent = lb;
-      $('catBtn').classList.toggle('on', C.armed); $('catBtn').classList.toggle('wait', C.reload > 0); } }
+      $('catBtn').classList.toggle('on', C.armed); $('catBtn').classList.toggle('wait', C.reload > 0); $('catBtn').classList.toggle('ready', !C.armed && C.reload <= 0); } }
   if (running && !paused && !portrait && !(st && (st.shop || st.clockOpen || st.linking || st.rack || st.placing || st.hordeShow || st.forging))) update(dt);
   camY += (camYTarget() - camY) * Math.min(1, dt * 6);
   draw();
