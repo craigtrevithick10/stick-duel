@@ -1304,6 +1304,11 @@ function comboStep(dt) {
     if (!F.burnE) continue;
     for (const E of st.enemies) { if (E.dead) continue; const f = feet(E); if (Math.abs(f.x - F.x) < 50 && Math.abs(f.y - 30 - F.y) < 70) infuse(E, 'fire', F.by); }
   }
+  for (const F of st.fires) {   // walking through fire on the ground hurts: soldiers and the ogre catch light
+    if (F.y < -40) continue;
+    for (const m of st.marchers) if (!m.dead && !(m.burn > 0) && Math.abs(m.x - F.x) < 30) { m.burn = 3; text(m.x, -95 * m.s, 'BURN', '#ff9a45', 11, .6); }
+    for (const E of st.enemies) if (E.walker && !E.dead && !(E.burn > 0) && Math.abs(feet(E).x - F.x) < 40) infuse(E, 'fire', F.by || st.P);
+  }
 }
 // everything a combo does when the arrow lands (called once, after both powers have gone off)
 function comboImpact(ar, x, y) {
@@ -1632,6 +1637,7 @@ function drawMeteors() {
     ctx.fillStyle = R.k ? rideOf(R.k)[R.k === 'ice' ? 1 : 2] : '#ff9a45'; ctx.beginPath(); ctx.arc(x + Math.cos(R.spin) * r * .4, y + Math.sin(R.spin) * r * .4, r * .35, 0, 6.283); ctx.fill();
   }
 }
+const TWIST_HIT = 52;   // a twister passing through someone counts as two body hits (once each)
 function updateVortices(dt) {
   comboStep(dt);
   for (const T of st.tornados) {
@@ -1642,10 +1648,18 @@ function updateVortices(dt) {
       const f = feet(E);
       if (Math.abs(f.x - T.x) < 42 * (T.w || 1)) {
         infuse(E, T.k, st.P, T.hitE); if (E.dead) continue;
+        if (!(T.hit2 = T.hit2 || new Set()).has(E)) {
+          T.hit2.add(E); E.hp -= TWIST_HIT; text(f.x, f.y - 125, '-' + TWIST_HIT, '#d6e4f0', 16, .8);
+          if (E.hp <= 0) { kill(E, { vx: T.dir * 300, owner: st.P }, 'body'); continue; }
+        }
         E.hp -= 24 * (T.k === 'heavy' ? 1.6 : 1) * dt; E.hitT = .06; E.aiAim = null;
         if (Math.random() < dt * 3) text(f.x + rand(-10, 10), f.y - 100, '-' + ri(5, 9), '#d6e4f0', 14, .6);
         if (E.hp <= 0) kill(E, { vx: T.dir * 300, owner: st.P }, 'body');
       }
+    }
+    for (const m of st.marchers) {   // horde soldiers in its path
+      if (m.dead || Math.abs(m.x - T.x) > 42 * (T.w || 1)) continue;
+      if (!(T.hitM = T.hitM || new Set()).has(m)) { T.hitM.add(m); hurtMarcher(m, TWIST_HIT); }
     }
     for (const ar of st.arrows) {
       if (ar.done || ar.ret || T.t < .15 || Math.abs(ar.x - T.x) > 46 || ar.y < -300) continue;

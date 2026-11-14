@@ -1728,6 +1728,10 @@ function updateVortices(dt) {
       const f = feet(E);
       if (Math.abs(f.x - T.x) < 42 * (T.w || 1)) {
         infuse(E, T.k, T.by, T.hitE); if (E.dead) continue;
+        if (!(T.hit2 = T.hit2 || new Set()).has(E)) {   // passing through someone counts as two body hits (once each)
+          T.hit2.add(E); E.hp -= 52; text(f.x, f.y - 125, '-52', '#d6e4f0', 16, .8);
+          if (E.hp <= 0) { kill(E, { vx: T.dir * 300, owner: T.by }, 'body'); continue; }
+        }
         E.hp -= 24 * (T.k === 'heavy' ? 1.6 : 1) * dt; E.hitT = .06; E.aiAim = null;
         if (Math.random() < dt * 3) text(f.x + rand(-10, 10), f.y - 100, '-' + ri(5, 9), '#d6e4f0', 14, .6);
         if (T.by) E.lastBy = T.by;
@@ -5174,7 +5178,7 @@ function netTick(rdt) {
   m.ar = st.arrows.filter(a => !a.done).map(a => ({ tid: a.tid || (a.owner && a.owner.isP && !a.owner.helper ? (a.tid = ++uid) : 0), x: a.x, y: a.y, vx: a.vx, vy: a.vy, o: a.owner ? a.owner.id : 0, col: a.col, pk: a.pk, pk2: a.pk2, split: a.split, magic: a.magic, tm: a.tm, el: a.el }));
   m.bo = (st.boulders || []).map(R => ({ x: R.x, y: R.y, vx: R.vx, vy: R.vy, r: R.r, spin: R.spin }));
   m.rk = (st.rocks || []).map(R => ({ x: R.x, y: R.y, vx: R.vx, vy: R.vy, r: R.r, spin: R.spin, k: R.k || null }));
-  m.tn = st.tornados.map(T => pack(T, new Set(['hitG', 'by', 'hitE'])));
+  m.tn = st.tornados.map(T => pack(T, new Set(['hitG', 'by', 'hitE', 'hit2'])));
   m.bh = st.holes.map(B => pack(B, new Set(['by', 'hitE', 'tw'])));
   m.fi = st.fires.map(f => ({ x: f.x, y: f.y, life: f.life }));
   m.sm = (st.steams || []).map(S => ({ x: S.x, y: S.y, life: S.life, r: S.r }));
