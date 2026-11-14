@@ -99,6 +99,8 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 #rackHint{color:#7dffe8;min-height:1.2em}
 #forgeScreen .shopgrid{max-height:calc(100vh - 250px);max-height:calc(100dvh - 250px);overflow-y:auto}
 #forgeScreen .item{padding:6px 10px}#forgeScreen .item .ico{font-size:24px;width:30px}
+#quiver button.mega{border-color:#ffb347!important;box-shadow:0 0 10px rgba(255,179,71,.55),inset 0 0 0 1px rgba(255,210,122,.6)}
+#quiver button.mega small{color:#ffd27a}
 #quiver button.forged{border-color:#ffd27a!important;box-shadow:inset 0 0 0 1px rgba(255,210,122,.5)}
 #quiver button.forged.dry{opacity:.45}
 @media (max-height:520px){#rackScreen .panel{gap:8px}#rackScreen .title{font-size:24px!important}#rackScreen .shopgrid{max-height:calc(100vh - 205px);max-height:calc(100dvh - 205px)}#rackScreen{padding:8px 16px}}
@@ -301,7 +303,7 @@ const COMBOS = {
   'blackhole+tele': ['WORMHOLE', '#d58cff', 'WORMHOLE'], 'blackhole+shrink': ['GIANT SLAYER', '#b6ff5c', 'SLAYER'],
   'boom+heavy': ['MEGA BOMB', '#ffd27a', 'MEGA BOMB'], 'pierce+storm': ['RAIL LIGHTNING', '#fff36b', 'RAIL ZAP'], 'cluster+meteor': ['STAR BURST', '#ff7b3a', 'STAR BURST'],
   'grow+shrink': ['SIZE WOBBLE', '#ff6bd6', 'WOBBLE'], 'boom+grow': ['BIG BANG', '#ff9a45', 'BIG BANG'], 'grow+tornado': ['MEGA TWISTER', '#ff6bd6', 'MEGA TWISTER'],
-  'blackhole+grow': ['MEGA VOID', '#c79bff', 'MEGA VOID'], 'grow+meteor': ['GIANT METEORS', '#ff7b3a', 'GIANT ROCKS'], 'grow+heavy': ['TITAN ARROW', '#ffd27a', 'TITAN'],
+  'blackhole+grow': ['MEGA VOID', '#c79bff', 'MEGA VOID'], 'grow+meteor': ['PLANET FALL', '#ff7b3a', 'PLANET'], 'grow+heavy': ['TITAN ARROW', '#ffd27a', 'TITAN'],
   'magnet+storm': ['LIGHTNING ROD', '#fff36b', 'ROD'], 'homing+magnet': ['PAYBACK', '#ff8ad8', 'PAYBACK'], 'boom+magnet': ['SPIKE MINE', '#ff5a4e', 'MINE'],
   'fire+magnet': ['HOT MAGNET', '#ff9a45', 'HOT MAG'], 'grow+magnet': ['BIG MAGNET', '#ff6bd6', 'BIG MAG'],
   'boom+bounce': ['BOUNCING BOMB', '#ff5a4e', 'BOUNCE BOMB'], 'bounce+fire': ['FIRE SKIPPER', '#ff9a45', 'SKIPPER'], 'bounce+storm': ['PINBALL', '#fff36b', 'PINBALL'],
@@ -309,6 +311,11 @@ const COMBOS = {
 };
 const comboKey = (a, b) => a && b ? [a, b].sort().join('+') : null;
 const comboOf = ar => !ar ? null : comboKey(ar.pk, ar.pk2);
+// MEGA arrows (huge-area wreckers) only ever get ONE shot: black hole, meteor, every pair with them, and these pairs
+const MEGA_ONE = ['blackhole', 'meteor'], MEGA_PAIRS = ['grow+meteor', 'grow+tornado', 'blackhole+grow', 'boom+grow', 'grow+heavy', 'boom+heavy'];
+const isMega = (k, k2) => !!k && (MEGA_ONE.includes(k) || MEGA_ONE.includes(k2) || MEGA_PAIRS.includes(comboKey(k, k2)));
+const megaAr = ar => !!ar && isMega(ar.pk, ar.pk2 || null);
+const megaTag = o => isMega(o.k, o.k2 || null) ? (o.shots === 1 ? 'MEGA · 1 SHOT' : 'MEGA ×' + o.shots) : null;
 const COMBO_DESC = {
   'fire+ice': "A steam cloud: nobody inside can aim", 'boom+fire': 'Sets the floor under the blast on fire', 'fire+meteor': 'Rocks leave burning patches',
   'meteor+storm': 'Every rock zaps the nearest enemy', 'storm+tornado': 'The twister throws lightning', 'blackhole+meteor': 'The hole eats the rocks, then one huge blast',
@@ -316,7 +323,7 @@ const COMBO_DESC = {
   'boom+heavy': 'A huge blast that knocks an archer off their tower', 'pierce+storm': 'Lightning down the whole flight path', 'cluster+meteor': 'Tap the screen: it bursts into 5 flaming rocks',
   'grow+shrink': "They flicker big and small and can't shoot for 4 s", 'boom+grow': 'A blast twice as big that enlarges everyone in it',
   'grow+tornado': 'A twister twice as wide', 'blackhole+grow': 'A bigger hole that pulls from much further away',
-  'grow+meteor': 'Huge rocks that enlarge whoever they hit', 'grow+heavy': 'A huge arrow that hits 60% harder',
+  'grow+meteor': 'One planet-sized rock falls slowly and wrecks a huge area', 'grow+heavy': 'A huge arrow that hits 60% harder',
   'magnet+storm': 'Every arrow the magnet catches zaps the nearest enemy', 'homing+magnet': 'When the magnet ends, its arrows fly back at whoever shot them',
   'boom+magnet': 'When the magnet ends it blows up and throws its arrows at the enemy', 'fire+magnet': 'Caught arrows melt, so the magnet never fills up',
   'grow+magnet': 'The magnet pulls from much further and holds 8 arrows',
@@ -445,7 +452,7 @@ function spawnLevel(first) {
   st.wind = lv >= 4 ? Math.round(rand(-1, 1) * Math.min(100, (lv - 3) * 14)) : 0;
   st.pinned = st.pinned.filter(p => p.x < 200);
   st.marchers = []; if (SOLDIERS) buildMarchQueue(); else st.marchQ = []; st.allies = []; st.allyQ = 0; st.gateCD = Math.min(st.gateCD, 3);
-  st.tornados = []; st.mags = []; st.holes = []; st.showers = []; st.rocks = []; st.boulders = []; st.timeScale = 1;
+  st.tornados = []; st.mags = []; st.planets = []; st.holes = []; st.showers = []; st.rocks = []; st.boulders = []; st.timeScale = 1;
   const wr = Math.random();
   st.weather = lv < 3 || bossLv ? 'clear' : wr < .45 ? 'clear' : wr < .63 ? 'night' : wr < .82 ? 'storm' : 'fog';
   if (st.weather === 'storm') { st.wind = Math.round(rand(-120, 120)); st.windT = st.wind; st.stormT = rand(2.5, 4); }
@@ -825,7 +832,7 @@ function gadgetStep(ar, sdt) {
       continue;
     }
     if (g.type === 'refill') {
-      if (!g.gone && ar.owner.isP && !ar.rock && Math.abs(ar.x - g.x) < 20 && Math.abs(ar.y - (g.y + Math.sin(st.t * 2 + g.bob) * 6)) < 20) {
+      if (!g.gone && ar.owner.isP && !ar.rock && !megaAr(ar) && Math.abs(ar.x - g.x) < 20 && Math.abs(ar.y - (g.y + Math.sin(st.t * 2 + g.bob) * 6)) < 20) {
         ar.done = true; refillHit(st.P, g, ar); return;
       }
       continue;
@@ -1072,7 +1079,8 @@ function impactFX(ar, x, y, onBody) {
   } else if (pk === 'blackhole') {
     if (ar.owner.isP && shotOnce(ar, 'blackhole')) spawnHole(x, Math.min(y, -40), riderOf(ar, 'blackhole'));
   } else if (pk === 'meteor') {
-    if (ar.owner.isP) { const n = meteorShare(ar); if (n > 0) spawnShower(x, Math.sign(ar.vx) || 1, n, riderOf(ar, 'meteor')); }
+    if (ar.owner.isP && riderOf(ar, 'meteor') === 'grow') { if (shotOnce(ar, 'planet')) spawnPlanet(x, Math.sign(ar.vx) || 1, ar.owner); }
+    else if (ar.owner.isP) { const n = meteorShare(ar); if (n > 0) spawnShower(x, Math.sign(ar.vx) || 1, n, riderOf(ar, 'meteor')); }
   } else if (pk === 'grow') {
     ring(x, y, 40, GROW_COL, .45, 3);
     for (let i = 0; i < 14; i++) P_(x, y, rand(-170, 170), rand(-200, 30), rand(.35, .65), rand(2, 3.4), i % 2 ? GROW_COL : '#ffd6f4', 'spark');
@@ -1738,7 +1746,7 @@ function meteorHit(R) {
   if (!RK) for (let i = 0; i < 18; i++) P_(x, y, rand(-200, 200), rand(-260, -20), rand(.4, .9), rand(2.5, 5), ['#ff9a45', '#ffd27a', '#ff5a2e'][i % 3], 'flame');
   for (let i = 0; i < 8; i++) P_(x, y, rand(-120, 120), rand(-160, -30), rand(.6, 1.1), rand(4, 7), 'rgba(70,55,60,.8)', 'smoke');
   shake(6); sfx('boom');
-  for (const a of [st.P, ...st.helpers, ...st.enemies]) {
+  for (const a of st.enemies) {   // arrow effects only hit enemies
     if (a.dead) continue;
     const f = feet(a), d = Math.hypot(f.x - x, f.y - 55 - y);
     if (d < 95 * rad) {
@@ -1762,7 +1770,77 @@ function meteorHit(R) {
   }
   for (const m of st.marchers) { if (m.dead) continue; const d = Math.hypot(m.x - x, -(m.y || 0) - 50 * m.s - y); if (d < 100) hurtMarcher(m, 40 * (1 - d / 125)); }
 }
+/* ---------- PLANET FALL (enlarge + meteor) ---------- */
+// one planet-sized rock comes down slowly over the target, then wrecks a huge area (enemies only)
+const PLANET_R = 130, PLANET_T = 3.2, PLANET_AREA = 640;
+function spawnPlanet(x, dir, by) {
+  st.planets = st.planets || [];
+  const y0 = topY() - 260;
+  st.planets.push({ x: x - dir * 260, tx: x, y: y0, y0, t: 0, r: PLANET_R, dir, by, spin: 0, rumble: 0 });
+  comboText(x, -300, 'grow+meteor'); text(x, -250, 'LOOK UP!', '#ffd27a', 16, 2);
+  st.flashA = .3; st.flashC = '255,140,60'; sfx('void');
+}
+function planetStep(dt) {
+  if (!st.planets || !st.planets.length) return;
+  for (const Q of st.planets) {
+    Q.t += dt; Q.spin += dt * .8;
+    const k = Math.min(1, Q.t / PLANET_T), e = k * k;   // slow at first, faster at the end
+    Q.x = Q.tx - Q.dir * 260 * (1 - k); Q.y = Q.y0 + (-Q.r * .55 - Q.y0) * e;
+    if ((Q.rumble -= dt) <= 0) { Q.rumble = .55 - .4 * k; sfx('thud'); shake(1.5 + 5 * k); }
+    for (let i = 0; i < 4; i++) { const a = rand(-2.6, -.5); P_(Q.x + Math.cos(a) * Q.r * .9, Q.y + Math.sin(a) * Q.r * .9, rand(-60, 60) - Q.dir * 40, rand(-160, -40), rand(.4, .8), rand(4, 8), ['#ff9a45', '#ffd27a', '#ff5a2e'][i % 3], 'flame'); }
+    if (k >= 1) { Q.done = true; planetHit(Q); }
+  }
+  st.planets = st.planets.filter(Q => !Q.done);
+}
+function planetHit(Q) {
+  const x = Q.tx, y = -6, R = PLANET_AREA, by = Q.by;
+  st.flashA = .9; st.flashC = '255,210,150'; sfx('boom'); sfx('void');
+  shake(Math.min(26, W / 36));   // the biggest shake in the game, a bit less on small screens
+  for (let i = 0; i < 4; i++) ring(x, y, R * (.35 + i * .25), i % 2 ? '#ffd27a' : '#ff7a45', .7 + i * .15, 8 - i);
+  glow(x, y - 60, 320, 'rgba(255,170,90,', .6);
+  for (let i = 0; i < 70; i++) { const a = rand(-3.1, 0), v = rand(200, 700); P_(x + rand(-80, 80), y - rand(0, 40), Math.cos(a) * v, Math.sin(a) * v, rand(.6, 1.4), rand(4, 9), ['#ff9a45', '#ffd27a', '#ff5a2e', '#8a6a52'][i % 4], i % 4 === 3 ? 'shard' : 'flame'); }
+  for (let i = 0; i < 30; i++) P_(x + rand(-R * .6, R * .6), -rand(0, 30), rand(-120, 120), rand(-220, -60), rand(1, 2), rand(8, 14), 'rgba(90,70,70,.75)', 'smoke');
+  text(x, -200, 'IMPACT!', '#ffd27a', 26, 1.6, 1);
+  for (const a of st.enemies) {   // only enemies: a heavy hit that falls off with distance
+    if (a.dead) continue;
+    const f = feet(a), d = Math.hypot(f.x - x, (f.y - 55 - y) * .6);
+    if (d > R) continue;
+    const dmg = Math.round(170 * (1 - d / (R * 1.1)) * (a.boss ? .6 : 1));
+    a.hp -= dmg; a.hitT = .2; if (by) a.lastBy = by;
+    text(f.x, f.y - 110, '-' + dmg, '#ffd27a', 20, 1.1);
+    if (a.hp <= 0) { kill(a, { vx: f.x - x || 1, owner: by }, 'body'); continue; }
+    growA(a);   // survivors are enlarged (the grow link)
+    if (d < R * .45 && !a.ship && !a.walker && !a.flyer && !a.hydra && a.chops) for (let n = 0; n < 3 && !a.dead && !a.topple; n++) chopPillar(a, { x: a.x, y: clamp(-a.h * .5, -a.h + 12, -14), owner: by });
+  }
+  for (const e of st.enemies) if (e.cover && !e.dead && Math.abs(e.x - x) < R * .7) damageCover(e, 4);
+  for (const g of st.gadgets) {   // objects in range are smashed (portals are left)
+    if (g.gone || g.type === 'portal' || g.type === 'crate' || g.type === 'hp' || g.type === 'link' || g.type === 'refill' || Math.abs(g.x - x) > R * .6) continue;
+    g.gone = true;
+    for (let q = 0; q < 12; q++) P_(g.x, g.y, rand(-160, 160), rand(-160, 60), .5, 2.6, q % 2 ? '#ffd27a' : '#ffffff', 'spark');
+  }
+  for (const m of st.marchers) { if (m.dead) continue; const d = Math.abs(m.x - x); if (d < R) hurtMarcher(m, 220 * (1 - d / (R * 1.1)), { owner: by }); }
+}
+function drawPlanets() {
+  for (const Q of st.planets || []) {
+    const k = Math.min(1, Q.t / PLANET_T), x = SX(Q.x), y = SY(Q.y), r = Q.r * sc;
+    // shadow on the ground, growing as it comes down
+    ctx.fillStyle = 'rgba(20,10,20,' + (.15 + .4 * k) + ')';
+    ctx.beginPath(); ctx.ellipse(SX(Q.tx), SY(-2), (60 + 240 * k) * sc, (8 + 18 * k) * sc, 0, 0, 6.283); ctx.fill();
+    // burning glow and tail
+    const g = ctx.createRadialGradient(x, y, r * .6, x, y, r * 1.9);
+    g.addColorStop(0, 'rgba(255,160,70,.55)'); g.addColorStop(1, 'rgba(255,90,40,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r * 1.9, 0, 6.283); ctx.fill();
+    // the planet: rock with craters and a hot rim
+    const b = ctx.createRadialGradient(x - r * .35, y - r * .35, r * .1, x, y, r);
+    b.addColorStop(0, '#8a6a52'); b.addColorStop(.7, '#4a3226'); b.addColorStop(1, '#2a1a14');
+    ctx.fillStyle = b; ctx.beginPath(); ctx.arc(x, y, r, 0, 6.283); ctx.fill();
+    ctx.fillStyle = 'rgba(30,18,14,.55)';
+    for (let i = 0; i < 6; i++) { const a = Q.spin + i * 1.05, d = r * (.3 + (i % 3) * .2); ctx.beginPath(); ctx.arc(x + Math.cos(a) * d, y + Math.sin(a) * d, r * (.08 + (i % 2) * .06), 0, 6.283); ctx.fill(); }
+    ctx.strokeStyle = 'rgba(255,150,60,' + (.6 + .3 * k) + ')'; ctx.lineWidth = 4 * sc; ctx.beginPath(); ctx.arc(x, y, r, Math.PI * .1, Math.PI * .9); ctx.stroke();
+  }
+}
 function updateMeteors(dt) {
+  planetStep(dt);
   st.showers = st.showers || []; st.rocks = st.rocks || [];
   for (const S of st.showers) {
     S.next -= dt;
@@ -1804,6 +1882,7 @@ function drawZapRock(R) {
   ctx.restore();
 }
 function drawMeteors() {
+  drawPlanets();
   for (const R of st.rocks || []) {
     if (R.k === 'storm') { drawZapRock(R); continue; }
     const x = SX(R.x), y = SY(R.y), r = R.r * sc, sp = Math.hypot(R.vx, R.vy), ux = R.vx / sp, uy = R.vy / sp;
@@ -2245,7 +2324,7 @@ function startHorde() {
   st.clones = [];
   st.helpers = st.helpers.filter(h => !h.dead && !h.clone);
   st.enemies = []; st.marchers = []; st.marchQ = []; st.allies = []; st.arrows = []; st.pinned = [];
-  st.tornados = []; st.mags = []; st.holes = []; st.showers = []; st.rocks = []; st.boulders = []; st.steams = []; st.fires = [];
+  st.tornados = []; st.mags = []; st.planets = []; st.holes = []; st.showers = []; st.rocks = []; st.boulders = []; st.steams = []; st.fires = [];
   st.gadgets = []; st.dirT = undefined; st.wind = 0; st.weather = 'clear'; st.timeScale = 1; st.nextT = 0;
   const P = st.P;
   Object.assign(P, { big: .75, hp: P.max, confT: 0, acidT: 0, burn: 0, frozen: 0, headRed: 0, stuck: [], dead: false, rot: 0, vr: 0, dx: 0, dy: 0 });
@@ -4608,6 +4687,7 @@ function drawGadget(g) {
     ctx.fillStyle = pw.col; ctx.fillRect(x - r, by - 3 * sc, r * 2, 6 * sc);
     ctx.font = '700 10px Silkscreen, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
     ctx.fillStyle = pw.col; ctx.fillText(pw.short, x, by + r + 4);
+    if (g.pk && isMega(g.pk) && !g.recruit && !g.piece) { ctx.strokeStyle = '#ffd27a'; ctx.lineWidth = 3 * sc; ctx.strokeRect(x - r - 4 * sc, by - r - 4 * sc, r * 2 + 8 * sc, r * 2 + 8 * sc); ctx.fillStyle = '#ffd27a'; ctx.fillText('MEGA · 1 SHOT', x, by + r + 17); }
     return;
   }
   if (g.type === 'cloud') return;
@@ -4728,7 +4808,6 @@ function drawGadget(g) {
 function drawPreview() {
   const P = st.P;
   if (!drag || P.pow < .05 || P.dead) return;
-  if (inSteam(P)) return;
   const s = shoulder(P), v = 300 + P.pow * 1100;
   const cp = catArmed() ? catPt() : null;
   let x = cp ? cp.x : s.x + Math.cos(P.aim) * 24, y = cp ? cp.y : s.y + Math.sin(P.aim) * 24, vx = Math.cos(P.aim) * v, vy = Math.sin(P.aim) * v;
@@ -5255,6 +5334,7 @@ function givePower(k, n) {
     }
     q = { k, shots: n }; st.quiver.push(q);
   }
+  if (isMega(k)) q.shots = 1;
   st.power = q;   // a new pickup is loaded straight away
 }
 // join two quiver slots into one arrow that does both (uses one link)
@@ -5263,7 +5343,7 @@ function linkSlots(i, j) {
   if (!a || !b || a === b || a.k2 || b.k2) return;
   if (b.k === 'cluster') [a, b] = [b, a];   // cluster first, so its split arrows carry the other power
   // a linked arrow gets the SMALLER count of the two: weak pairs keep lots, strong ones get few (black hole / meteor stay one-offs)
-  const q = { k: a.k, k2: b.k, shots: Math.min(a.shots, b.shots) };
+  const q = { k: a.k, k2: b.k, shots: isMega(a.k, b.k) ? 1 : Math.min(a.shots, b.shots) };
   const at = Math.min(i, j);
   st.quiver = st.quiver.filter(o => o !== a && o !== b); st.quiver.splice(at, 0, q);
   st.power = q; st.links--; st.linking = false; st.linkA = -1;
@@ -5303,7 +5383,7 @@ function hordeBank(add) {
   return b;
 }
 const forgeCost = (a, b) => (FORGE_COST[a] || 0) + (FORGE_COST[b] || 0);
-const forgeShots = (a, b) => FORGE_BIG.includes(a) || FORGE_BIG.includes(b) ? 2 : FORGE_SHOTS;
+const forgeShots = (a, b) => isMega(a, b) ? 1 : FORGE_SHOTS;
 function openForge() {
   st.hordeShow = false; show('hordeScreen', false);
   st.forging = true; forgePick = [];
@@ -5319,7 +5399,7 @@ function renderForge() {
   else if (!b) hint = POWERS[a].short + ' + … tap a second power';
   else {
     const c = COMBOS[comboKey(a, b)];
-    hint = POWERS[a].short + ' + ' + POWERS[b].short + (c ? '  =  ★' + c[2] : '') + '  ·  ' + forgeShots(a, b) + ' shots every level  ·  ' + forgeCost(a, b) + ' points';
+    hint = POWERS[a].short + ' + ' + POWERS[b].short + (c ? '  =  ★' + c[2] : '') + '  ·  ' + forgeShots(a, b) + (forgeShots(a, b) === 1 ? ' MEGA shot' : ' shots') + ' every level  ·  ' + forgeCost(a, b) + ' points';
   }
   $('forgeHint').textContent = hint;
   let h = '';
@@ -5384,10 +5464,10 @@ function drawQuiver() {
   for (let i = 0; i < QUIVER_SLOTS; i++) {
     const o = st.quiver[i];
     const cls = L ? (st.linkA === i ? 'on' : o && o.k2 ? 'empty' : 'pickme') : sel === i ? 'on' : '';
-    h += o ? `<button type="button" data-i="${i}" class="${cls}"${L && o.k2 ? ' disabled' : ''}><i class="qi">${ICON['pw_' + o.k] || ''}${o.k2 ? ICON['pw_' + o.k2] || '' : ''}</i><span style="color:${POWERS[o.k].col}">${powShort(o)}</span><small>×${o.shots}</small></button>`
+    h += o ? `<button type="button" data-i="${i}" class="${cls}${megaTag(o) ? ' mega' : ''}"${L && o.k2 ? ' disabled' : ''}><i class="qi">${ICON['pw_' + o.k] || ''}${o.k2 ? ICON['pw_' + o.k2] || '' : ''}</i><span style="color:${POWERS[o.k].col}">${powShort(o)}</span><small>${megaTag(o) || '×' + o.shots}</small></button>`
            : `<button type="button" class="empty" disabled><i class="qi">·</i><span>EMPTY</span><small>—</small></button>`;
   }
-  FG.forEach((o, i) => { h += `<button type="button" data-f="${i}" class="forged${st.power === o && !L ? ' on' : ''}${o.shots <= 0 ? ' dry' : ''}"${L ? ' disabled' : ''}><i class="qi">${ICON['pw_' + o.k] || ''}${ICON['pw_' + o.k2] || ''}</i><span style="color:${POWERS[o.k].col}">${powShort(o)}</span><small>⚒ ×${o.shots}</small></button>`; });
+  FG.forEach((o, i) => { h += `<button type="button" data-f="${i}" class="forged${st.power === o && !L ? ' on' : ''}${o.shots <= 0 ? ' dry' : ''}"${L ? ' disabled' : ''}><i class="qi">${ICON['pw_' + o.k] || ''}${ICON['pw_' + o.k2] || ''}</i><span style="color:${POWERS[o.k].col}">${powShort(o)}</span><small>⚒ ${megaTag(o) || '×' + o.shots}</small></button>`; });
   if (st.links) h += `<button type="button" data-link="1" class="link${L ? ' on' : ''}"><i class="qi">🔗</i><span>${L ? 'CANCEL' : 'LINK'}</span><small>×${st.links}</small></button>`;
   box.innerHTML = h;
 }
@@ -5619,7 +5699,7 @@ function makeDummy(i) {
 }
 function setupPractice() {
   st.practice = true; st.level = 6; st.wind = 0; st.weather = 'clear';
-  st.gadgets = []; st.dirT = undefined; st.tornados = []; st.mags = []; st.holes = []; st.showers = []; st.rocks = [];
+  st.gadgets = []; st.dirT = undefined; st.tornados = []; st.mags = []; st.planets = []; st.holes = []; st.showers = []; st.rocks = [];
   st.enemies = PRAC_X.map((x, i) => makeDummy(i));
   st.quiver = []; st.power = null; st.links = 0; st.shotDmg = 0; st.bestDmg = 0;
   st.banner = { t: 'PRACTICE RANGE', sub: 'TAP THE ARROW BUTTON TO PICK ANY ARROW', life: 3 };
