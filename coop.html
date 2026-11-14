@@ -2393,12 +2393,14 @@ const GC = {
   demo:      { name: 'DEMOLITION',  base: 'bounce+heavy',     add: 'grow',   icon: '⚫', col: '#b8bcc8', desc: 'A giant ball rolls the length of the field, flattening towers and cover' },
   multi:     { name: 'MULTIBALL',   base: 'bounce+storm',     add: 'triple', icon: '🎱', col: '#fff36b', desc: 'Splits into 5 bouncing arrows that zap on every bounce' },
   dome:      { name: 'IRON DOME',   base: 'grow+magnet',      add: 'shield', icon: '🛡️', col: '#ff3b5c', desc: 'A magnet dome over you catches every enemy arrow for 10 s' },
+  end:       { name: 'THE END',     base: 'boom+grow',        add: 'boom+grow', pair: true, icon: '☢️', col: '#ff5a1e', desc: 'A nuclear blast far away, then a wall of fire rushes in and swallows the whole field' },
   doom:      { name: 'DOOMSDAY',    base: 'blackhole+meteor', add: 'grow',   icon: '☄️', col: '#ff5a4e', desc: 'The sky goes dark and meteors hit every part of the field at once' }
 };
 const GC_TEST = /[?&]gc\b/.test(location.search);
 const qIcon = o => o.gc ? GC[o.gc].icon : (ICON['pw_' + o.k] || '') + (o.k2 ? ICON['pw_' + o.k2] || '' : '');
 const qCol = o => o.gc ? GC_GOLD : POWERS[o.k].col;
-const gcCost = id => { const G = GC[id], [p, q] = G.base.split('+'); return forgeCost(p, q) + (FORGE_COST[G.add] || 15) + 40; };
+const gcCost = id => { const G = GC[id], [p, q] = G.base.split('+'); return G.pair ? forgeCost(p, q) * 2 + 80 : forgeCost(p, q) + (FORGE_COST[G.add] || 15) + 40; };
+const gcAddName = G => G.pair ? '★' + COMBOS[G.add][0] : POWERS[G.add].short;   // THE END's second ingredient is another POWERFUL arrow
 const gcUnlock = (id, by) => { const [k, k2] = GC[id].base.split('+'); return { k, k2, gc: id, by }; };
 // three picked powers: is it a Game Changer recipe, and do you own the POWERFUL arrow it needs?
 function gcHint(pick, list) {
@@ -2466,6 +2468,7 @@ function gcImpact(ar, x, y) {
   else if (id === 'quake') gcQuake(x, by);
   else if (id === 'demo') { const sx = by && by.x != null ? feet(by).x + dir * 160 : x; gcDemo(sx, dir, by); sfx('thud'); }
   else if (id === 'multi') gcMulti(ar, true);
+  else if (id === 'end') gcAdd({ ty: 'end', t: 0, life: END_T2 + 3.4, by, hit: 0 });
   else if (id === 'doom') gcAdd({ ty: 'doom', t: 0, life: DOOM_T + 1.6, by, dir, fired: 0, wt: 0 });
 }
 function gcMulti(ar, fromHit) {
@@ -2683,6 +2686,28 @@ function gcStep(dt) {
         shake(6); sfx('boom');
       }
       if ((F.rt = (F.rt || 0) - dt) <= 0) { F.rt = 1.3; sfx('thud'); shake(3); }
+    } else if (F.ty === 'end') {
+      // THE END: a nuclear blast far away, then a wall of fire rushes in from the horizon and swallows the field
+      if (!F.boom) { F.boom = 1; st.flashA = 1; st.flashC = '255,250,235'; sfx('boom'); sfx('void'); shake(6); }
+      const w = clamp((F.t - END_T1) / (END_T2 - END_T1), 0, 1);
+      if (F.t > END_T1 && F.t < END_T2) { if ((F.rt = (F.rt || 0) - dt) <= 0) { F.rt = .35; shake(2 + 10 * w); sfx(w > .5 ? 'whoosh' : 'thud'); } }
+      if (F.t >= END_T2 && !F.hit) {
+        F.hit = 1;
+        st.flashA = 1; st.flashC = '255,140,40'; shake(Math.min(26, W / 30)); sfx('boom'); sfx('boom'); sfx('void');
+        for (const E of gcLive()) {
+          if (E.cover) damageCover(E, 99);
+          if (!E.boss && !E.walker && !E.ship && !E.hydra && E.chops) gcTopple(E, F.by, 6);
+          gcHurt(E, END_DMG, F.by, null, '#ff7a2e');
+          if (!E.dead) E.burn = Math.max(E.burn || 0, 5);
+        }
+        gcMarch(m => hurtMarcher(m, 999, { owner: F.by }));
+        text((gcL() + gcR()) / 2, -240, 'THE END', '#ffd27a', 40, 2.4, 1);
+      }
+      if (F.t >= END_T2) {   // embers and smoke drifting over everything afterwards
+        const x0 = camX, vw = W / sc;
+        for (let i = 0; i < 4; i++) P_(x0 + rand(0, vw), -rand(0, 380), rand(-60, 60), rand(-160, -40), rand(.8, 1.6), rand(2, 4), ['#ff9a45', '#ffd27a', '#ff5a2e'][i % 3], 'flame');
+        if (Math.random() < .5) P_(x0 + rand(0, vw), -rand(0, 200), rand(-40, 40), rand(-90, -30), rand(1.5, 2.5), rand(14, 26), 'rgba(50,35,35,.6)', 'smoke');
+      }
     } else if (F.ty === 'ice') {
       if ((F.ht -= dt) <= 0) {   // hail keeps chipping the frozen enemies
         F.ht = .9;
@@ -2836,6 +2861,14 @@ function gcDraw() {
         for (let i = 0; i < 3; i++) { const a = (q.spin || 0) + i * 2.094; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + Math.cos(a) * r * .9, y + Math.sin(a) * r * .9); ctx.stroke(); }
         ctx.fillStyle = '#3a3e48'; ctx.beginPath(); ctx.arc(x, y - r, 7 * sc, 0, 6.283); ctx.fill();   // the chain ring on top
       }
+    } else if (F.ty === 'end') {
+      const w = clamp((t - END_T1) / (END_T2 - END_T1), 0, 1), a = Math.min(1, left / 1.5);
+      if (w >= .8 && t < END_T2) endWall(w * w, 1);   // the fire wall reaches the field: it is drawn over everyone
+      if (t >= END_T2) {   // the field is swallowed by fire, then it burns down
+        const k = Math.min(1, (t - END_T2) / .25), fade = clamp(1 - (t - END_T2 - .4) / 2.4, 0, 1);
+        ctx.fillStyle = 'rgba(255,110,30,' + (.85 * k * fade + .15 * a).toFixed(3) + ')'; ctx.fillRect(0, 0, W, H);
+        endFlames(H * (1 - .9 * fade), Math.max(fade, .25) * a, t);
+      }
     } else if (F.ty === 'dome') {
       const a = Math.min(1, t / .4, left / 1), x = SX(F.x), y = gy, r = F.r * sc;
       ctx.save();
@@ -2850,6 +2883,29 @@ function gcDraw() {
     }
   }
 }
+// THE END: the wall of fire. we 0..1 = how far it has come (from a thin line on the horizon to over the whole screen)
+const END_T1 = 1.4, END_T2 = 3.6, END_DMG = 420;
+function endWall(we, a) {
+  const hy = H * .56, bot = hy + (H + 60 - hy) * we, hgt = 24 + H * 1.3 * we, top = bot - hgt;
+  const g = ctx.createLinearGradient(0, top, 0, bot);
+  g.addColorStop(0, 'rgba(90,25,15,' + (.85 * a).toFixed(3) + ')'); g.addColorStop(.35, 'rgba(230,80,25,' + a.toFixed(3) + ')'); g.addColorStop(1, 'rgba(255,220,120,' + a.toFixed(3) + ')');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(0, bot);
+  for (let x = 0; x <= W + 20; x += 20) ctx.lineTo(x, top + Math.sin(x * .03 + st.t * 9) * hgt * .06 + Math.sin(x * .011 - st.t * 5) * hgt * .08);
+  ctx.lineTo(W, bot); ctx.closePath(); ctx.fill();
+  endFlames(top + hgt * .1, a, st.t, hgt * .25);
+}
+// flame tongues licking up from y
+function endFlames(y, a, t, h) {
+  h = h || H * .35;
+  ctx.save(); ctx.globalAlpha = a;
+  for (let i = 0; i < 26; i++) {
+    const x = (i + .5) * W / 26 + Math.sin(t * 3 + i) * 10, fh = h * (.5 + .5 * hash(i * 3 + Math.floor(t * 8))), fw = W / 26 * .9;
+    const g = ctx.createLinearGradient(0, y - fh, 0, y);
+    g.addColorStop(0, 'rgba(255,200,90,0)'); g.addColorStop(.5, 'rgba(255,150,50,.85)'); g.addColorStop(1, 'rgba(255,90,30,.9)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(x - fw, y); ctx.quadraticCurveTo(x - fw * .4, y - fh * .6, x, y - fh); ctx.quadraticCurveTo(x + fw * .4, y - fh * .6, x + fw, y); ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+}
 // Game Changer skies: drawn straight after the background, so the sky goes dark but archers and arrows stay bright
 function gcSkyDim() {
   const gy = SY(0);
@@ -2863,6 +2919,38 @@ function gcSkyDim() {
       ctx.fillStyle = 'rgba(8,2,12,' + (.85 * a).toFixed(3) + ')'; ctx.fillRect(0, 0, W, H);
       const g = ctx.createLinearGradient(0, 0, 0, H * .5); g.addColorStop(0, 'rgba(200,40,30,' + (.45 * a * (.75 + .25 * Math.sin(st.t * 2))).toFixed(3) + ')'); g.addColorStop(1, 'rgba(200,40,30,0)');
       ctx.fillStyle = g; ctx.fillRect(0, 0, W, H * .5);
+    }
+    else if (F.ty === 'end') {   // THE END, far away: the flash, the mushroom cloud, and the fire wall coming in
+      const u = H / 390, hy = H * .56, cx = W * .62, a = Math.min(1, F.life - t), g = Math.min(1, t / 2.6);
+      const w = clamp((t - END_T1) / (END_T2 - END_T1), 0, 1), we = w * w;
+      const sk = ctx.createLinearGradient(0, 0, 0, hy);   // the whole sky burns orange
+      sk.addColorStop(0, 'rgba(120,30,10,' + (.55 * a).toFixed(3) + ')'); sk.addColorStop(1, 'rgba(255,140,50,' + (.6 * a).toFixed(3) + ')');
+      ctx.fillStyle = sk; ctx.fillRect(0, 0, W, hy);
+      if (t < 1.2) {   // the first flash on the horizon
+        const fg = ctx.createRadialGradient(cx, hy, 0, cx, hy, 420 * u), fa = 1 - t / 1.2;
+        fg.addColorStop(0, 'rgba(255,255,240,' + fa.toFixed(3) + ')'); fg.addColorStop(1, 'rgba(255,200,120,0)');
+        ctx.fillStyle = fg; ctx.fillRect(0, 0, W, H);
+      }
+      ctx.save(); ctx.globalAlpha = a;
+      const sr = t * 520 * u;   // shock ring racing out along the horizon
+      if (t < 2.4) { ctx.strokeStyle = 'rgba(255,240,220,' + (.7 * (1 - t / 2.4)).toFixed(3) + ')'; ctx.lineWidth = 3 * u; ctx.beginPath(); ctx.ellipse(cx, hy, sr, sr * .1, 0, 0, 6.283); ctx.stroke(); }
+      // the mushroom cloud
+      const top = hy - 170 * u * g, sw = 22 * u * (.5 + g * .5);
+      const stem = ctx.createLinearGradient(0, top, 0, hy); stem.addColorStop(0, '#ffb347'); stem.addColorStop(1, '#7a3a20');
+      ctx.fillStyle = stem; ctx.beginPath(); ctx.moveTo(cx - sw * 1.8, hy); ctx.quadraticCurveTo(cx - sw, (top + hy) / 2, cx - sw * .8, top); ctx.lineTo(cx + sw * .8, top); ctx.quadraticCurveTo(cx + sw, (top + hy) / 2, cx + sw * 1.8, hy); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = 'rgba(255,230,200,.5)'; ctx.lineWidth = 3 * u; ctx.beginPath(); ctx.ellipse(cx, top + (hy - top) * .45, sw * 2.6, sw * .5, 0, 0, 6.283); ctx.stroke();   // ring round the stem
+      const cr = 80 * u * g;
+      for (let i = 0; i < 9; i++) {   // the cap: billowing balls, hot inside, smoky outside
+        const an = i / 9 * Math.PI * 2 + t * .3, bx = cx + Math.cos(an) * cr * .75, by = top - cr * .25 + Math.sin(an) * cr * .32, br = cr * (.45 + .1 * Math.sin(t * 2 + i));
+        const bg = ctx.createRadialGradient(bx, by, br * .1, bx, by, br);
+        bg.addColorStop(0, 'rgba(255,220,140,.95)'); bg.addColorStop(.6, 'rgba(230,110,40,.9)'); bg.addColorStop(1, 'rgba(80,40,30,.85)');
+        ctx.fillStyle = bg; ctx.beginPath(); ctx.arc(bx, by, br, 0, 6.283); ctx.fill();
+      }
+      const core = ctx.createRadialGradient(cx, top - cr * .25, 0, cx, top - cr * .25, cr * .7);
+      core.addColorStop(0, 'rgba(255,255,220,.95)'); core.addColorStop(1, 'rgba(255,170,60,0)');
+      ctx.fillStyle = core; ctx.beginPath(); ctx.arc(cx, top - cr * .25, cr * .7, 0, 6.283); ctx.fill();
+      ctx.restore();
+      if (w > 0 && w < .8) endWall(we, a);   // the fire wall, still out in the distance (behind the towers)
     }
     else if (F.ty === 'volc') {   // the mountain stands behind the towers
       const h = VOLC_H * Math.min(1, t / .6), a = Math.min(1, left / .6), x = SX(F.x), cw = 75 * sc, bw = 400 * sc;
@@ -2915,7 +3003,7 @@ function gcFocus(P) {
   for (const Q of st.planets || []) if (mine(Q)) return Q.tx;
   for (const F of st.gcfx || []) {
     if (!mine(F) || F.ty === 'dome') continue;
-    if (F.ty === 'ice' || F.ty === 'sky') return eMid();
+    if (F.ty === 'ice' || F.ty === 'sky' || F.ty === 'end') return eMid();
     if (F.ty === 'doom') return (gcL() + gcR()) / 2;
     if (F.x != null) return F.x;
   }
@@ -5950,8 +6038,8 @@ function drawHUD() {
 function draw() {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   drawBG();
-  gcSkyDim();
   if (!st) return;
+  gcSkyDim();
   const shx = st.shake > .3 ? rand(-st.shake, st.shake) : 0, shy = st.shake > .3 ? rand(-st.shake, st.shake) : 0;
   ctx.translate(shx, shy);
   for (const g of st.gadgets) { if (g.appearT > 0) ctx.globalAlpha = Math.max(.05, 1 - g.appearT / .6); drawGadget(g); ctx.globalAlpha = 1; }
@@ -6505,8 +6593,8 @@ function forgeRoll(carried) {
   if (Math.random() < .45) {   // often one GAME CHANGER recipe can be made with today's powers (not every time)
     const viaCarry = ids.filter(id => carried.includes(GC[id].base));
     const id = viaCarry.length && Math.random() < .6 ? R(viaCarry) : R(ids);
-    pick.add(GC[id].add);
-    if (!viaCarry.includes(id)) for (const k of GC[id].base.split('+')) pick.add(k);
+    if (!GC[id].pair) pick.add(GC[id].add);
+    if (GC[id].pair || !viaCarry.includes(id)) for (const k of GC[id].base.split('+')) pick.add(k);
   }
   while ([...pick].filter(k => FORGE_COST[k]).length < FORGE_TODAY) pick.add(R(all));
   return [...all.filter(k => pick.has(k)), ...[...pick].filter(k => !FORGE_COST[k])];
@@ -6518,8 +6606,9 @@ function gcState(v, id) {
   let ok = false, why;
   if (v.uses <= 0) why = 'NO FORGES LEFT';
   else if (v.gcDone) why = 'ONE PER VISIT';
+  else if (G.pair && !(fromMade && carry)) why = 'NEEDS ★' + COMBOS[base][0] + ' FORGED TODAY + A SAVED ★' + COMBOS[base][0];
   else if (!fromMade && !carry) why = 'NEEDS ★' + COMBOS[base][0] + ' FORGED TODAY OR SAVED';
-  else if (!v.today.includes(G.add)) why = 'NEEDS ' + POWERS[G.add].short + " (NOT IN TODAY'S FORGE)";
+  else if (!G.pair && !v.today.includes(G.add)) why = 'NEEDS ' + POWERS[G.add].short + " (NOT IN TODAY'S FORGE)";
   else if (v.uses >= 2) why = 'FORGE A POWERFUL ARROW FIRST';
   else ok = true;
   return { ok, why, known, fromMade, carry, cost: gcCost(id) };
@@ -6527,8 +6616,8 @@ function gcState(v, id) {
 function gcListHTML(v, sel) {
   let h = '<div class="gch">GAME CHANGERS · 2ND FORGE ONLY</div>';
   for (const id in GC) {
-    const G = GC[id], s = gcState(v, id), c = COMBOS[G.base], add = POWERS[G.add].short, have = v.list.some(u => u.gc === id);
-    if (s.ok) h += `<button type="button" data-gc="${id}" class="ready${sel === id ? ' sel' : ''}">${G.icon} ${G.name}<small>★${c[0]}${s.fromMade ? '' : ' (SAVED)'} + ${add} · ${s.cost}</small></button>`;
+    const G = GC[id], s = gcState(v, id), c = COMBOS[G.base], add = gcAddName(G), have = v.list.some(u => u.gc === id);
+    if (s.ok) h += `<button type="button" data-gc="${id}" class="ready${sel === id ? ' sel' : ''}">${G.icon} ${G.name}<small>★${c[0]}${s.fromMade ? '' : ' (SAVED)'} + ${add}${G.pair ? ' (SAVED)' : ''} · ${s.cost}</small></button>`;
     else if (s.known) h += `<button type="button" data-gc="${id}" disabled>${G.icon} ${G.name}${have ? ' ✓' : ''}<small>${s.why}</small></button>`;
     else h += `<button type="button" disabled>???<small>★${c[0]} + ${add}</small></button>`;
   }
@@ -6543,7 +6632,7 @@ function forgeRender(v) {
   let hint;
   if (v.done) hint = 'Done. Waiting for the team…';
   else if (v.uses <= 0) hint = 'No forges left this visit. On to the shop!';
-  else if (G) hint = GC[G].icon + ' ' + GC[G].name + ' (GAME CHANGER, 1 shot): ' + GC[G].desc + (gcState(v, G).fromMade ? '' : '  ·  uses up your SAVED ★' + COMBOS[GC[G].base][0]);
+  else if (G) hint = GC[G].icon + ' ' + GC[G].name + ' (GAME CHANGER, 1 shot): ' + GC[G].desc + (gcState(v, G).fromMade && !GC[G].pair ? '' : '  ·  uses up your SAVED ★' + COMBOS[GC[G].base][0]);
   else if (!a) hint = v.uses === 2 ? 'Forge 1 of 2: tap two powers to make a POWERFUL arrow' : 'Forge 2 of 2: another POWERFUL arrow, or tap a lit GAME CHANGER below';
   else if (!b) hint = POWERS[a].short + ' + … tap a second power';
   else { const c = COMBOS[comboKey(a, b)]; hint = POWERS[a].short + ' + ' + POWERS[b].short + (c ? '  =  ★' + c[0] : '') + '  ·  ' + forgedShots(a, b) + ' shots per FORGED crate  ·  ' + forgeCost(a, b) + ' points'; }
@@ -6569,7 +6658,7 @@ function forgeDo(H, v, pick, gcId, bank, by) {
   if (gcId) {
     const s = GC[gcId] && gcState(v, gcId);
     if (!s || !s.ok || bank < s.cost) return null;
-    if (!s.fromMade) {   // a SAVED Powerful arrow carried in is used up
+    if (!s.fromMade || GC[gcId].pair) {   // a SAVED Powerful arrow carried in is used up
       const q = (H.quiver || []).find(o => o.saved && o.k2 && !o.gc && comboKey(o.k, o.k2) === GC[gcId].base);
       if (!q) return null;
       H.quiver = H.quiver.filter(o => o !== q); if (H.power === q) H.power = null;
