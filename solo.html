@@ -292,6 +292,7 @@ const POWERS = {
   web: { name: 'WEB ARROW', short: 'WEB', col: '#eef3fa', shots: 4 },
   clone:  { name: 'CLONE ARROWS', short: 'CLONE', col: '#4fe3c1', shots: 2, rare: true },
   portal: { name: 'PORTAL ARROWS', short: 'PORTAL', col: '#8f7bff', shots: 2 },
+  thunder: { name: 'STORM ARROWS', short: 'STORM', col: '#8fa8ff', shots: 3 },
   meteor: { name: 'METEOR SHOWER', short: 'METEOR', col: '#ff7b3a', shots: 1, mega: true },
   blackhole:{ name: 'BLACK HOLE', short: 'VOID',   col: '#b07cff', shots: 1, ultra: true }
 };
@@ -325,6 +326,7 @@ const RIDE_ON = { fire: 1, ice: 1, slowmo: 1, shrink: 1, grow: 1, boom: 1, storm
 const COMBOS = {
   'fire+ice': ['STEAM', '#e8f0ff', 'STEAM'], 'boom+fire': ['NAPALM', '#ff7a2e', 'NAPALM'], 'fire+meteor': ['FIRE RAIN', '#ff9a45', 'FIRE RAIN'],
   'meteor+storm': ['THUNDER METEORS', '#fff36b', 'THUNDER'], 'storm+tornado': ['STORM CELL', '#fff36b', 'STORM CELL'],
+  'scope+shrink': ['MINIATURIZE', '#b6ff5c', 'MINI'],
   'blackhole+meteor': ['GRAVITY WELL', '#c79bff', 'GRAVITY'], 'blackhole+tornado': ['WANDERING VOID', '#b07cff', 'WANDER'],
   'blackhole+tele': ['WORMHOLE', '#d58cff', 'WORMHOLE'], 'blackhole+shrink': ['GIANT SLAYER', '#b6ff5c', 'SLAYER'],
   'boom+heavy': ['MEGA BOMB', '#ffd27a', 'MEGA BOMB'], 'pierce+storm': ['RAIL LIGHTNING', '#fff36b', 'RAIL ZAP'], 'cluster+meteor': ['STAR BURST', '#ff7b3a', 'STAR BURST'],
@@ -351,6 +353,7 @@ const tierOf = o => !o ? 1 : o.gc ? 4 : o.k2 ? 3 : o.k ? 2 : 1;
 const arTier = ar => ar.gc ? 4 : ar.pk2 ? 3 : ar.pk ? 2 : 1;
 const megaTag = o => (o.gc || isMega(o.k, o.k2 || null)) && o.shots === 1 ? '1 SHOT' : '×' + o.shots;
 const COMBO_DESC = {
+  'scope+shrink': 'What it hits shrinks to horde-soldier size at once for 8 s (objects too)',
   'fire+ice': "A steam cloud: nobody inside can aim", 'boom+fire': 'Sets the floor under the blast on fire', 'fire+meteor': 'Rocks leave burning patches',
   'meteor+storm': 'Every rock zaps the nearest enemy', 'storm+tornado': 'The twister throws lightning', 'blackhole+meteor': 'The hole eats the rocks, then one huge blast',
   'blackhole+tornado': 'The twister carries the black hole', 'blackhole+tele': 'Pulls the tagged enemy in from anywhere', 'blackhole+shrink': 'Can swallow a boss you have shrunk',
@@ -385,7 +388,7 @@ const ICON = {
   armour: '🛡️', leech: '🧛', revive: '💨', glass: '🪟', helper: '🤝',
   pw_triple: '🔱', pw_fire: '🔥', pw_ice: '❄️', pw_boom: '💥', pw_heavy: '🪨', pw_rapid: '⏩', pw_pierce: '📌',
   pw_homing: '🎯', pw_storm: '⚡', pw_cluster: '🎆', pw_scope: '🔭', pw_slowmo: '🐢', pw_tornado: '🌪️',
-  pw_shrink: '🤏', pw_grow: '🍄', pw_tele: '🌀', pw_blackhole: '🕳️', pw_meteor: '☄️', pw_clone: '👥', pw_confuse: '😵', pw_magnet: '🧲', pw_bounce: '🏀', pw_web: '🕸️', pw_portal: '🚪', pw_shield: '🧱'
+  pw_shrink: '🤏', pw_grow: '🍄', pw_tele: '🌀', pw_blackhole: '🕳️', pw_meteor: '☄️', pw_clone: '👥', pw_confuse: '😵', pw_magnet: '🧲', pw_bounce: '🏀', pw_web: '🕸️', pw_portal: '🚪', pw_thunder: '⛈️', pw_shield: '🧱'
 };
 
 let W = 0, H = 0, DPR = 1, sc = 1, camX = 0, camY = 0, scBase = 1, zoom = 1, forcePortrait = false;
@@ -416,7 +419,7 @@ function mkArcher(x, h, f, hp, isP, pw) {
     aiT: 0, aiAim: null, aiShots: 0 };
 }
 const feet = a => ({ x: a.x + a.dx, y: -a.h + a.dy });
-const sizeOf = a => (a.big || 1) * (1 - (a.shrink || 0)) * (1 + (a.grow || 0)) * (a.wobT > 0 ? 1 + .3 * Math.sin(st.t * 16) : 1);
+const sizeOf = a => (a.big || 1) * (a.miniT > 0 ? MINI_K : 1) * (1 - (a.shrink || 0)) * (1 + (a.grow || 0)) * (a.wobT > 0 ? 1 + .3 * Math.sin(st.t * 16) : 1);
 const shoulder = a => { const f = feet(a); return { x: f.x, y: f.y - 64 * sizeOf(a) }; };
 const alive = () => st.enemies.filter(e => !e.dead);
 const farX = () => st.horde ? st.horde.far + 400 : Math.max(...st.enemies.map(e => e.x));
@@ -491,7 +494,7 @@ function spawnLevel(first) {
   st.wind = lv >= 4 ? Math.round(rand(-1, 1) * Math.min(100, (lv - 3) * 14)) : 0;
   st.pinned = st.pinned.filter(p => p.x < 200);
   st.marchers = []; if (SOLDIERS) buildMarchQueue(); else st.marchQ = []; st.allies = []; st.allyQ = 0; st.gateCD = Math.min(st.gateCD, 3);
-  st.tornados = []; st.mags = []; st.planets = []; st.gcfx = []; st.holes = []; st.showers = []; st.rocks = []; st.boulders = []; st.timeScale = 1;
+  st.tornados = []; st.mags = []; st.planets = []; st.gcfx = []; st.storms = []; st.holes = []; st.showers = []; st.rocks = []; st.boulders = []; st.timeScale = 1;
   const wr = Math.random();
   st.weather = lv < 3 || bossLv ? 'clear' : wr < .45 ? 'clear' : wr < .63 ? 'night' : wr < .82 ? 'storm' : 'fog';
   if (st.weather === 'storm') { st.wind = Math.round(rand(-120, 120)); st.windT = st.wind; st.stormT = rand(2.5, 4); }
@@ -752,6 +755,7 @@ function growA(a, m = 1) {
 function growStep(dt) {
   for (const a of [...PEOPLE(), ...st.helpers, ...st.enemies]) {
     if (a.wobT > 0) a.wobT -= dt;
+    if (a.miniT > 0 && (a.miniT -= dt) <= 0 && !a.dead) text(feet(a).x, feet(a).y - 130, 'NORMAL SIZE', MINI_COL, 12, .8);
     if (!(a.grow > 0) || (a.growT -= dt) > 0) continue;
     a.grow = Math.max(0, a.grow - dt * .1);
     if (a.grow <= 0 && !a.dead) text(feet(a).x, feet(a).y - 130, 'NORMAL SIZE', GROW_COL, 12, .8);
@@ -852,8 +856,9 @@ function refillGive(P, k, k2, n) {
   return q;
 }
 function gadgetStep(ar, sdt) {
-  const cl = ar.owner.isP && hasPk(ar, 'clone'), wb = ar.owner.isP && hasPk(ar, 'web');
+  const cl = ar.owner.isP && hasPk(ar, 'clone'), wb = ar.owner.isP && hasPk(ar, 'web'), mn = ar.owner.isP && hasPk(ar, 'scope') && hasPk(ar, 'shrink');
   for (const g of st.gadgets) {
+    if (mn && !g.gone && !g.falling && !(g.appearT > 0) && webTouch(g, ar) && shotOnce(ar, 'mini' + g.id)) { ar.done = true; miniGadget(g); return; }
     if (wb && !g.gone && !g.falling && !(g.appearT > 0) && webTouch(g, ar) && shotOnce(ar, 'web' + g.id)) { ar.done = true; webGadget(g, ar); return; }
     if (cl && !g.gone && !g.falling && !(g.appearT > 0) && cloneTouch(g, ar) && shotOnce(ar, 'clone')) { ar.done = true; cloneGadget(g); return; }
     if (g.type === 'hp') {
@@ -1094,6 +1099,7 @@ function glow(x, y, r, col, life = .3) { st.glows.push({ x, y, r, col, life, max
 function impactFX(ar, x, y, onBody) {
   const pk = ar.pk, ang = Math.atan2(ar.vy, ar.vx);
   if (ar.owner && ar.owner.isP && !ar.owner.helper && hasPk(ar, 'portal') && shotOnce(ar, 'portal')) portalShot(ar.owner, x, y);
+  if (ar.owner && ar.owner.isP && !ar.owner.helper && hasPk(ar, 'thunder') && shotOnce(ar, 'thunder')) spawnStorm(x, y, ar.owner, false);
   if (ar.acid) {   // acid splat
     glow(x, y, 40, 'rgba(140,255,90,', .3); ring(x, y, 26, '#8cff5a', .35, 2.5);
     for (let i = 0; i < 16; i++) P_(x, y, rand(-140, 140), rand(-220, -30), rand(.35, .7), rand(1.8, 3.4), i % 2 ? '#8cff5a' : '#5fd13a', 'spark');
@@ -1256,7 +1262,7 @@ function teleportSelf(P, x, y) {
 }
 // portal arrow: your first shot opens a blue IN portal where it lands (or where you tap), the next one opens the orange OUT portal.
 // Every arrow (theirs too) that flies into IN comes out of OUT. The pair lasts PORT_T s; a new IN closes your old pair.
-const PORT_T = 25, PORT_R = 30, PORT_COL = '#8f7bff', NOLINK = ['clone', 'portal'];
+const PORT_T = 25, PORT_R = 30, PORT_COL = '#8f7bff', NOLINK = ['clone', 'portal', 'thunder'];
 const portFlying = P => st.arrows.filter(a => !a.done && a.owner === P && hasPk(a, 'portal'));
 function plantPortal(ar) {
   if (ar.done) return;
@@ -1367,6 +1373,7 @@ function onHit(ar, a, z) {
     ring(f.x, f.y - 50, 60, '#d58cff', .6, 3);
   }
   if (hasPk(ar, 'web') && !a.isP) webA(a, ar, ar.owner && ar.owner.isP ? ar.owner : null);
+  if (hasPk(ar, 'scope') && hasPk(ar, 'shrink') && !a.isP && ar.owner && ar.owner.isP) miniA(a);   // MINIATURIZE
   if (hasPk(ar, 'ice') && !a.isP) { a.frozen = 3.5; a.aiAim = null; a.pow = 0; text(f.x, f.y - 132, 'FROZEN', '#bfe9ff', 14, .9); }
   if (hasPk(ar, 'fire')) for (let i = 0; i < 8; i++) st.parts.push({ x: ar.x, y: ar.y, vx: rand(-80, 80), vy: rand(-160, 0), life: .5, max: .5, r: 2.4, col: '#ff9a45' });
   if (hasPk(ar, 'storm') && !a.isP && shotOnce(ar, 'storm')) {
@@ -1665,6 +1672,121 @@ function comboHole(B, dt) {
   }
 }
 const slayable = (E, B) => !E.boss || (B.slayer && E.shrink >= .2 && !E.hydra && !E.ship);
+/* ---------- storm arrow: a storm cloud forms where it lands (or where you tap). Clouds near each other drift together and
+   JOIN into a bigger storm: faster, harder lightning, and from 3 clouds up an ice storm that freezes enemies under it ---------- */
+const STORM_COL = '#8fa8ff', STORM_MAX = 5, STORM_T = 9;
+const stormW = n => 170 + 80 * (n - 1);
+const STORM_NAMES = ['', 'STORM CLOUD', 'BIG STORM', 'ICE STORM', 'SUPERCELL', 'MEGA STORM'];
+const stormFlying = P => st.arrows.filter(a => !a.done && a.owner === P && hasPk(a, 'thunder'));
+function plantStorm(ar) {
+  if (ar.done) return;
+  ar.done = true;
+  if (shotOnce(ar, 'thunder')) spawnStorm(ar.x, ar.y, ar.owner, true);
+}
+function spawnStorm(x, y, by, air) {
+  st.storms = st.storms || [];
+  y = air ? Math.min(y, -170) : Math.min(y - 170, -200);
+  y = Math.max(y, topY() + 50);
+  st.storms.push({ id: ++uid, x, y, n: 1, t: 0, life: STORM_T, max: STORM_T, zapT: .6, iceT: 0, by, ph: Math.random() * 6 });
+  text(x, y - 60, 'STORM CLOUD', STORM_COL, 16, 1.2); ring(x, y, 90, STORM_COL, .5, 3); sfx('whoosh');
+}
+function stormStep(dt) {
+  const L = st.storms;
+  if (!L || !L.length) return;
+  for (const S of L) {   // clouds near each other drift together
+    S.t += dt; S.life -= dt; S.ph += dt;
+    for (const O of L) {
+      if (O === S) continue;
+      const dx = O.x - S.x, dy = O.y - S.y, D = Math.hypot(dx, dy);
+      if (D < 650 && D > 1) { S.x += dx / D * 45 * dt; S.y += dy / D * 25 * dt; }
+    }
+  }
+  for (const S of L) for (const O of L) {   // clouds that touch join into one bigger storm
+    if (S === O || S.gone || O.gone) continue;
+    if (Math.hypot(O.x - S.x, O.y - S.y) > (stormW(S.n) + stormW(O.n)) * .32) continue;
+    const n = Math.min(STORM_MAX, S.n + O.n), k = S.n / (S.n + O.n);
+    S.x = S.x * k + O.x * (1 - k); S.y = Math.min(S.y, O.y); S.n = n; O.gone = true;
+    S.max = S.life = STORM_T + 3 * (n - 1); S.zapT = .2; S.iceT = .3;
+    st.flashA = .5; st.flashC = '200,215,255'; shake(8); sfx('boom');
+    ring(S.x, S.y, stormW(n) * .7, STORM_COL, .7, 5);
+    text(S.x, S.y - 70 - 10 * n, STORM_NAMES[n] + '!', n >= 3 ? '#bfe9ff' : STORM_COL, 16 + 3 * n, 1.6, 1);
+  }
+  for (const S of L) {
+    if (S.gone) continue;
+    const n = S.n, w = stormW(n), under = E => !E.dead && Math.abs(feet(E).x - S.x) < w / 2 + 40;
+    S.y = Math.max(S.y, topY() + 40 + 10 * n);
+    if ((S.zapT -= dt) <= 0) {   // lightning strikes the enemies under it (bigger storm = faster, harder, more bolts)
+      S.zapT = Math.max(.3, 1.3 - .22 * (n - 1));
+      const U = st.enemies.filter(under);
+      for (let s = 0; s < (n >= 4 ? 2 : 1); s++) {
+        const E = U.length ? U[Math.floor(Math.random() * U.length)] : null;
+        const x = E ? feet(E).x : S.x + rand(-.45, .45) * w, gy = E ? feet(E).y - 50 : 0, life = .35 + .05 * n;
+        st.bolts.push({ x1: x + rand(-25, 25), y1: S.y + 20, x2: x, y2: gy, life, max: life, col: '#eaf2ff', big: n >= 3 ? 1 : 0 });
+        glow(x, gy, 60 + 15 * n, 'rgba(220,235,255,', .35);
+        for (let q = 0; q < 10; q++) P_(x, gy, rand(-180, 180), rand(-240, -30), .4, 2, '#eaf2ff', 'spark');
+        if (E) gcHurt(E, 9 + 7 * n, S.by, x, '#cfe0ff');
+      }
+      st.flashA = Math.max(st.flashA || 0, .12 + .05 * n); st.flashC = '230,238,255';
+      shake(3 + n); sfx('zap');
+    }
+    if (n >= 3 && (S.iceT -= dt) <= 0) {   // ice storm: a mini Ice Age freezes everyone under it now and then
+      S.iceT = n >= 5 ? 2.2 : 3;
+      for (const E of st.enemies) if (under(E)) {
+        E.frozen = Math.max(E.frozen || 0, 1 + .4 * n); E.aiAim = null; E.pow = 0;
+        if (n >= 4) gcHurt(E, 4 * n, S.by, S.x, '#bfe9ff');
+        text(feet(E).x, feet(E).y - 132, 'FROZEN', '#bfe9ff', 13, .8);
+      }
+    }
+    if (st.fires && st.fires.length) st.fires = st.fires.filter(f => Math.abs(f.x - S.x) > w / 2);   // the rain puts fires out
+    if (S.life <= 0) S.gone = true;
+  }
+  st.storms = L.filter(S => !S.gone);
+}
+function drawStorms() {
+  for (const S of st.storms || []) {
+    const n = S.n, w = stormW(n) * sc, x = SX(S.x), y = SY(S.y), gy = SY(0), ice = n >= 3;
+    if (x < -w || x > W + w) continue;
+    ctx.save(); ctx.globalAlpha = clamp(Math.min(S.t / .4, S.life / .8), 0, 1);
+    // rain (snow and hail in an ice storm) falling to the ground
+    ctx.strokeStyle = ice ? 'rgba(230,245,255,.7)' : 'rgba(170,200,255,.55)'; ctx.lineWidth = 1.2;
+    ctx.fillStyle = 'rgba(240,250,255,.9)';
+    for (let q = 0, N = 30 + 12 * n; q < N; q++) {
+      const rx = x - w * .45 + hash(q * 3.1 + S.id) * w * .9, ry = y + ((st.t * (ice ? 260 : 460) + hash(q + S.id) * 500) % Math.max(1, gy - y));
+      if (ice && q % 3 === 0) ctx.fillRect(rx - 1.5 * sc, ry, 3 * sc, 3 * sc);
+      else { ctx.beginPath(); ctx.moveTo(rx, ry); ctx.lineTo(rx - (ice ? 4 : 2), ry + (ice ? 5 : 10)); ctx.stroke(); }
+    }
+    // the cloud: dark puffs, bigger and taller with every storm that joins
+    const puffs = 6 + n * 2;
+    for (let q = 0; q < puffs; q++) {
+      const u = q / (puffs - 1), px = x + (u - .5) * w * .9, py = y + Math.sin(q * 1.7 + S.ph) * 6 * sc - Math.sin(u * Math.PI) * 14 * sc * (1 + n * .3);
+      const r = (24 + hash(q + S.id) * 20) * sc * (1 + .12 * n);
+      ctx.fillStyle = q % 2 ? (ice ? 'rgba(120,135,165,.96)' : 'rgba(78,82,104,.96)') : (ice ? 'rgba(150,165,195,.96)' : 'rgba(98,102,126,.96)');
+      ctx.beginPath(); ctx.arc(px, py, r, 0, 6.283); ctx.fill();
+    }
+    ctx.fillStyle = ice ? 'rgba(110,125,155,.96)' : 'rgba(64,68,88,.96)'; ctx.fillRect(x - w * .45, y, w * .9, 16 * sc);
+    if (Math.sin(st.t * 23 + S.id) > .85 - .05 * n) {   // lightning flickering inside
+      ctx.fillStyle = 'rgba(230,240,255,.35)'; ctx.beginPath(); ctx.ellipse(x + Math.sin(S.id + st.t) * w * .25, y, w * .25, 20 * sc, 0, 0, 6.283); ctx.fill();
+    }
+    if (n > 1) { ctx.font = '700 10px Silkscreen, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillStyle = ice ? '#dff2ff' : '#c9d6ff'; ctx.fillText('×' + n, x, y - 40 * sc * (1 + n * .3)); }
+    ctx.restore();
+  }
+}
+/* ---------- MINIATURIZE (scope + shrink): what it hits shrinks to horde-soldier size at once, for MINI_T s ---------- */
+const MINI_T = 8, MINI_K = .35, MINI_COL = '#b6ff5c';
+function miniA(a) {
+  if (!a || a.dead) return;
+  a.miniT = a.boss ? MINI_T / 2 : MINI_T;
+  const f = feet(a);
+  text(f.x, f.y - 140, 'MINIATURIZED!', MINI_COL, 17, 1.3, 1);
+  ring(f.x, f.y - 40, 70, MINI_COL, .5, 3); ring(f.x, f.y - 40, 30, '#ffffff', .35, 2);
+  for (let q = 0; q < 14; q++) P_(f.x + rand(-20, 20), f.y - rand(0, 90), rand(-90, 90), rand(-120, 20), .45, 2, MINI_COL, 'spark');
+  sfx('heal');
+}
+function miniGadget(g) {
+  if (!(g.miniT > 0)) g.size0 = g.size || 1;
+  g.miniT = MINI_T; g.size = (g.size0 || 1) * .4; g.flash = .3;
+  text(g.x, g.y - 40, 'MINIATURIZED!', MINI_COL, 16, 1.2, 1); ring(g.x, g.y, 60, MINI_COL, .5, 3); sfx('heal');
+}
 /* ---------- clone arrow: whatever it hits gets a copy (objects pop up somewhere else; archers come over to your side) ---------- */
 const CLONE_COL = '#4fe3c1', CLONE_MAX = 2;
 const MIRROR_KINDS = { archer: 1, crossbow: 1, mage: 1, healer: 1, dummy: 1 };
@@ -1951,7 +2073,7 @@ function drawPlanets() {
   }
 }
 function updateMeteors(dt) {
-  planetStep(dt); gcStep(dt);
+  planetStep(dt); gcStep(dt); stormStep(dt);
   st.showers = st.showers || []; st.rocks = st.rocks || [];
   for (const S of st.showers) {
     S.next -= dt;
@@ -1993,7 +2115,7 @@ function drawZapRock(R) {
   ctx.restore();
 }
 function drawMeteors() {
-  gcDraw(); drawPlanets();
+  drawStorms(); gcDraw(); drawPlanets();
   for (const R of st.rocks || []) {
     if (R.k === 'storm') { drawZapRock(R); continue; }
     const x = SX(R.x), y = SY(R.y), r = R.r * sc, sp = Math.hypot(R.vx, R.vy), ux = R.vx / sp, uy = R.vy / sp;
@@ -3363,7 +3485,7 @@ function startHorde() {
   st.clones = [];
   st.helpers = st.helpers.filter(h => !h.dead && !h.clone);
   st.enemies = []; st.marchers = []; st.marchQ = []; st.allies = []; st.arrows = []; st.pinned = [];
-  st.tornados = []; st.mags = []; st.planets = []; st.gcfx = []; st.holes = []; st.showers = []; st.rocks = []; st.boulders = []; st.steams = []; st.fires = [];
+  st.tornados = []; st.mags = []; st.planets = []; st.gcfx = []; st.storms = []; st.holes = []; st.showers = []; st.rocks = []; st.boulders = []; st.steams = []; st.fires = [];
   st.gadgets = []; st.dirT = undefined; st.wind = 0; st.weather = 'clear'; st.timeScale = 1; st.nextT = 0;
   const P = st.P;
   Object.assign(P, { big: .75, hp: P.max, confT: 0, acidT: 0, burn: 0, frozen: 0, headRed: 0, stuck: [], dead: false, rot: 0, vr: 0, dx: 0, dy: 0 });
@@ -5089,6 +5211,7 @@ function update(rdt) {
     }
     if (g.flash > 0) g.flash -= rdt;
     if (g.webT > 0) g.webT -= dt;
+    if (g.miniT > 0 && (g.miniT -= dt) <= 0) { g.size = g.size0 || 1; text(g.x, g.y - 40, 'NORMAL SIZE', MINI_COL, 12, .8); }
     if ((g.type === 'fan' || g.type === 'win' || g.type === 'bounce' || g.type === 'magnet') && !g.falling) {
       if (g.type === 'bounce') g.ang += (g.tang - g.ang) * k;
       if (g.hold > 0) g.hold -= dt;
@@ -6877,10 +7000,10 @@ function release(e) {
   const P = st && st.P;
   if (drag && P && !P.dead && running && !paused) {
     const cl = P.pow <= .1 ? st.arrows.filter(a => !a.done && !a.split && a.owner === P && hasPk(a, 'cluster')) : [];
-    const mg = P.pow <= .1 ? magFlying(P) : [], po = P.pow <= .1 ? portFlying(P) : [];
+    const mg = P.pow <= .1 ? magFlying(P) : [], po = P.pow <= .1 ? [...portFlying(P), ...stormFlying(P)] : [];
     const hp = P.pow <= .1 && e && htOn(P) ? htPick(toWorld(e)) : null;   // a tap on an archer or object locks your homing arrows on it
     if (hp) htLock(P, hp);
-    else if (cl.length || mg.length || po.length) { for (const a of cl) splitCluster(a); for (const a of mg) plantMag(a); for (const a of po) plantPortal(a); }   // a tap sticks a magnet arrow in the air   // a tap (no pull) bursts any cluster arrow in the air
+    else if (cl.length || mg.length || po.length) { for (const a of cl) splitCluster(a); for (const a of mg) plantMag(a); for (const a of po) hasPk(a, 'thunder') ? plantStorm(a) : plantPortal(a); }   // a tap sticks a magnet arrow in the air   // a tap (no pull) bursts any cluster arrow in the air
     else if (P.pow > .1 && st.reload <= 0) {
       const gc = st.power && st.power.gc || null, pk = st.power && !gc ? st.power.k : null, pk2 = st.power && !gc ? st.power.k2 || null : null;
       const n0 = st.arrows.length;
@@ -6889,6 +7012,7 @@ function release(e) {
       if (catArmed()) catLaunch(n0);
       if ((pk === 'cluster' || pk2 === 'cluster') && (st.splitHints = (st.splitHints || 0) + 1) <= 3) text(feet(P).x, feet(P).y - 150, 'TAP THE SCREEN TO SPLIT IT', '#ffb3f0', 14, 1.6);
       else if ((pk === 'magnet' || pk2 === 'magnet') && (st.magHints = (st.magHints || 0) + 1) <= 3) text(feet(P).x, feet(P).y - 150, 'TAP TO STICK IT IN THE AIR', MAG_COL, 14, 1.6);
+      else if (pk === 'thunder' && (st.stormHints = (st.stormHints || 0) + 1) <= 3) text(feet(P).x, feet(P).y - 150, 'TAP TO MAKE THE STORM THERE', STORM_COL, 14, 1.6);
       else if (pk === 'portal' && (st.portHints = (st.portHints || 0) + 1) <= 3) text(feet(P).x, feet(P).y - 150, 'TAP TO OPEN THE PORTAL THERE', PORT_COL, 14, 1.6);
       const vol = { alive: st.arrows.length - n0, hits: 0 };
       for (let q = n0; q < st.arrows.length; q++) st.arrows[q].vol = vol;
@@ -6996,13 +7120,13 @@ $('musicBtn').onclick = () => {
 
 /* ---------- practice range: straw dummies, any arrow from the rack, unlimited shots ---------- */
 const PRAC_X = [650, 1050, 1500, 1950], PRAC_H = [70, 135, 175, 110];
-const RACK = ['triple', 'fire', 'ice', 'boom', 'heavy', 'rapid', 'pierce', 'homing', 'storm', 'cluster', 'scope', 'slowmo', 'tornado', 'shrink', 'grow', 'tele', 'confuse', 'magnet', 'bounce', 'web', 'clone', 'portal', 'meteor', 'blackhole'];
+const RACK = ['triple', 'fire', 'ice', 'boom', 'heavy', 'rapid', 'pierce', 'homing', 'storm', 'cluster', 'scope', 'slowmo', 'tornado', 'shrink', 'grow', 'tele', 'confuse', 'magnet', 'bounce', 'web', 'clone', 'portal', 'thunder', 'meteor', 'blackhole'];
 const RACK_DESC = {
   plain: 'A normal arrow', triple: '3 arrows at once', fire: 'Sets them on fire', ice: 'Freezes them solid', boom: 'Explodes; 3 hits topple a tower',
   heavy: 'Hits much harder', rapid: 'Very fast reload', pierce: 'Goes through archers', homing: 'Steers into the nearest archer',
   storm: 'Lightning jumps between archers', cluster: 'Tap the screen to split it', scope: 'Shows where your arrow will go',
   slowmo: 'Slows down whoever it hits', tornado: 'A twister that turns arrows round', shrink: 'Each hit shrinks them', grow: 'Each hit makes them 25% bigger and 15% slower, and their shots overshoot. Hit a window or fan in the middle to make it bigger',
-  tele: 'You teleport to where it lands, onto a tower that high', portal: '1st shot opens the IN portal where it lands (tap to open it in the air), 2nd shot opens the OUT. Arrows that fly in come out the other one', confuse: 'They aim backwards for 6 s and can hit their own side', web: 'Webs what it hits: archers can\'t move or shoot for 5 s, objects stay put 20 s', bounce: 'Bounces off the ground, towers and cover up to 3 times. Bank it round cover', magnet: 'Sticks in where it lands for 6 s. Enemy arrows that fly near it bend in and get caught (holds 5)', clone: 'Copies what it hits. A cloned archer fights for you', meteor: 'Rocks rain down. They hit you too!', blackhole: 'Sucks everything in',
+  thunder: 'A storm cloud forms where it lands (tap to make it in the air) and zaps enemies under it. Clouds that touch join into a bigger storm', tele: 'You teleport to where it lands, onto a tower that high', portal: '1st shot opens the IN portal where it lands (tap to open it in the air), 2nd shot opens the OUT. Arrows that fly in come out the other one', confuse: 'They aim backwards for 6 s and can hit their own side', web: 'Webs what it hits: archers can\'t move or shoot for 5 s, objects stay put 20 s', bounce: 'Bounces off the ground, towers and cover up to 3 times. Bank it round cover', magnet: 'Sticks in where it lands for 6 s. Enemy arrows that fly near it bend in and get caught (holds 5)', clone: 'Copies what it hits. A cloned archer fights for you', meteor: 'Rocks rain down. They hit you too!', blackhole: 'Sucks everything in',
   shield: 'Puts a wall up in front of you'
 };
 function makeDummy(i) {
@@ -7013,7 +7137,7 @@ function makeDummy(i) {
 }
 function setupPractice() {
   st.practice = true; st.level = 6; st.wind = 0; st.weather = 'clear';
-  st.gadgets = []; st.dirT = undefined; st.tornados = []; st.mags = []; st.planets = []; st.gcfx = []; st.holes = []; st.showers = []; st.rocks = [];
+  st.gadgets = []; st.dirT = undefined; st.tornados = []; st.mags = []; st.planets = []; st.gcfx = []; st.storms = []; st.holes = []; st.showers = []; st.rocks = [];
   st.enemies = PRAC_X.map((x, i) => makeDummy(i));
   st.quiver = []; st.power = null; st.links = 0; st.shotDmg = 0; st.bestDmg = 0;
   st.banner = { t: 'PRACTICE RANGE', sub: 'TAP THE ARROW BUTTON TO PICK ANY ARROW', life: 3 };
