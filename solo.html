@@ -2360,18 +2360,19 @@ function hordePiece(g) {
 }
 function buildCatapult() {
   const H = st.horde, K = H.keep;
-  H.cat = { x: K.x - K.pw / 2 - 64, reload: 0, armed: false };
-  for (let q = 0; q < 24; q++) P_(H.cat.x, -WALL_H - 20, rand(-140, 140), rand(-200, 0), .6, 3, q % 2 ? '#b07a43' : '#ffd27a', 'spark');
+  H.cat = { x: K.x - K.pw / 2 - 46 - 95, reload: 0, armed: false };   // on the ground behind the castle
+  for (let q = 0; q < 24; q++) P_(H.cat.x, -40, rand(-140, 140), rand(-200, 0), .6, 3, q % 2 ? '#b07a43' : '#ffd27a', 'spark');
   st.banner = { t: 'CATAPULT BUILT!', sub: 'TAP 🪨 CATAPULT, THEN SHOOT', life: 2.4 };
   sfx('wave');
 }
-const catPt = () => ({ x: st.horde.cat.x + 12, y: -WALL_H - 40 });
+const CAT_K = 1.9;   // how big the catapult is drawn
+const catPt = () => ({ x: st.horde.cat.x + 13 * CAT_K, y: -70 * CAT_K });   // where the arm lets go
 const catArmed = () => !!(st.horde && st.horde.cat && st.horde.cat.armed);
 function catToggle() {
   const C = st.horde && st.horde.cat;
   if (!C || C.reload > 0 || st.horde.over) return;
   C.armed = !C.armed; sfx('click');
-  if (C.armed) text(C.x, -WALL_H - 90, 'CATAPULT READY: SHOOT!', '#ffb347', 14, 1.2);
+  if (C.armed) text(C.x, -200, 'CATAPULT READY: SHOOT!', '#ffb347', 14, 1.2);
 }
 // your next shot flies from the catapult as a boulder (it keeps your arrow power, so windows and upgrades still work)
 function catLaunch(n0) {
@@ -2431,8 +2432,8 @@ function drawRock(ar) {
 function drawCatapult() {
   const H = st.horde, C = H && H.cat;
   if (!C) return;
-  const x = SX(C.x), y = SY(-WALL_H), k = sc;
-  if (x < -80 || x > W + 80) return;
+  const x = SX(C.x), y = SY(0), k = sc * CAT_K;
+  if (x < -160 || x > W + 160) return;
   ctx.save(); ctx.translate(x, y); ctx.scale(k, k);
   ctx.lineCap = 'round';
   if (C.armed) { ctx.fillStyle = 'rgba(255,179,71,' + (.25 + .15 * Math.sin(st.t * 8)) + ')'; ctx.beginPath(); ctx.arc(0, -24, 46, 0, 6.283); ctx.fill(); }
@@ -4379,7 +4380,7 @@ function draw() {
   ctx.translate(shx, shy);
   for (const g of st.gadgets) { if (g.appearT > 0) ctx.globalAlpha = Math.max(.05, 1 - g.appearT / .6); drawGadget(g); ctx.globalAlpha = 1; }
   for (const h of st.helpers) if (!h.wall) drawPillar(h);
-  if (st.horde) { drawHordeCastles(); hordeWall(st.horde.keep.x - st.horde.keep.pw / 2 - 86, WALL_H, 86, 1); drawCatapult(); }
+  if (st.horde) { drawHordeCastles(); drawCatapult(); hordeWall(st.horde.keep.x - st.horde.keep.pw / 2 - 46, WALL_H, 46, 1); }
   drawPillar(st.P);
   for (const e of st.enemies) drawPillar(e);
   for (const p of st.pinned) {
