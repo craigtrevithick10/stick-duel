@@ -93,6 +93,10 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 .shopgrid .item.sel{border-color:#7dffe8;background:rgba(125,255,232,.16);box-shadow:0 0 0 2px rgba(125,255,232,.35)}
 .shopgrid .item.now{border-color:var(--ember)}
 #rackHint{color:#7dffe8;min-height:1.2em}
+#forgeScreen .shopgrid{max-height:calc(100vh - 250px);max-height:calc(100dvh - 250px);overflow-y:auto}
+#forgeScreen .item{padding:6px 10px}#forgeScreen .item .ico{font-size:24px;width:30px}
+#quiver button.forged{border-color:#ffd27a!important;box-shadow:inset 0 0 0 1px rgba(255,210,122,.5)}
+#quiver button.forged.dry{opacity:.45}
 @media (max-height:520px){#rackScreen .panel{gap:8px}#rackScreen .title{font-size:24px!important}#rackScreen .shopgrid{max-height:calc(100vh - 205px);max-height:calc(100dvh - 205px)}#rackScreen{padding:8px 16px}}
 #clockSvg{width:min(46vh,240px);height:min(46vh,240px);touch-action:none;cursor:grab;max-width:100%}
 </style>
@@ -190,6 +194,20 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
       </div>
       <p class="sub" id="hGp" style="font:700 13px var(--pixel);color:#ffd27a;margin:4px 0 14px">+0 GP</p>
       <button class="btn" id="hordeNext" type="button">CONTINUE</button>
+    </div>
+  </div>
+  <div class="overlay" id="forgeScreen" hidden>
+    <div class="panel" style="width:min(760px,100%);gap:8px">
+      <h2 class="title" style="font-size:clamp(26px,6vw,38px)">THE <em>FORGE</em></h2>
+      <p class="sub" id="forgeBank" style="font:700 13px var(--pixel);color:#ffd27a;margin:0">0 HORDE POINTS</p>
+      <p class="small" id="forgeHint">Tap two arrow powers</p>
+      <div class="shopgrid" id="forgeGrid"></div>
+      <p class="small" id="forgeMine"></p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center">
+        <button class="btn" id="forgeMake" type="button" style="font-size:16px;padding:10px 22px" disabled>FORGE</button>
+        <button class="btn alt" id="forgeDone" type="button" style="font-size:16px;padding:10px 22px">TO THE SHOP ▶</button>
+      </div>
+      <p class="small" style="opacity:.7">Forged arrows stay in your quiver for the whole run and refill every level. Game over and they are gone.</p>
     </div>
   </div>
   <div class="overlay" id="overScreen" hidden>
@@ -347,6 +365,7 @@ function newGame() {
 }
 
 function spawnLevel(first) {
+  for (const q of st.forged || []) q.shots = q.max;   // forged arrows refill every level
   const lv = st.level, n = Math.min(lv, 6);
   st.enemies = [];
   // each archer gets its own random spot: some close, some far
@@ -4705,7 +4724,10 @@ $('shopNext').onclick = () => {
   if (st.level % 5 === 0 && st.hordeLv !== st.level) { startHorde(); return; }
   st.level++; spawnLevel(false); st.camHold = 0; st.camFocus = null; camX = homeCam();
 };
-$('hordeNext').onclick = () => endHorde();
+$('hordeNext').onclick = () => openForge();
+$('forgeGrid').addEventListener('click', e => { const b = e.target.closest('button[data-k]'); if (b && !b.disabled) forgeTap(b.dataset.k); });
+$('forgeMake').onclick = () => forgeMake();
+$('forgeDone').onclick = () => closeForge();
 $('catBtn').onclick = () => { if (st && st.horde) catToggle(); };
 $('castleBtn').onclick = () => { if (st && st.horde) hordeMove(st.horde.on === 'keep' ? 'outer' : 'keep'); };
 function frame(ts) {
@@ -4719,7 +4741,7 @@ function frame(ts) {
     const C = H && H.cat, cOn = !!(C && running && !paused && !H.over); if ($('catBtn').hidden === cOn) $('catBtn').hidden = !cOn;
     if (cOn) { const lb = C.armed ? '🪨 AIM & SHOOT' : C.reload > 0 ? '🪨 RELOAD ' + Math.ceil(C.reload) : '🪨 CATAPULT'; if ($('catBtn').textContent !== lb) $('catBtn').textContent = lb;
       $('catBtn').classList.toggle('on', C.armed); $('catBtn').classList.toggle('wait', C.reload > 0); } }
-  if (running && !paused && !portrait && !(st && (st.shop || st.clockOpen || st.linking || st.rack || st.placing || st.hordeShow))) update(dt);
+  if (running && !paused && !portrait && !(st && (st.shop || st.clockOpen || st.linking || st.rack || st.placing || st.hordeShow || st.forging))) update(dt);
   camY += (camYTarget() - camY) * Math.min(1, dt * 6);
   draw();
   requestAnimationFrame(frame);
@@ -4775,6 +4797,72 @@ function pickSlot(i) {   // -1 = plain arrows
   if (i >= 0 && !q) return;
   st.power = q; sfx('click');
 }
+/* ---------- the forge: spend horde points on a linked arrow you keep for the whole run (lost at game over) ---------- */
+const FORGE_COST = { triple: 10, rapid: 10, pierce: 10, heavy: 10, scope: 8, homing: 12, fire: 15, ice: 15, tele: 15, slowmo: 18, shrink: 18, confuse: 18,
+  boom: 20, storm: 20, cluster: 20, tornado: 30, blackhole: 60, meteor: 60 };
+const FORGE_MAX = 2, FORGE_SHOTS = 5, FORGE_BIG = ['blackhole', 'meteor'];
+let forgePick = [];
+function hordeBank(add) {
+  let b = 0;
+  try { b = +localStorage.getItem('stickHordeBank') || 0; } catch (e) { b = st.bankMem || 0; }
+  if (add) { b = Math.max(0, b + add); try { localStorage.setItem('stickHordeBank', b); } catch (e) { st.bankMem = b; } }
+  return b;
+}
+const forgeCost = (a, b) => (FORGE_COST[a] || 0) + (FORGE_COST[b] || 0);
+const forgeShots = (a, b) => FORGE_BIG.includes(a) || FORGE_BIG.includes(b) ? 2 : FORGE_SHOTS;
+function openForge() {
+  st.hordeShow = false; show('hordeScreen', false);
+  st.forging = true; forgePick = [];
+  renderForge(); show('forgeScreen', true);
+}
+function renderForge() {
+  const bank = hordeBank(), list = st.forged || [], full = list.length >= FORGE_MAX;
+  $('forgeBank').textContent = bank + ' HORDE POINTS';
+  const [a, b] = forgePick;
+  let hint;
+  if (full) hint = 'Your forge rack is full (' + FORGE_MAX + ' arrows). They stay with you until game over.';
+  else if (!a) hint = 'Tap two arrow powers to forge them into one linked arrow';
+  else if (!b) hint = POWERS[a].short + ' + … tap a second power';
+  else {
+    const c = COMBOS[comboKey(a, b)];
+    hint = POWERS[a].short + ' + ' + POWERS[b].short + (c ? '  =  ★' + c[2] : '') + '  ·  ' + forgeShots(a, b) + ' shots every level  ·  ' + forgeCost(a, b) + ' points';
+  }
+  $('forgeHint').textContent = hint;
+  let h = '';
+  for (const k in FORGE_COST) {
+    const P = POWERS[k], on = forgePick.includes(k), cant = full || (!on && forgePick.length >= 2);
+    h += `<button type="button" class="item${on ? ' sel' : ''}" data-k="${k}"${cant ? ' disabled' : ''}><i class="ico">${ICON['pw_' + k] || ''}</i><span class="txt"><b style="color:${P.col}">${P.short}</b><span class="cost">${FORGE_COST[k]}</span></span></button>`;
+  }
+  $('forgeGrid').innerHTML = h;
+  const cost = b ? forgeCost(a, b) : 0;
+  $('forgeMake').disabled = !(b && !full && bank >= cost);
+  $('forgeMake').textContent = b ? (bank >= cost ? 'FORGE · ' + cost : 'NEED ' + cost + ' POINTS') : 'FORGE';
+  $('forgeMine').innerHTML = list.length ? 'YOUR FORGED ARROWS: ' + list.map(q => '<b style="color:' + POWERS[q.k].col + '">' + powShort(q) + '</b>').join(' · ') : '';
+}
+function forgeTap(k) {
+  if (forgePick.includes(k)) forgePick = forgePick.filter(x => x !== k);
+  else if (forgePick.length < 2) forgePick.push(k);
+  sfx('click'); renderForge();
+}
+function forgeMake() {
+  let [a, b] = forgePick;
+  if (!b) return;
+  const cost = forgeCost(a, b), list = st.forged = st.forged || [];
+  if (list.length >= FORGE_MAX || hordeBank() < cost) return;
+  if (b === 'cluster') [a, b] = [b, a];   // cluster first, so its split arrows carry the other power
+  const n = forgeShots(a, b);
+  list.push({ k: a, k2: b, shots: n, max: n, forged: true });
+  hordeBank(-cost); forgePick = [];
+  sfx('heal'); renderForge();
+}
+function closeForge() { st.forging = false; show('forgeScreen', false); endHorde(); }
+// a forged arrow is loaded like a quiver slot; when it runs dry it waits for the next level
+function pickForged(i) {
+  const q = (st.forged || [])[i];
+  if (!q || st.linking) return;
+  if (q.shots <= 0) { text(feet(st.P).x, feet(st.P).y - 150, 'RECHARGES NEXT LEVEL', '#ffd27a', 14, 1.2); sfx('click'); return; }
+  st.power = q; sfx('click');
+}
 let quiverSig = '';
 function drawQuiver() {
   const box = $('quiver'), on = running && st && !st.shop && !st.clockOpen && !st.P.dead;
@@ -4791,19 +4879,21 @@ function drawQuiver() {
       + `<button type="button" data-fb="1" class="${st.dummyFire ? 'on' : ''}"><i class="qi">🏹</i><span>SHOOT BACK</span><small>${st.dummyFire ? 'ON' : 'OFF'}</small></button>`;
     return;
   }
-  const sig = st.quiver.map(o => o.k + (o.k2 || '') + o.shots).join() + '|' + st.quiver.indexOf(st.power) + '|' + st.links + st.linking + st.linkA;
+  const FG = st.forged || [];
+  const sig = st.quiver.map(o => o.k + (o.k2 || '') + o.shots).join() + '|' + st.quiver.indexOf(st.power) + '|' + st.links + st.linking + st.linkA + '|' + FG.map(o => o.k + o.k2 + o.shots).join() + FG.indexOf(st.power);
   if (sig === quiverSig) return;
   quiverSig = sig;
   const sel = st.quiver.indexOf(st.power);
   const L = st.linking;
   let h = L ? `<div class="qhint">LINKING: TAP 2 ARROW TYPES TO JOIN THEM</div>` : '';
-  h += `<button type="button" data-i="-1" class="${sel < 0 && !L ? 'on' : ''}"${L ? ' disabled' : ''}><i class="qi">➶</i><span>PLAIN</span><small>∞</small></button>`;
+  h += `<button type="button" data-i="-1" class="${!st.power && !L ? 'on' : ''}"${L ? ' disabled' : ''}><i class="qi">➶</i><span>PLAIN</span><small>∞</small></button>`;
   for (let i = 0; i < QUIVER_SLOTS; i++) {
     const o = st.quiver[i];
     const cls = L ? (st.linkA === i ? 'on' : o && o.k2 ? 'empty' : 'pickme') : sel === i ? 'on' : '';
     h += o ? `<button type="button" data-i="${i}" class="${cls}"${L && o.k2 ? ' disabled' : ''}><i class="qi">${ICON['pw_' + o.k] || ''}${o.k2 ? ICON['pw_' + o.k2] || '' : ''}</i><span style="color:${POWERS[o.k].col}">${powShort(o)}</span><small>×${o.shots}</small></button>`
            : `<button type="button" class="empty" disabled><i class="qi">·</i><span>EMPTY</span><small>—</small></button>`;
   }
+  FG.forEach((o, i) => { h += `<button type="button" data-f="${i}" class="forged${st.power === o && !L ? ' on' : ''}${o.shots <= 0 ? ' dry' : ''}"${L ? ' disabled' : ''}><i class="qi">${ICON['pw_' + o.k] || ''}${ICON['pw_' + o.k2] || ''}</i><span style="color:${POWERS[o.k].col}">${powShort(o)}</span><small>⚒ ×${o.shots}</small></button>`; });
   if (st.links) h += `<button type="button" data-link="1" class="link${L ? ' on' : ''}"><i class="qi">🔗</i><span>${L ? 'CANCEL' : 'LINK'}</span><small>×${st.links}</small></button>`;
   box.innerHTML = h;
 }
@@ -4812,8 +4902,8 @@ $('quiver').addEventListener('click', e => {
   if (e.target.closest('button[data-rack]')) { openRack(); return; }
   if (e.target.closest('button[data-reset]')) { resetDummies(); return; }
   if (e.target.closest('button[data-fb]')) { st.dummyFire = !st.dummyFire; for (const d of st.enemies) if (d.dummy) { d.aiT = st.dummyFire ? rand(1.5, 3.5) : 1e9; d.aiAim = null; } quiverSig = ''; sfx('click'); return; }
-  if (e.target.closest('button[data-link]')) { toggleLink(); return; } const b = e.target.closest('button[data-i]'); if (b) pickSlot(+b.dataset.i); });
-addEventListener('keydown', e => { if (running && st.horde && (e.key === 'b' || e.key === 'B')) { catToggle(); return; } if (running && st.horde && (e.key === 'c' || e.key === 'C')) { hordeMove(st.horde.on === 'keep' ? 'outer' : 'keep'); return; } if (running && st.practice && (e.key === 'a' || e.key === 'A')) { if (st.rack) closeRack(); else openRack(); return; } const n = +e.key; if (running && n >= 1 && n <= 4) pickSlot(n - 2); else if (running && (e.key === 'l' || e.key === 'L')) toggleLink(); });
+  if (e.target.closest('button[data-link]')) { toggleLink(); return; } const fb = e.target.closest('button[data-f]'); if (fb) { pickForged(+fb.dataset.f); return; } const b = e.target.closest('button[data-i]'); if (b) pickSlot(+b.dataset.i); });
+addEventListener('keydown', e => { if (running && st.horde && (e.key === 'b' || e.key === 'B')) { catToggle(); return; } if (running && st.horde && (e.key === 'c' || e.key === 'C')) { hordeMove(st.horde.on === 'keep' ? 'outer' : 'keep'); return; } if (running && st.practice && (e.key === 'a' || e.key === 'A')) { if (st.rack) closeRack(); else openRack(); return; } const n = +e.key; if (running && n >= 1 && n <= 4) pickSlot(n - 2); else if (running && (n === 5 || n === 6)) pickForged(n - 5); else if (running && (e.key === 'l' || e.key === 'L')) toggleLink(); });
 
 /* ---------- input ---------- */
 /* ---------- pinch with two fingers (or the mouse wheel) to zoom in and out ---------- */
@@ -4907,7 +4997,11 @@ function release(e) {
       const vol = { alive: st.arrows.length - n0, hits: 0 };
       for (let q = n0; q < st.arrows.length; q++) st.arrows[q].vol = vol;
       if (st.practice) st.shotDmg = 0;
-      if (st.power && !st.practice && --st.power.shots <= 0) { text(feet(P).x, feet(P).y - 130, powShort(st.power) + ' EMPTY', '#f6eedf', 14, 1); st.quiver = st.quiver.filter(o => o !== st.power); st.power = null; }
+      if (st.power && !st.practice && --st.power.shots <= 0) {
+        text(feet(P).x, feet(P).y - 130, powShort(st.power) + (st.power.forged ? ' EMPTY TILL NEXT LEVEL' : ' EMPTY'), '#f6eedf', 14, 1);
+        if (!st.power.forged) st.quiver = st.quiver.filter(o => o !== st.power);
+        st.power = null;
+      }
       st.camHome = false;
       st.reload = (pk === 'rapid' || pk2 === 'rapid' ? .2 : .55) * st.reloadMul; st.hint = false; st.lastShot = { p: P.pow, a: P.aim };
     }
@@ -5136,7 +5230,7 @@ function start(practice) {
   newGame(); running = true; paused = false;
   if (practice === true) setupPractice();
   Music.start();
-  show('startScreen', false); show('overScreen', false); show('pauseScreen', false); show('shopScreen', false); show('clockScreen', false); show('rackScreen', false); show('hordeScreen', false);
+  show('startScreen', false); show('overScreen', false); show('pauseScreen', false); show('shopScreen', false); show('clockScreen', false); show('rackScreen', false); show('hordeScreen', false); show('forgeScreen', false);
   if (practice !== true && /[?&]horde\b/.test(location.search)) {   // test links: ?horde, ?horde&cat (catapult built)
     startHorde();
     if (/[?&]cat\b/.test(location.search)) { st.horde.pieces = { wheel: 1, arm: 1, rope: 1 }; buildCatapult(); }
