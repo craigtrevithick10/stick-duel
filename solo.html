@@ -37,6 +37,8 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 #castleBtn{position:absolute;right:max(14px,env(safe-area-inset-right,0px));bottom:70px;padding:10px 14px;border:0;cursor:pointer;font:700 13px var(--pixel);letter-spacing:.05em;color:#10240f;background:#7dff9a;box-shadow:0 3px 0 rgba(0,0,0,.35)}
 #castleBtn:focus-visible{outline:3px solid var(--blood);outline-offset:3px}
 #catBtn{position:absolute;right:max(14px,env(safe-area-inset-right,0px));bottom:70px;padding:10px 14px;border:0;cursor:pointer;font:700 13px var(--pixel);letter-spacing:.05em;color:#2a1608;background:#ffb347;box-shadow:0 3px 0 rgba(0,0,0,.35)}
+#htBtn{position:absolute;right:max(14px,env(safe-area-inset-right,0px));bottom:118px;padding:10px 14px;border:0;cursor:pointer;font:700 13px var(--pixel);letter-spacing:.05em;color:#2a0a20;background:#ff8ad8;box-shadow:0 3px 0 rgba(0,0,0,.35)}
+#htBtn:focus-visible{outline:3px solid var(--blood);outline-offset:3px}
 #catBtn.on{background:#fff36b;outline:3px solid #ff9a45}
 #catBtn.ready{animation:catPulse 1s ease-in-out infinite}
 @keyframes catPulse{50%{transform:scale(1.08);box-shadow:0 0 0 4px rgba(255,179,71,.45),0 3px 0 rgba(0,0,0,.35)}}
@@ -112,6 +114,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
   <button id="homeBtn" type="button" hidden>◀ ARCHER</button>
   <button id="castleBtn" type="button" hidden>⇄ OUTER CASTLE</button>
   <button id="catBtn" type="button" hidden>🪨 CATAPULT</button>
+  <button id="htBtn" type="button" hidden>🎯 TARGET</button>
   <div id="quiver" hidden></div>
 
   <div class="overlay" id="startScreen">
@@ -462,6 +465,7 @@ function pickGadgetType(exclude, fieldOnly) {
   const opts = [['win', .3], ['fan', .28]];
   if (!fieldOnly) opts.push(['crate', .3], ['hp', .1]);
   if (lv >= 2) opts.push(['bounce', .12]);
+  if (!fieldOnly && lv >= 2) opts.push(['refill', .1]);
   // magnet and bell taken out (2026-11-13): too busy, didn't work well
   if (lv >= 2 && !has('cloud')) opts.push(['cloud', .07]);
   if (lv >= 2 && !has('clock')) opts.push(['clock', .06]);
@@ -480,6 +484,7 @@ function makeGadget(type, x, y) {
     for (let q = 0; q < keys.length; q++) { r -= wts[q]; if (r <= 0) { pk = keys[q]; break; } }
     return { id: ++uid, type, x, y, tx: x, ty: y, pk, bob: rand(0, 6) };
   }
+  if (type === 'refill') return { id: ++uid, type, x, y, tx: x, ty: y, mult: Math.random() < .7 ? 2 : 3, bob: rand(0, 6) };
   if (type === 'hp') return { id: ++uid, type, x, y, tx: x, ty: y, amt: Math.random() < .7 ? 20 : 35, bob: rand(0, 6) };
   if (type === 'link') { st.linkMade = true; return { id: ++uid, type, x, y, tx: x, ty: y, bob: rand(0, 6) }; }
   const base = { id: ++uid, type, x, y, tx: x, ty: y, flash: 0, hold: 0, relocT: rand(8, 13), cutF: rand(.15, .85), zapT: 1 };
@@ -696,6 +701,88 @@ function growGadget(g) {
   for (let q = 0; q < 22; q++) P_(g.x, g.y, rand(-200, 200), rand(-200, 120), .6, 2.6, q % 2 ? GROW_COL : '#ffd6f4', 'spark');
   sfx('heal');
 }
+/* ---------- homing lock-on: tap an archer or an object (or the 🎯 button) and your homing arrows chase it ---------- */
+const HT_COL = '#ff8ad8';
+const isGad = o => !!o && !('max' in o);
+function htObj(id) {
+  if (!id) return null;
+  return st.enemies.find(e => e.id === id && !e.dead) || st.gadgets.find(g => g.id === id && !g.gone && !g.falling) || null;
+}
+function htPt(o) {
+  if (isGad(o)) return { x: o.x, y: o.y + (o.bob !== undefined ? Math.sin(st.t * 2 + o.bob) * 6 : 0) };
+  const f = feet(o);
+  return { x: f.x, y: o.flyer ? f.y - BAT_Y : f.y - 60 * sizeOf(o) };
+}
+function htLoaded(P) { const q = st.power; return !!q && (q.k === 'homing' || q.k2 === 'homing'); }
+function htOn(P) { return !!P && !P.dead && (htLoaded(P) || st.arrows.some(a => !a.done && a.owner === P && hasPk(a, 'homing'))); }
+function htPick(w) {   // the archer or object nearest the tap (bosses have a bigger area)
+  let best = null, bd = 1;
+  for (const E of st.enemies) { if (E.dead) continue; const p = htPt(E), d = Math.hypot(p.x - w.x, p.y - w.y) / ((E.boss ? 150 : 80) * sizeOf(E)); if (d < bd) { bd = d; best = E; } }
+  for (const g of st.gadgets) { if (g.gone || g.falling) continue; const p = htPt(g), d = Math.hypot(p.x - w.x, p.y - w.y) / (60 * (g.size || 1)); if (d < bd) { bd = d; best = g; } }
+  return best;
+}
+function htNext(P, cur) {   // 🎯 button: nearest first, then further out, round and round
+  const f = feet(P).x, L = [...st.enemies.filter(E => !E.dead), ...st.gadgets.filter(g => !g.gone && !g.falling && g.type !== 'cloud')].sort((a, b) => Math.abs(htPt(a).x - f) - Math.abs(htPt(b).x - f));
+  return L.length ? L[(L.findIndex(o => o.id === cur) + 1) % L.length] : null;
+}
+function htDraw(id) {
+  const P = st.P, o = htObj(id);
+  if (!o || !htOn(P)) return;
+  const p = htPt(o), x = SX(p.x), y = SY(p.y), r = (isGad(o) ? 40 * (o.size || 1) : (o.boss ? 70 : 38) * sizeOf(o)) * sc;
+  ctx.save(); ctx.translate(x, y); ctx.rotate(st.t * 1.6);
+  ctx.strokeStyle = HT_COL; ctx.lineWidth = 2.5; ctx.setLineDash([9, 7]);
+  ctx.beginPath(); ctx.arc(0, 0, r, 0, 6.283); ctx.stroke(); ctx.setLineDash([]);
+  for (let i = 0; i < 4; i++) { ctx.rotate(Math.PI / 2); ctx.beginPath(); ctx.moveTo(r - 7, 0); ctx.lineTo(r + 9, 0); ctx.stroke(); }
+  ctx.restore();
+  ctx.font = '700 10px Silkscreen, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillStyle = HT_COL;
+  ctx.fillText('TARGET', x, y - r - 6);
+}
+// in flight: chase the locked target (an object only until the arrow has gone through it); give up after 4 s
+function htSteer(ar, sdt) {
+  const T = htObj(ar.owner.ht);
+  ar.htGo = 0;
+  if (!T || (ar.htT = (ar.htT || 0) + sdt) > 4 || (ar.via && (ar.via.has(T.id) || ar.via.has('h' + T.id)))) return null;
+  const p = htPt(T);
+  ar.htGo = T.id;   // chasing: it flies past other archers and towers
+  if (isGad(T) && T.type !== 'win' && ar.via && Math.hypot(p.x - ar.x, p.y - ar.y) < 26) ar.via.add('h' + T.id);
+  // aim above it by how far gravity will pull the arrow down on the way, so it lobs over towers in between
+  const d = Math.hypot(p.x - ar.x, p.y - ar.y), t = d / Math.max(300, Math.hypot(ar.vx, ar.vy)), drop = Math.min(d * .8, .5 * G * t * t);
+  return { x: p.x, y: p.y + 60 - drop };
+}
+function htLock(P, o) {
+  P.ht = o ? o.id : 0;
+  if (!o) return;
+  const p = htPt(o);
+  text(p.x, p.y - 50, 'LOCKED ON', HT_COL, 15, 1); ring(p.x, p.y, 46, HT_COL, .45, 3); sfx('click');
+}
+/* ---------- refill target: hit it with a special arrow and you get that arrow ×2 or ×3 ---------- */
+const REFILL_COL = '#7dffe8';
+function refillHit(P, g, ar) {
+  const k = ar.pk || null, k2 = ar.pk2 || null;
+  if (!k || !POWERS[k] || (k2 && !POWERS[k2])) { text(g.x, g.y - 34, 'HIT IT WITH A SPECIAL ARROW', '#f6eedf', 13, 1.3); sfx('thud'); return; }
+  const big = [k, k2].some(q => q && (POWERS[q].mega || POWERS[q].ultra)), base = k2 ? Math.min(POWERS[k].shots, POWERS[k2].shots) : POWERS[k].shots;
+  const n = big ? g.mult - 1 : base * (g.mult - 1);
+  g.gone = true;
+  const q = refillGive(P, k, k2, n);
+  text(g.x, g.y - 34, 'REFILL ×' + g.mult + '!', REFILL_COL, 20, 1.5, 1);
+  text(feet(P).x, feet(P).y - 140, '+' + n + ' ' + powShort(q), POWERS[k].col, 16, 1.5);
+  for (let i = 0; i < 2; i++) ring(g.x, g.y, 40 + i * 28, REFILL_COL, .5 + i * .2, 3);
+  for (let i = 0; i < 22; i++) P_(g.x, g.y, rand(-200, 200), rand(-220, 80), .7, 2.6, i % 2 ? REFILL_COL : POWERS[k].col, 'spark');
+  sfx('heal');
+}
+function refillGive(P, k, k2, n) {
+  const same = o => o.k === k && (o.k2 || null) === k2;
+  
+  let q = st.quiver.find(same) || (st.forged || []).find(same);
+  if (q) q.shots += n;
+  else if (!k2) { const was = st.power; givePower(k, n); q = st.power; if (was && (st.quiver.includes(was) || was.forged)) st.power = was; }
+  else {
+    if (st.quiver.length >= QUIVER_SLOTS) { const drop = st.quiver.reduce((a, o) => o.shots < a.shots ? o : a); st.quiver = st.quiver.filter(o => o !== drop); if (st.power === drop) st.power = null; }
+    q = { k, k2, shots: n }; st.quiver.push(q);
+  }
+  if (!st.power) st.power = q;
+  return q;
+}
 function gadgetStep(ar, sdt) {
   const cl = ar.owner.isP && hasPk(ar, 'clone');
   for (const g of st.gadgets) {
@@ -720,6 +807,12 @@ function gadgetStep(ar, sdt) {
         for (let k = 0; k < 2; k++) ring(g.x, g.y, 50 + k * 30, '#7dffe8', .5 + k * .2, 3);
         for (let i = 0; i < 24; i++) P_(g.x, g.y, rand(-200, 200), rand(-220, 80), .7, 2.6, i % 2 ? '#7dffe8' : '#ffffff', 'spark');
         sfx('bell'); return;
+      }
+      continue;
+    }
+    if (g.type === 'refill') {
+      if (!g.gone && ar.owner.isP && !ar.rock && Math.abs(ar.x - g.x) < 20 && Math.abs(ar.y - (g.y + Math.sin(st.t * 2 + g.bob) * 6)) < 20) {
+        ar.done = true; refillHit(st.P, g, ar); return;
       }
       continue;
     }
@@ -1479,7 +1572,7 @@ function cloneTouch(g, ar) {
     return false;
   }
   if (g.type === 'cloud') return dx < g.w / 2 && dy < 30;
-  if (g.type === 'hp' || g.type === 'crate' || g.type === 'link') return dx < 16 && dy < 16;
+  if (g.type === 'hp' || g.type === 'crate' || g.type === 'link' || g.type === 'refill') return dx < 16 && dy < 16;
   if (g.type === 'bell') return Math.hypot(dx, dy) < 24;
   if (g.type === 'clock') return Math.hypot(dx, dy) < 20;
   if (g.type === 'bounce') { const c = Math.cos(g.ang), sn = Math.sin(g.ang), rx = ar.x - g.x, ry = ar.y - g.y; return Math.abs(rx * c + ry * sn) < 46 && Math.abs(-rx * sn + ry * c) < 7; }
@@ -3633,12 +3726,13 @@ function update(rdt) {
       if (ar.portT > 0) ar.portT -= sdt;
       if (ar.bounceT > 0) ar.bounceT -= sdt;
       if (hasPk(ar, 'homing') && ar.owner === P) {
-        let tg = null, bd = 520;
-        for (const E of st.enemies) { if (E.dead) continue; const f = feet(E), d = Math.hypot(f.x - ar.x, f.y - 60 - ar.y); if (d < bd && f.x > ar.x - 40) { bd = d; tg = f; } }
+        let tg = htSteer(ar, sdt), bd = 520;
+        const turn = tg ? 6 : 3;
+        if (!tg) for (const E of st.enemies) { if (E.dead) continue; const f = feet(E), d = Math.hypot(f.x - ar.x, f.y - 60 - ar.y); if (d < bd && f.x > ar.x - 40) { bd = d; tg = f; } }
         if (tg) {
           const cur = Math.atan2(ar.vy, ar.vx), want = Math.atan2(tg.y - 60 - ar.y, tg.x - ar.x), sp = Math.hypot(ar.vx, ar.vy);
           let dA = ((want - cur + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
-          const na = cur + clamp(dA, -3 * sdt, 3 * sdt);
+          const na = cur + clamp(dA, -turn * sdt, turn * sdt);
           ar.vx = Math.cos(na) * sp; ar.vy = Math.sin(na) * sp;
           if (Math.random() < .2) st.parts.push({ x: ar.x, y: ar.y, vx: 0, vy: 0, life: .3, max: .3, r: 2, col: '#ff8ad8' });
         }
@@ -3647,10 +3741,10 @@ function update(rdt) {
       gadgetStep(ar, sdt);
       if (ar.done) break;
       if (ar.owner.isP) {
-        if (coverHit(ar)) break;
+        if (!ar.htGo && coverHit(ar)) break;
         if (boulderHit(ar)) break;
         for (const E of st.enemies) {
-          if (E.ship && !E.ship.down && !E.dead && !ar.done) {
+          if (E.ship && !E.ship.down && !E.dead && !ar.done && (!ar.htGo || ar.htGo === E.id)) {
             const f = feet(E), bx = (ar.x - f.x) / 70, by = (ar.y - (f.y - 140)) / (38 * balloonSquash(E));
             if (bx * bx + by * by < 1) {
               ar.done = true;
@@ -3662,11 +3756,11 @@ function update(rdt) {
           }
         }
         if (ar.done) break;
-        for (const E of st.enemies) if (E.hydra && !E.dead && hydraHit(E, ar)) break;
+        for (const E of st.enemies) if (E.hydra && !E.dead && (!ar.htGo || ar.htGo === E.id) && hydraHit(E, ar)) break;
         if (ar.done) break;
-        for (const E of st.enemies) if (E.flyer && !E.dead && flyerHit(E, ar, sdt)) break;
+        for (const E of st.enemies) if (E.flyer && !E.dead && (!ar.htGo || ar.htGo === E.id) && flyerHit(E, ar, sdt)) break;
         if (ar.done) break;
-        for (const E of st.enemies) { if (ar.hit && ar.hit.has(E)) continue; const z = zone(E, ar.x, ar.y); if (z) { onHit(ar, E, z); break; } }
+        for (const E of st.enemies) { if ((ar.hit && ar.hit.has(E)) || (ar.htGo && ar.htGo !== E.id)) continue; const z = zone(E, ar.x, ar.y); if (z) { onHit(ar, E, z); break; } }
         if (!ar.done && SOLDIERS) {
           const L = leverPos();
           if (Math.hypot(ar.x - L.x, ar.y - L.y) < 17) {
@@ -3697,7 +3791,7 @@ function update(rdt) {
       }
       if (ar.done) break;
       for (const a of [P, ...st.helpers, ...st.enemies]) {
-        if (!a.dead && inPillar(a, ar.x, ar.y)) {
+        if (!a.dead && !ar.htGo && inPillar(a, ar.x, ar.y)) {
           ar.done = true;
           if (!a.ship) st.pinned.push({ x: ar.x, y: ar.y, ang: Math.atan2(ar.vy, ar.vx), col: ar.col });
           for (let q = 0; q < 6; q++) st.parts.push({ x: ar.x, y: ar.y, vx: rand(-80, 80), vy: rand(-120, -20), life: .35, max: .35, r: 2, col: '#e8d3ac' });
@@ -3727,7 +3821,8 @@ function update(rdt) {
   let lead = null;
   for (const a of st.arrows) if (a.owner === P && (!lead || a.x > lead.x)) lead = a;
   let target = home, speed = 3;
-  if (st.camHome) { target = home; speed = 14; st.camHold = 0; st.camFocus = null; }
+  if (st.lookT > 0 && !st.camHome) { st.lookT -= rdt; target = Math.max(home, st.lookX - viewW * .5); speed = 6; }
+  else if (st.camHome) { target = aimLook(P, viewW, home); speed = drag && P.pow > .05 ? 7 : 14; st.camHold = 0; st.camFocus = null; }
   else if (lead) { target = Math.max(home, lead.x - viewW * .5); st.camLast = target; st.camHold = 1.1; speed = 10; }
   else if (st.camFocus && st.camHold > 0) { st.camHold -= rdt; target = Math.max(home, feet(st.camFocus).x - viewW * .55); speed = 4; }
   else if (st.camHold > 0 && !drag) { st.camHold -= rdt; target = st.camLast; speed = 6; }
@@ -4267,6 +4362,17 @@ function drawGadget(g) {
     ctx.fillStyle = '#7dff9a'; ctx.fillText('+' + g.amt, x, by + r + 4);
     return;
   }
+  if (g.type === 'refill') {
+    const by = y + Math.sin(st.t * 2 + g.bob) * 6 * sc, r = 17 * sc, pulse = .5 + .5 * Math.sin(st.t * 4);
+    ctx.fillStyle = `rgba(125,255,232,${.12 + .12 * pulse})`; ctx.beginPath(); ctx.arc(x, by, r * 2, 0, 6.283); ctx.fill();
+    const cols = ['#f6eedf', '#d4322c', '#f6eedf', '#d4322c'];
+    for (let i = 0; i < 4; i++) { ctx.fillStyle = cols[i]; ctx.beginPath(); ctx.arc(x, by, r * (1 - i * .22), 0, 6.283); ctx.fill(); }
+    ctx.strokeStyle = REFILL_COL; ctx.lineWidth = 2.5 * sc; ctx.beginPath(); ctx.arc(x, by, r + 2 * sc, 0, 6.283); ctx.stroke();
+    ctx.font = '700 ' + Math.round(13 * Math.max(.8, sc)) + 'px Silkscreen, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#141414'; ctx.fillText('×' + g.mult, x + 1, by + 1); ctx.fillStyle = g.mult > 2 ? '#ffd27a' : '#ffffff'; ctx.fillText('×' + g.mult, x, by);
+    ctx.font = '700 10px Silkscreen, monospace'; ctx.textBaseline = 'top'; ctx.fillStyle = REFILL_COL; ctx.fillText('REFILL', x, by + r + 6);
+    return;
+  }
   if (g.type === 'link') {
     const by = y + Math.sin(st.t * 2 + g.bob) * 6 * sc, r = 16 * sc, pulse = .5 + .5 * Math.sin(st.t * 4);
     ctx.fillStyle = `rgba(125,255,232,${.15 + .15 * pulse})`; ctx.beginPath(); ctx.arc(x, by, r * 2.1, 0, 6.283); ctx.fill();
@@ -4660,6 +4766,7 @@ function draw() {
     ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(x - 22, y0 - 12, 44, 5);
     ctx.fillStyle = '#8fc8ff'; ctx.fillRect(x - 22, y0 - 12, 44 * k, 5);
   }
+  htDraw(st.P.ht);
   drawPreview();
   for (const e of st.enemies) drawHPBar(e);
   for (const h of st.helpers) if (!h.wall) drawHPBar(h);
@@ -4753,7 +4860,7 @@ function drawWeather() {
     for (const f of st.fires) hole(f.x, f.y, 110);
     for (const g of st.glows) hole(g.x, g.y, g.r * 1.5);
     for (const B of st.holes) hole(B.x, B.y, 140, .8);
-    for (const g of st.gadgets) if (g.type === 'hp' || g.type === 'crate') hole(g.x, g.y, 40, .7);
+    for (const g of st.gadgets) if (g.type === 'hp' || g.type === 'crate' || g.type === 'refill') hole(g.x, g.y, 40, .7);
     ctx.drawImage(nightCv, 0, 0, W, H);
     ctx.fillStyle = 'rgba(255,255,240,.85)'; for (let q = 0; q < 30; q++) ctx.fillRect(hash(q * 7.7) * W, hash(q * 3.3) * H * .35, 1.5, 1.5);
   }
@@ -4892,9 +4999,18 @@ $('forgeGrid').addEventListener('click', e => { const b = e.target.closest('butt
 $('forgeMake').onclick = () => forgeMake();
 $('forgeDone').onclick = () => closeForge();
 $('catBtn').onclick = () => { if (st && st.horde) catToggle(); };
+function htCycle() {
+  const P = st && st.P; if (!running || paused || !htOn(P)) return;
+  const o = htNext(P, P.ht); if (!o) return;
+  htLock(P, o); st.lookX = htPt(o).x; st.lookT = 2.4; st.camHome = false;
+}
+$('htBtn').onclick = () => htCycle();
 $('castleBtn').onclick = () => { if (st && st.horde) hordeMove(st.horde.on === 'keep' ? 'outer' : 'keep'); };
 function frame(ts) {
   if (st) { const away = running && !paused && Math.abs(camX - homeCam()) > 60 && !st.camHome; if ($('homeBtn').hidden === away) $('homeBtn').hidden = !away; }
+  if (st) { const on = running && !paused && !st.placing && htOn(st.P); if ($('htBtn').hidden === on) $('htBtn').hidden = !on;
+    if (on && !st.htWas && htLoaded(st.P) && (st.htHints = (st.htHints || 0) + 1) <= 3) text(feet(st.P).x, feet(st.P).y - 160, 'TAP A TARGET (OR 🎯) TO LOCK HOMING', HT_COL, 13, 2.4);
+    st.htWas = on; }
   const dt = Math.min(.04, (ts - last) / 1000 || 0); last = ts;
   const portrait = running && H > W && !forcePortrait;
   if ($('rotateScreen').hidden === portrait) show('rotateScreen', portrait);
@@ -5066,7 +5182,7 @@ $('quiver').addEventListener('click', e => {
   if (e.target.closest('button[data-reset]')) { resetDummies(); return; }
   if (e.target.closest('button[data-fb]')) { st.dummyFire = !st.dummyFire; for (const d of st.enemies) if (d.dummy) { d.aiT = st.dummyFire ? rand(1.5, 3.5) : 1e9; d.aiAim = null; } quiverSig = ''; sfx('click'); return; }
   if (e.target.closest('button[data-link]')) { toggleLink(); return; } const fb = e.target.closest('button[data-f]'); if (fb) { pickForged(+fb.dataset.f); return; } const b = e.target.closest('button[data-i]'); if (b) pickSlot(+b.dataset.i); });
-addEventListener('keydown', e => { if (running && st.horde && (e.key === 'b' || e.key === 'B')) { catToggle(); return; } if (running && st.horde && (e.key === 'c' || e.key === 'C')) { hordeMove(st.horde.on === 'keep' ? 'outer' : 'keep'); return; } if (running && st.practice && (e.key === 'a' || e.key === 'A')) { if (st.rack) closeRack(); else openRack(); return; } const n = +e.key; if (running && n >= 1 && n <= 4) pickSlot(n - 2); else if (running && (n === 5 || n === 6)) pickForged(n - 5); else if (running && (e.key === 'l' || e.key === 'L')) toggleLink(); });
+addEventListener('keydown', e => { if (running && (e.key === 't' || e.key === 'T')) { htCycle(); return; } if (running && st.horde && (e.key === 'b' || e.key === 'B')) { catToggle(); return; } if (running && st.horde && (e.key === 'c' || e.key === 'C')) { hordeMove(st.horde.on === 'keep' ? 'outer' : 'keep'); return; } if (running && st.practice && (e.key === 'a' || e.key === 'A')) { if (st.rack) closeRack(); else openRack(); return; } const n = +e.key; if (running && n >= 1 && n <= 4) pickSlot(n - 2); else if (running && (n === 5 || n === 6)) pickForged(n - 5); else if (running && (e.key === 'l' || e.key === 'L')) toggleLink(); });
 
 /* ---------- input ---------- */
 /* ---------- pinch with two fingers (or the mouse wheel) to zoom in and out ---------- */
@@ -5122,6 +5238,11 @@ function drawZoomNote() {
   ctx.fillStyle = '#f6eedf'; ctx.fillText('ZOOM ' + zoom.toFixed(1) + '×', W / 2, H * .62);
   ctx.globalAlpha = 1;
 }
+// pulling back: the harder you pull, the further the camera looks out, so far archers come into view (the inset shows you)
+function aimLook(P, viewW, home) {
+  if (!drag || drag.place || !(P.pow > .05) || P.dead) return home;
+  return home + Math.max(0, farX() + 150 - (home + viewW)) * Math.pow(P.pow, 1.6);
+}
 function cancelAim() { drag = null; if (st) st.P.pow = 0; }
 
 let drag = null;
@@ -5150,7 +5271,9 @@ function release(e) {
   const P = st && st.P;
   if (drag && P && !P.dead && running && !paused) {
     const cl = P.pow <= .1 ? st.arrows.filter(a => !a.done && !a.split && a.owner === P && hasPk(a, 'cluster')) : [];
-    if (cl.length) { for (const a of cl) splitCluster(a); }   // a tap (no pull) bursts any cluster arrow in the air
+    const hp = P.pow <= .1 && e && htOn(P) ? htPick(toWorld(e)) : null;   // a tap on an archer or object locks your homing arrows on it
+    if (hp) htLock(P, hp);
+    else if (cl.length) { for (const a of cl) splitCluster(a); }   // a tap (no pull) bursts any cluster arrow in the air
     else if (P.pow > .1 && st.reload <= 0) {
       const pk = st.power ? st.power.k : null, pk2 = st.power ? st.power.k2 || null : null;
       const n0 = st.arrows.length;
