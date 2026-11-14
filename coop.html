@@ -519,6 +519,7 @@ function spawnLevel(first) {
   const wr = Math.random();
   st.weather = lv < 3 || bossLv ? 'clear' : wr < .45 ? 'clear' : wr < .63 ? 'night' : wr < .82 ? 'storm' : 'fog';
   if (st.weather === 'storm') { st.wind = Math.round(rand(-120, 120)); st.windT = st.wind; st.stormT = rand(2.5, 4); }
+  st.fogT = 0;
   spawnGadgets();
   const wx = { clear: '', night: ' · NIGHT', storm: ' · STORM', fog: ' · FOG' }[st.weather];
   st.banner = { t: bossLv ? 'BOSS LEVEL ' + lv : 'LEVEL ' + lv, sub: (bossLv ? st.enemies[n - 1].name + ' · ' : '') + (n === 1 ? '1 ARCHER' : n + ' ARCHERS') + (nb ? ' · ' + nb + (nb === 1 ? ' ACID BAT' : ' ACID BATS') : '') + wx, life: 2.4 };
@@ -694,7 +695,7 @@ function relocate(g) {
 }
 /* ---------- MOVE pad: the player who hit it chooses where the object goes (the game keeps going) ---------- */
 const PLACE_T = 8, PLACE_NAME = { win: 'WINDOW', fan: 'FAN', bounce: 'BOUNCE PAD', magnet: 'MAGNET' };
-function placeSpot(x, y) { return { x: clamp(x, 180, farX() - 100), y: clamp(y, Math.max(-330, topY() + 80), -110) }; }
+function placeSpot(x, y) { return { x: clamp(x, fieldL() + 120, farX() - 100), y: clamp(y, Math.max(-330, topY() + 80), -110) }; }
 function placedFX(g, x, y) { ring(x, y, 44, '#ffd27a', .5, 3); text(x, y - 64, 'PLACED', '#ffd27a', 15, 1); sfx('whoosh'); }
 function drawPlaceBox(g, secs, dim) {
   if (dim) { ctx.fillStyle = 'rgba(20,10,30,.28)'; ctx.fillRect(0, 0, W, H); }
@@ -1199,6 +1200,7 @@ function splitFor(P) {
   for (const a of mg) plantMag(a);
 }
 function blast(x, y, owner, rider) {
+  if (st.weather === 'fog') st.fogT = (st.fogT || 0) + 1.5;   // explosions blow the fog away a little
   if (rider === 'heavy' && owner && owner.isP) return megaBomb(x, y, owner);
   const bz = rider === 'grow' ? 2 : 1;
   if (bz > 1) { if (owner && owner.isP) comboText(x, y - 90, 'boom+grow'); ring(x, y, 180, '#ff9a45', .6, 6); ring(x, y, 120, '#ffd27a', .45, 4); shake(14); }
@@ -2385,6 +2387,7 @@ function returnStep(ar, sdt) {
   ar.vx = dx / d * sp; ar.vy = dy / d * sp; ar.x += ar.vx * sdt; ar.y += ar.vy * sdt;
 }
 function updateWeather(dt) {
+  fogStep(dt);
   if (st.weather === 'storm') {
     st.stormT -= dt;
     if (st.stormT <= 0) { st.stormT = rand(2.5, 4.5); st.windT = Math.round(rand(-150, 150)); }
@@ -4289,7 +4292,7 @@ function update(rdt) {
         impactFX(ar, ar.x, -2, false);
         if (hasPk(ar, 'boom')) blast(ar.x, ar.y, ar.owner, riderOf(ar, 'boom')); else sfx('thud');
       }
-      if (ar.x < -900 || ar.x > farX() + 1200) ar.done = true;
+      if (ar.x < fieldL() - 1200 || ar.x > farX() + 1200) ar.done = true;
     }
   }
   if (st.pinned.length > 40) st.pinned.splice(0, st.pinned.length - 40);
@@ -5374,24 +5377,63 @@ function drawCloud(g) {
   ctx.fillRect(x - w * .45, y, w * .9, 18 * sc);
 }
 let nightCv = null;
+/* ---------- fog: thick at the start, then it lifts over FOG_FADE seconds (blasts thin it faster) ---------- */
+const FOG_FADE = 35;
+const fogK = () => st.weather === 'fog' ? clamp(1 - (st.fogT || 0) / FOG_FADE, 0, 1) : 0;
+const fogNear = k => 380 + (1 - k) * 1600, fogFar = k => 900 + (1 - k) * 2400;
+// how thick the fog is (0..0.93) at world x, seen from your archer
+function fogAt(wx) {
+  const k = fogK(); if (!k || !st.P) return 0;
+  const d = true ? Math.abs(wx - st.P.x) : wx - st.P.x;
+  return .93 * k * clamp((d - fogNear(k)) / (fogFar(k) - fogNear(k)), 0, 1);
+}
+function fogStep(dt) {
+  if (st.weather !== 'fog') return;
+  const was = fogK(); st.fogT = (st.fogT || 0) + dt;
+  if (was > 0 && fogK() <= 0) text(st.P.x + 300, -330, 'THE FOG LIFTS', '#f6eedf', 18, 1.6);
+}
+// faint outlines of towers, cover and objects hidden in the fog, so nothing blocks your arrows unseen
+function fogOutlines() {
+  ctx.save(); ctx.lineWidth = Math.max(1, 1.5 * sc);
+  for (const e of st.enemies) {
+    if (e.dead || e.walker || e.flyer || e.ship || e.hydra) continue;
+    const f = feet(e), a = fogAt(f.x); if (a < .25) continue;
+    const x = SX(f.x - e.pw / 2), y = SY(f.y), w = e.pw * sc;
+    if (x > W + 40 || x + w < -40) continue;
+    ctx.strokeStyle = 'rgba(70,60,92,' + (a * .55).toFixed(2) + ')';
+    ctx.strokeRect(x, y, w, SY(0) - y);
+    ctx.beginPath(); ctx.arc(SX(f.x), SY(f.y - 96), 9 * sc, 0, 6.283); ctx.moveTo(SX(f.x), SY(f.y - 87)); ctx.lineTo(SX(f.x), SY(f.y - 40)); ctx.stroke();
+    if (e.cover) ctx.strokeRect(SX(e.x - e.pw / 2 + 4) - 4 * sc, SY(-e.h - 58 + e.dy), 8 * sc, 58 * sc);
+  }
+  for (const g of st.gadgets) {
+    if (g.gone) continue;
+    const a = fogAt(g.x); if (a < .25) continue;
+    const x = SX(g.x); if (x < -60 || x > W + 60) continue;
+    ctx.strokeStyle = 'rgba(70,60,92,' + (a * .5).toFixed(2) + ')';
+    ctx.beginPath(); ctx.arc(x, SY(g.y), 30 * sc * (g.size || 1), 0, 6.283); ctx.stroke();
+  }
+  ctx.restore();
+}
 function drawWeather() {
   if (st.weather === 'storm') {
     ctx.strokeStyle = 'rgba(200,215,255,.35)'; ctx.lineWidth = 1;
     const sl = st.wind * .05;
     for (let q = 0; q < 70; q++) { const rx = (hash(q * 2.3) * W + st.t * 80 * sl * 10) % W, ry = (hash(q) * H + st.t * 700) % H; ctx.beginPath(); ctx.moveTo(rx, ry); ctx.lineTo(rx + sl * 6, ry + 14); ctx.stroke(); }
     ctx.fillStyle = 'rgba(20,20,40,.18)'; ctx.fillRect(0, 0, W, H);
-  } else if (st.weather === 'fog' && !spectating()) {
+  } else if (st.weather === 'fog' && !spectating() && fogK() > 0) {
+    const k = fogK();
     for (const d of [1, -1]) {
-      const fs = SX(st.P.x + 380 * d), fe = SX(st.P.x + 900 * d);
+      const fs = SX(st.P.x + fogNear(k) * d), fe = SX(st.P.x + fogFar(k) * d);
       const fg = ctx.createLinearGradient(fs, 0, fe, 0);
-      fg.addColorStop(0, 'rgba(206,196,214,0)'); fg.addColorStop(1, 'rgba(206,196,214,.93)');
+      fg.addColorStop(0, 'rgba(206,196,214,0)'); fg.addColorStop(1, 'rgba(206,196,214,' + (.93 * k).toFixed(3) + ')');
       ctx.fillStyle = fg;
       const x0 = d > 0 ? Math.max(0, fs) : 0, x1 = d > 0 ? W : Math.min(W, fs);
       if (x1 > x0) {
         ctx.fillRect(x0, 0, x1 - x0, H);
-        for (let q = 0; q < 4; q++) { const fy = H * (.25 + q * .18) + Math.sin(st.t * .4 + q) * 10; ctx.fillStyle = 'rgba(220,212,228,.18)'; ctx.fillRect(x0, fy, x1 - x0, 26); }
+        for (let q = 0; q < 4; q++) { const fy = H * (.25 + q * .18) + Math.sin(st.t * .4 + q) * 10; ctx.fillStyle = 'rgba(220,212,228,' + (.18 * k).toFixed(3) + ')'; ctx.fillRect(x0, fy, x1 - x0, 26); }
       }
     }
+    fogOutlines();
   } else if (st.weather === 'night') {
     if (!nightCv) nightCv = document.createElement('canvas');
     if (nightCv.width !== cv.width || nightCv.height !== cv.height) { nightCv.width = cv.width; nightCv.height = cv.height; }
@@ -6297,7 +6339,7 @@ function applySnap(m) {
   if (drag && !drag.spec && inPlay(st.P)) { st.P.aim = NET.myAim; st.P.pow = NET.myPow; st.P.f = Math.cos(st.P.aim) < 0 ? -1 : 1; }
   st.pinned = (m.pin || []).map(p => Object.assign(p, { g: p.gid ? NET.gads.get(p.gid) || null : null }));
   st.arrows = (m.ar || []).map(a => Object.assign(a, { owner: NET.objs.get(a.o) || { isP: false }, bx: a.x, by: a.y, bvx: a.vx, bvy: a.vy }));
-  st.tornados = m.tn || []; st.holes = m.bh || []; st.mags = m.mg || []; st.fires = m.fi || []; st.rocks = m.rk || []; st.planets = m.pq || []; st.steams = m.sm || [];
+  st.tornados = m.tn || []; st.holes = m.bh || []; st.mags = m.mg || []; st.fires = m.fi || []; st.rocks = m.rk || []; st.planets = m.pq || []; st.fogT = m.fg || 0; st.steams = m.sm || [];
   st.boulders = (m.bo || []).map(R => Object.assign(R, { bx: R.x, by: R.y, bvx: R.vx, bvy: R.vy }));
   applyHorde(m);
   for (const e of st.enemies) if (e.flyer) { e.gx = e.x; e.gh = e.h; }
@@ -6376,6 +6418,7 @@ function netTick(rdt) {
   m.hz = packHorde(); if (m.hz) m.mz = packMarchers();
   m.bo = (st.boulders || []).map(R => ({ x: R.x, y: R.y, vx: R.vx, vy: R.vy, r: R.r, spin: R.spin }));
   m.pq = (st.planets || []).map(Q => ({ x: Q.x, y: Q.y, tx: Q.tx, t: Q.t, r: Q.r, spin: Q.spin }));
+  if (st.weather === 'fog') m.fg = Math.round((st.fogT || 0) * 10) / 10;
   m.rk = (st.rocks || []).map(R => ({ x: R.x, y: R.y, vx: R.vx, vy: R.vy, r: R.r, spin: R.spin, k: R.k || null }));
   m.tn = st.tornados.map(T => pack(T, new Set(['hitG', 'by', 'hitE', 'hit2', 'hitM'])));
   m.bh = st.holes.map(B => pack(B, new Set(['by', 'hitE', 'tw'])));
