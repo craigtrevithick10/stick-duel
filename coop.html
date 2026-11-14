@@ -239,6 +239,7 @@ const POWERS = {
   tornado:{ name: 'TORNADO',     short: 'TWISTER', col: '#d6e4f0', shots: 3 },
   shrink: { name: 'SHRINK ARROWS', short: 'SHRINK', col: '#b6ff5c', shots: 6 },
   tele:   { name: 'TELEPORT ARROWS', short: 'TELEPORT', col: '#d58cff', shots: 4 },
+  confuse:{ name: 'CONFUSION', short: 'CONFUSE', col: '#ff3df2', shots: 4 },
   clone:  { name: 'CLONE ARROWS', short: 'CLONE', col: '#4fe3c1', shots: 2, rare: true },
   meteor: { name: 'METEOR SHOWER', short: 'METEOR', col: '#ff7b3a', shots: 1, mega: true },
   blackhole:{ name: 'BLACK HOLE', short: 'VOID',   col: '#b07cff', shots: 1, ultra: true }
@@ -261,13 +262,13 @@ const RIDE = {   // [glow rgb, main colour, light colour, particle kind]
   fire: ['255,140,60', '#ff9a45', '#ffd27a', 'flame'], ice: ['170,225,255', '#9fd8ff', '#ffffff', 'shard'],
   boom: ['255,110,80', '#ff5a4e', '#ffd27a', 'flame'], heavy: ['255,210,122', '#ffd27a', '#fff2c8', 'spark'],
   storm: ['255,243,107', '#fff36b', '#ffffff', 'spark'], slowmo: ['122,215,255', '#7ad7ff', '#e0f6ff', 'spark'],
-  shrink: ['182,255,92', '#b6ff5c', '#eaffd0', 'spark'], tele: ['213,140,255', '#d58cff', '#f2ddff', 'spark'],
+  shrink: ['182,255,92', '#b6ff5c', '#eaffd0', 'spark'], tele: ['213,140,255', '#d58cff', '#f2ddff', 'spark'], confuse: ['255,61,242', '#ff3df2', '#ffd0fb', 'spark'],
   homing: ['255,138,216', '#ff8ad8', '#ffd0f0', 'spark'], blackhole: ['176,124,255', '#b07cff', '#ffffff', 'spark'],
   tornado: ['214,228,240', '#d6e4f0', '#ffffff', 'spark'], meteor: ['255,123,58', '#ff7b3a', '#ffd27a', 'flame']
 };
 const rideOf = k => RIDE[k] || [hexRgb(POWERS[k].col), POWERS[k].col, '#ffffff', 'spark'];
 const RIDE_NAME = { fire: 'FIRE', ice: 'ICE', boom: 'BOMB', heavy: 'GIANT', storm: 'THUNDER', slowmo: 'SLOW', shrink: 'SHRINK', tele: 'WARP', homing: 'HUNTER',
-  blackhole: 'VOID', tornado: 'WINDY', meteor: 'BURNING', triple: 'TRIPLE', rapid: 'QUICK', pierce: 'SHARP', scope: 'SCOPED', cluster: 'CONFETTI' };
+  blackhole: 'VOID', tornado: 'WINDY', meteor: 'BURNING', triple: 'TRIPLE', rapid: 'QUICK', pierce: 'SHARP', scope: 'SCOPED', cluster: 'CONFETTI', confuse: 'DIZZY' };
 const RIDE_ON = { fire: 1, ice: 1, slowmo: 1, shrink: 1, boom: 1, storm: 1, heavy: 1 };   // a twister hands these to the arrows it turns round
 // combo arrows: some linked pairs make a special effect of their own (key = both powers, sorted)
 const COMBOS = {
@@ -303,7 +304,7 @@ const ICON = {
   armour: '🛡️', leech: '🧛', revive: '💨', glass: '🪟', helper: '🤝',
   pw_triple: '🔱', pw_fire: '🔥', pw_ice: '❄️', pw_boom: '💥', pw_heavy: '🪨', pw_rapid: '⏩', pw_pierce: '📌',
   pw_homing: '🎯', pw_storm: '⚡', pw_cluster: '🎆', pw_scope: '🔭', pw_slowmo: '🐢', pw_tornado: '🌪️',
-  pw_shrink: '🤏', pw_tele: '🌀', pw_blackhole: '🕳️', pw_meteor: '☄️', pw_clone: '👥', pw_shield: '🧱'
+  pw_shrink: '🤏', pw_tele: '🌀', pw_blackhole: '🕳️', pw_meteor: '☄️', pw_clone: '👥', pw_confuse: '😵', pw_shield: '🧱'
 };
 
 let W = 0, H = 0, DPR = 1, sc = 1, camX = 0, camY = 0, scBase = 1, zoom = 1, forcePortrait = false;
@@ -952,6 +953,9 @@ function impactFX(ar, x, y, onBody) {
     if (ar.owner.isP && shotOnce(ar, 'blackhole')) spawnHole(x, Math.min(y, -40), ownerOf(ar.owner), riderOf(ar, 'blackhole'));
   } else if (pk === 'meteor') {
     if (ar.owner.isP) { const n = meteorShare(ar); if (n > 0) spawnShower(x, Math.sign(ar.vx) || 1, ownerOf(ar.owner), n, riderOf(ar, 'meteor')); }
+  } else if (pk === 'confuse') {
+    ring(x, y, 30, CONF_COL, .4, 2.5);
+    for (let i = 0; i < 12; i++) P_(x, y, rand(-140, 140), rand(-170, 30), rand(.35, .6), 2.2, i % 2 ? CONF_COL : '#fff36b', 'spark');
   } else if (pk === 'clone') {
     ring(x, y, 34, CLONE_COL, .4, 2.5);
     for (let i = 0; i < 14; i++) P_(x, y, rand(-160, 160), rand(-180, 40), rand(.3, .6), 2.2, i % 2 ? CLONE_COL : '#ffffff', 'spark');
@@ -1126,6 +1130,7 @@ function onHit(ar, a, z) {
     for (let k = 0; k < 10; k++) P_(f.x + rand(-20, 20), f.y - rand(10, 90), rand(-40, 40), rand(-60, 20), .5, 2.2, '#b6ff5c', 'spark');
     ring(f.x, f.y - 50, 55, '#b6ff5c', .5, 2.5);
   }
+  if (hasPk(ar, 'confuse') && !(ar.owner && a === ar.owner)) confuse(a, CONF_T);
   if (hasPk(ar, 'tele') && !a.isP && ar.owner) {
     ar.owner.tpTag = a.id;
     text(f.x, f.y - 150, 'TAGGED: NEXT ARROW SENDS THEM THERE', '#d58cff', 13, 1.6);
@@ -1315,6 +1320,59 @@ function drawMeteors() {
       ctx.closePath(); ctx.fill(); ctx.stroke();
     } else { ctx.fillStyle = '#4a3226'; ctx.beginPath(); ctx.arc(x, y, r, 0, 6.283); ctx.fill(); }
     ctx.fillStyle = R.k ? rideOf(R.k)[R.k === 'ice' ? 1 : 2] : '#ff9a45'; ctx.beginPath(); ctx.arc(x + Math.cos(R.spin) * r * .4, y + Math.sin(R.spin) * r * .4, r * .35, 0, 6.283); ctx.fill();
+  }
+}
+/* ---------- confusion arrow: flips aim and power ---------- */
+const CONF_COL = '#ff3df2', CONF_T = 6;
+// a hit archer is confused for a while: players get flipped controls, enemies aim the wrong way
+function confuse(a, t) {
+  if (!a || a.dead || a.flyer || a.hydra || a.ship) return;
+  const f = feet(a), was = a.confT > 0;
+  a.confT = Math.max(a.confT || 0, t);
+  if (!was) {
+    const me = a.isP && !a.helper;
+    text(f.x, f.y - 160, me ? 'CONFUSED!' : 'CONFUSED', CONF_COL, me ? 20 : 14, me ? 1.8 : 1.4, me ? 1 : 0);
+    if (me) text(f.x, f.y - 136, 'CONTROLS FLIPPED', '#f6eedf', 12, 1.8);
+    for (let k = 0; k < 2; k++) ring(f.x, f.y - 84, 30 + k * 22, CONF_COL, .5 + k * .2, 2.5);
+  }
+  if (!a.isP) { a.aiAim = null; a.pow = 0; }
+}
+// a confused enemy shoots backwards with the power turned upside down (and can hit its own side)
+function confuseAim(E, A) {
+  A.ang = Math.PI - A.ang + rand(-.12, .12);
+  A.v = clamp(2000 - A.v, 450, 1600);
+  A.from = E.aim + Math.round((A.ang - E.aim) / 6.283) * 6.283;
+  A.conf = 1; E.f = Math.cos(A.ang) < 0 ? -1 : 1;
+}
+// your drag when confused: left/right and up/down swapped, and a short pull is the strong one
+function dragAim(P, dx, dy, len) {
+  const c = P.confT > 0;
+  const pow = c ? (len < 12 ? 0 : clamp(1 - (len - 12) / 108, .12, 1)) : clamp(len / 120, 0, 1);
+  return { pow, dx: c ? -dx : dx, dy: c ? -dy : dy };
+}
+function confStep(dt) {
+  for (const a of [...PEOPLE(), ...st.helpers, ...st.enemies]) {
+    if (!(a.confT > 0)) continue;
+    a.confT -= dt;
+    if (a.dead) { a.confT = 0; continue; }
+    if (a.confT <= 0) text(feet(a).x, feet(a).y - 130, 'CLEAR HEAD', CONF_COL, 12, .8);
+  }
+}
+// spinning question marks and stars around a confused head
+function drawConfused() {
+  for (const a of [...PEOPLE(), ...st.helpers, ...st.enemies]) {
+    if (!(a.confT > 0) || a.dead || a.swallowed) continue;
+    const f = feet(a), k = sizeOf(a), hx = SX(f.x), hy = SY(f.y - 100 * k);
+    if (hx < -80 || hx > W + 80) continue;
+    ctx.save(); ctx.globalAlpha = clamp(a.confT / .4, 0, 1);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (let i = 0; i < 4; i++) {
+      const t = st.t * 3.2 + i * 1.571, x = hx + Math.cos(t) * 22 * k * sc, y = hy + Math.sin(t) * 7 * k * sc;
+      ctx.font = 'bold ' + Math.round((i % 2 ? 12 : 16) * k * sc) + 'px Silkscreen, monospace';
+      ctx.fillStyle = i % 2 ? '#fff36b' : CONF_COL;
+      ctx.fillText(i % 2 ? '★' : '?', x, y);
+    }
+    ctx.restore();
   }
 }
 /* ---------- flames: fire patches on the floor and archers on fire ---------- */
@@ -1634,6 +1692,8 @@ function infuse(a, k, by, seen, weak) {
     if (a.hp <= 0) kill(a, { vx: -1, owner: by }, 'body');
   } else if (k === 'boom') {
     if (by) blast(f.x, f.y - 55, by, null);
+  } else if (k === 'confuse') {
+    confuse(a, 5 * m);
   } else if (k === 'tele') {
     if (by && !by.tpTag) { by.tpTag = a.id; text(f.x, f.y - 150, 'TAGGED', '#d58cff', 13, 1.2); }
   }
@@ -2968,6 +3028,7 @@ function update(rdt) {
         if (E.shrink <= 0 && !E.dead) text(feet(E).x, feet(E).y - 130, 'FULL SIZE', '#b6ff5c', 12, .8);
       }
     }
+    if (E.confT > 0 && E.aiAim && !E.aiAim.conf) confuseAim(E, E.aiAim);
     if (E.slowT > 0) { E.slowT -= dt; if (E.slowT <= 0) { E.slowM = 1; if (!E.dead) text(feet(E).x, feet(E).y - 130, 'SPEED BACK', '#7ad7ff', 12, .8); } }
     if (E.frozen > 0) { E.frozen -= dt; continue; }
     if (E.stun > 0) { E.stun -= dt; continue; }
@@ -2996,6 +3057,7 @@ function update(rdt) {
       if (k >= 1) {
         const n0 = st.arrows.length;
         fire(E, A.ang, A.v, E.kind === 'mage' ? 'fire' : null); E.aiShots++; E.pow = 0; E.aiAim = null;
+        if (A.conf) { for (let q = n0; q < st.arrows.length; q++) st.arrows[q].conf = true; E.aiShots = 0; }
         mirrorShot(E, A.ang, A.v);
         if (E.kind === 'mage') for (let q = n0; q < st.arrows.length; q++) { st.arrows[q].magic = true; st.arrows[q].dmgMul = 1.3; }
         if (E.slowT > 0) for (let q = n0; q < st.arrows.length; q++) st.arrows[q].tm = E.slowM;
@@ -3054,6 +3116,7 @@ function update(rdt) {
   updateMeteors(dt);
   updateBoulders(dt);
   acidStep(dt);
+  confStep(dt);
   updateWeather(dt);
   if (st.nextT <= 0 && st.overT <= 0 && anyAlive && st.enemies.every(e => e.dead)) clearLevel();
   // gadgets ease towards their targets
@@ -3162,6 +3225,7 @@ function update(rdt) {
           let hitP = false;
           for (const p of st.players) { if (!inPlay(p)) continue; const z = zone(p, ar.x, ar.y); if (z) { onHit(ar, p, z); hitP = true; break; } }
           if (!hitP) for (const Hh of st.helpers) { if (Hh.dead) continue; const z2 = zone(Hh, ar.x, ar.y); if (z2) { onHit(ar, Hh, z2); break; } }
+          if (!ar.done && ar.conf) for (const E2 of st.enemies) { if (E2 === ar.owner || E2.dead || E2.flyer || E2.hydra) continue; const z3 = zone(E2, ar.x, ar.y); if (z3) { onHit(ar, E2, z3); break; } }
         }
       }
       if (ar.done) break;
@@ -4103,6 +4167,7 @@ function draw() {
     drawArrowShape(34, ar.col, shaftCol(ar.owner)); ctx.restore();
   }
   drawFires();
+  drawConfused();
   drawVortices();
   drawMeteors();
   drawBoulders();
@@ -4643,10 +4708,11 @@ cv.addEventListener('pointermove', e => {
   }
   const P = st.P;
   if (spectating()) { P.pow = 0; return; }
-  P.pow = clamp(len / 120, 0, 1);
+  const D = dragAim(P, dx, dy, len);
+  P.pow = D.pow;
   if (len > 12) CAM.home = true;
   if (len > 6) {
-    let a = Math.atan2(-dy, -dx);
+    let a = Math.atan2(-D.dy, -D.dx);
     if (a > .7 && a < Math.PI - .7) a = a < Math.PI / 2 ? .7 : Math.PI - .7;
     P.aim = a; P.f = Math.cos(a) < 0 ? -1 : 1;
   }
