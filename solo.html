@@ -2688,6 +2688,7 @@ function drawHordeHUD() {
   ctx.fillStyle = '#8cff5a'; for (const e of st.enemies) if (!e.dead && e.flyer) ctx.fillRect(X(e.x) - 2, y0 + 1, 4, 4);
   ctx.fillStyle = '#c08040'; for (const R of H.rams) if (!R.drop) ctx.fillRect(X(R.x) - 1, y0 + 3, 8, 5);
   ctx.strokeStyle = 'rgba(246,238,223,.75)'; ctx.lineWidth = 1; ctx.strokeRect(X(camX), y0 - 2, Math.max(4, X(camX + W / sc) - X(camX)), 16);
+  flPlayers(X, y0 + 6);
   ctx.font = '700 10px Silkscreen, monospace'; ctx.fillStyle = '#f6eedf'; ctx.lineWidth = 3;
   const info = H.kills + ' KILLS'; ctx.strokeText(info + '  ·  ' + Math.floor(H.t) + ' S', cx, y0 + 18);
   ctx.fillText(H.kills + ' KILLS  ·  ' + Math.floor(H.t) + ' S' + (H.outer.gone ? '' : H.outer.down ? '  ·  OUTER CASTLE GONE' : '  ·  OUTER WALL ' + Math.ceil(H.outer.hp / H.outer.max * 100) + '%'), cx, y0 + 18);
@@ -3693,6 +3694,56 @@ function drawHydra(E) {
 }
 
 // big boss health bar across the top of the screen
+/* ---------- field line: a thin map of the whole field across the top ---------- */
+// you (big, bright), teammates (their colours), enemies (red, bosses bigger), pickups (tiny), and a light box for what's on screen
+const FL_ME = '#7dffe8', FL_EN = '#ff5a4e';
+function flDot(x, y, r, col, ring) {
+  ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, r, 0, 6.283); ctx.fill();
+  if (ring) { ctx.strokeStyle = ring; ctx.lineWidth = 1.5; ctx.stroke(); }
+}
+// marks the players on the horde's own field map
+function flPlayers(X, y) {
+  const me = st.P;
+  for (const p of PEOPLE()) if (p !== me && !p.dead && p.inLevel !== false) flDot(X(p.x), y, 3.5, p.col || '#f6eedf', 'rgba(0,0,0,.5)');
+  if (me && !me.dead) flDot(X(me.x), y, 4.5, me.col || FL_ME, '#ffffff');
+}
+function drawFieldLine() {
+  if (st.horde || !st.P) return;
+  const ppl = PEOPLE().filter(p => p.inLevel !== false), all = [...ppl, ...st.helpers, ...st.enemies];
+  if (!all.length) return;
+  let L = Infinity, R = -Infinity;
+  for (const a of all) { L = Math.min(L, a.x); R = Math.max(R, a.x); }
+  L -= 120; R += 120;
+  if (R - L < 600) { const c = (L + R) / 2; L = c - 300; R = c + 300; }
+  const w = Math.min(460, W * .44), x0 = W / 2 - w / 2, y = 7, X = v => x0 + clamp((v - L) / (R - L), 0, 1) * w;
+  ctx.save();
+  // what's on screen now
+  const bx = X(camX), bw = Math.max(6, X(camX + W / sc) - bx);
+  ctx.fillStyle = 'rgba(246,238,223,.13)'; ctx.fillRect(bx, y - 6, bw, 12);
+  ctx.strokeStyle = 'rgba(246,238,223,.45)'; ctx.lineWidth = 1; ctx.strokeRect(bx + .5, y - 5.5, bw - 1, 11);
+  // the field
+  ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(x0 - 1, y - 2, w + 2, 4);
+  ctx.fillStyle = 'rgba(246,238,223,.5)'; ctx.fillRect(x0, y - 1, w, 2);
+  // pickups: crates gold, medkits green, refill target cyan
+  for (const g of st.gadgets) {
+    if (g.gone) continue;
+    const col = g.type === 'crate' ? '#ffd27a' : g.type === 'hp' ? '#7dff9a' : g.type === 'refill' ? '#7ad7ff' : null;
+    if (col) { ctx.fillStyle = col; ctx.fillRect(X(g.x) - 1.5, y + 3, 3, 3); }
+  }
+  // enemies: red; bosses, ogres and ships bigger; bats small
+  for (const e of st.enemies) {
+    if (e.dead) continue;
+    const big = e.boss || e.walker || e.ship || e.hydra;
+    flDot(X(e.x), y, big ? 5.5 : e.flyer ? 2.5 : 3.5, big ? '#ff2e2e' : e.flyer ? '#8cff5a' : FL_EN, big ? '#ffd27a' : 'rgba(0,0,0,.45)');
+  }
+  for (const m of st.marchers || []) if (!m.dead) flDot(X(m.x), y, 1.6, FL_EN);
+  // helpers small, teammates in their colour, you on top
+  for (const h of st.helpers) if (!h.dead) flDot(X(h.x), y, 2.5, '#9fe0ff');
+  const me = st.P;
+  for (const p of ppl) if (p !== me && !p.dead) flDot(X(p.x), y, 3.8, p.col || '#f6eedf', 'rgba(0,0,0,.5)');
+  if (!me.dead && me.inLevel !== false) flDot(X(me.x), y, 5, me.col || FL_ME, '#ffffff');
+  ctx.restore();
+}
 function drawBossBar() {
   const B = st.enemies.find(e => e.boss && !e.dead);
   if (!B) return;
@@ -4896,7 +4947,7 @@ function drawHUD() {
   if (st.combo >= 2) { ctx.font = '700 13px Silkscreen, monospace'; ctx.fillStyle = '#ff8ad8'; ctx.fillText('COMBO ×' + st.combo, lx, st.power ? 112 : 78); ctx.font = '700 10px Silkscreen, monospace'; }
   if (st.barrier) { ctx.font = '700 11px Silkscreen, monospace'; ctx.fillStyle = '#8fc8ff'; ctx.fillText('BARRIER ' + Math.max(0, Math.round(st.barrier.hp)), lx + 150, 38); ctx.font = '700 10px Silkscreen, monospace'; }
   if (st.lastShot) { ctx.fillStyle = 'rgba(246,238,223,.7)'; ctx.fillText('LAST ' + Math.round(st.lastShot.p * 100) + '% ' + Math.round(-st.lastShot.a * 180 / Math.PI) + '°', lx, 64); }
-  if (!st.horde) drawBossBar();
+  if (!st.horde) { drawBossBar(); drawFieldLine(); }
   // enemy list
   const rx = W - 18 - 52;
   ctx.textAlign = 'right'; ctx.font = '700 12px Silkscreen, monospace'; ctx.fillStyle = '#f6eedf';
