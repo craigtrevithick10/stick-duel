@@ -75,6 +75,10 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 .item.off{filter:grayscale(1);opacity:.3;padding:7px 10px;font-size:11px;cursor:default}
 .item.off b{font-size:12px}
 .item.off .cost{color:var(--bone)}
+#forgeScreen .shopgrid{max-height:calc(100vh - 260px);max-height:calc(100dvh - 260px);overflow-y:auto}
+#forgeScreen .item{padding:6px 10px}#forgeScreen .item .ico{font-size:24px;width:30px}#forgeScreen .item.sel{border-color:var(--ember);background:rgba(242,166,90,.25)}
+#quiver button.forged{border-color:#ffd27a!important;box-shadow:inset 0 0 0 1px rgba(255,210,122,.5)}
+#quiver button.forged.dry{opacity:.45}
 @media (max-height:520px){#shopScreen .panel{gap:8px}#shopScreen .title{font-size:24px!important}}
 .item{display:flex;flex-direction:column;gap:3px;align-items:flex-start;text-align:left;padding:10px 12px;border:1px solid rgba(246,238,223,.18);background:rgba(246,238,223,.08);color:var(--bone);font:400 12px var(--body);cursor:pointer}
 .item b{font:700 13px var(--pixel);letter-spacing:.03em}
@@ -183,6 +187,22 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
       </svg>
       <p class="newbest" id="clockLbl" style="color:var(--ember);font-size:22px">×1</p>
       <button class="btn" id="clockGo" type="button">SET TIME</button>
+    </div>
+  </div>
+
+  <div class="overlay" id="forgeScreen" hidden>
+    <div class="panel" style="width:min(760px,100%);gap:8px">
+      <h2 class="title" style="font-size:clamp(26px,6vw,38px)">THE <em>FORGE</em></h2>
+      <p class="newbest" id="forgeBank" style="margin:0">0 FORGE POINTS</p>
+      <p class="small" id="forgeHint">Tap two arrow powers</p>
+      <div class="shopgrid" id="forgeGrid"></div>
+      <p class="small" id="forgeMine"></p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center">
+        <button class="btn" id="forgeMake" type="button" style="font-size:16px;padding:10px 22px" disabled>FORGE</button>
+        <button class="btn alt" id="forgeDone" type="button" style="font-size:16px;padding:10px 22px">TO THE SHOP ▶</button>
+      </div>
+      <p class="small" id="forgeWait"></p>
+      <p class="small" style="opacity:.7">Forged arrows stay in your quiver for the whole run and refill every level. Game over and they are gone.</p>
     </div>
   </div>
 
@@ -390,6 +410,7 @@ function newGame() {
 }
 
 function spawnLevel(first) {
+  for (const p of st.players) for (const q of p.forged || []) q.shots = q.max;   // forged arrows refill every level
   const lv = st.level, np = Math.max(1, st.players.length), n = Math.min(lv, 20) + Math.min(4, np - 1);   // one more enemy every level (up to 20 + team bonus)
   st.enemies = [];
   // everyone, including anyone who joined mid-game, stands somewhere random on the field
@@ -2243,7 +2264,7 @@ function hordeStep(dt, rdt) {
     if ((H.overT -= rdt) > 0) return;
     if (H.stage === 1) {
       H.stage = 2; H.overT = 3.6;
-      st.banner = { t: 'HORDE SCORE ' + H.score, sub: H.kills + ' KILLS · ' + Math.floor(H.t) + ' SECONDS · +' + H.score + ' GP EACH', life: 3.6 };
+      st.banner = { t: 'HORDE SCORE ' + H.score, sub: H.kills + ' KILLS · ' + Math.floor(H.t) + ' SECONDS · +' + H.score + ' GP AND FORGE POINTS EACH', life: 3.6 };
       sfx('wave');
     } else if (H.stage === 2) { H.stage = 3; endHorde(); }
     return;
@@ -2297,14 +2318,14 @@ function endHorde() {
   const H = st.horde;
   st.horde = null; resize();
   for (const p of st.players) {
-    p.gp += H.score; p.earned = (p.earned || 0) + H.score;
+    p.gp += H.score; p.earned = (p.earned || 0) + H.score; p.bank = (p.bank || 0) + H.score;
     Object.assign(p, { dead: false, hp: p.max, rot: 0, vr: 0, vy: 0, vx: 0, dx: 0, dy: 0, stuck: [], confT: 0, acidT: 0, burn: 0, headRed: 0, pow: 0 });
     delete p.big;
   }
   st.helpers = st.helpers.filter(h => !h.recruit).concat(H.bench || []);
   for (const h of st.helpers) { if (h.home) Object.assign(h, h.home); delete h.home; delete h.big; delete h.wall; h.aiAim = null; h.dead = false; h.hp = h.max; }
   st.marchers = []; st.enemies = []; st.arrows = []; st.gadgets = []; st.pinned = []; st.fires = []; st.tornados = []; st.holes = []; st.slow = 0;
-  startShop();
+  startForge();
 }
 // the keep with its gate wall (cracks show as the crowd at the gate grows)
 function hordeWall(x0, hgt, wid, frac) {
@@ -2787,7 +2808,11 @@ function playerFire(P, aim, pow) {
   if ((pk === 'cluster' || pk2 === 'cluster') && (P.splitHints = (P.splitHints || 0) + 1) <= 3) text(feet(P).x, feet(P).y - 150, 'TAP THE SCREEN TO SPLIT IT', '#ffb3f0', 14, 1.6);
   const vol = { alive: st.arrows.length - n0, hits: 0, by: P };
   for (let q = n0; q < st.arrows.length; q++) st.arrows[q].vol = vol;
-  if (P.power && --P.power.shots <= 0) { text(feet(P).x, feet(P).y - 130, powShort(P.power) + ' EMPTY', '#f6eedf', 14, 1); P.quiver = (P.quiver || []).filter(o => o !== P.power); P.power = null; }
+  if (P.power && --P.power.shots <= 0) {
+    text(feet(P).x, feet(P).y - 130, powShort(P.power) + (P.power.forged ? ' EMPTY TILL NEXT LEVEL' : ' EMPTY'), '#f6eedf', 14, 1);
+    if (!P.power.forged) P.quiver = (P.quiver || []).filter(o => o !== P.power);
+    P.power = null;
+  }
   P.reload = (pk === 'rapid' || pk2 === 'rapid' ? .2 : .55) * P.up.reloadMul; P.lastShot = { p: pow, a: aim }; P.pow = 0;
 }
 function doPing(P, x, y) {
@@ -5059,6 +5084,9 @@ function drawOffShelf(g, list) {
     g.appendChild(b);
   }
 }
+$('forgeGrid').addEventListener('click', e => { const b = e.target.closest('button[data-k]'); if (b && !b.disabled) forgeTap(b.dataset.k); });
+$('forgeMake').onclick = forgeGo;
+$('forgeDone').onclick = forgeLeave;
 $('shopNext').onclick = () => {
   $('shopNext').disabled = true; $('shopNext').textContent = 'WAITING…';
   if (isHost()) setReady(st.P); else sendHost({ t: 'ready' });
@@ -5118,7 +5146,7 @@ function frame(ts) {
     if (cOn) { const mine = catArmed(st.P), other = C.armed && !mine, lb = mine ? '🪨 AIM & SHOOT' : C.reload > 0 ? '🪨 RELOAD ' + Math.ceil(C.reload) : other ? '🪨 TAKE CATAPULT' : '🪨 CATAPULT'; if ($('catBtn').textContent !== lb) $('catBtn').textContent = lb;
       $('catBtn').classList.toggle('on', mine); $('catBtn').classList.toggle('wait', C.reload > 0); $('catBtn').classList.toggle('ready', !C.armed && C.reload <= 0); } }
   if (running && st) {
-    if (isHost()) { if (!st.shop && !st.clockOpen) update(dt); }
+    if (isHost()) { if (!st.shop && !st.clockOpen && !st.forge) update(dt); }
     else guestTick(dt);
     updateCam(dt);
   }
@@ -5181,7 +5209,7 @@ function pickSlot(P, i) {
   P.power = q;
 }
 // guests get copies of the objects, so the loaded slot is matched by arrow type
-const loadedSlot = P => P.power ? (P.quiver || []).findIndex(o => o.k === P.power.k && (o.k2 || null) === (P.power.k2 || null)) : -1;
+const loadedSlot = P => P.power && !P.power.forged ? (P.quiver || []).findIndex(o => o.k === P.power.k && (o.k2 || null) === (P.power.k2 || null)) : -1;
 function tapSlot(i) {
   if (!st || !st.P) return;
   sfx('click', true);
@@ -5193,30 +5221,130 @@ function tapLink() {
   sfx('click', true);
   if (isHost()) toggleLink(st.P); else sendHost({ t: 'link' });
 }
+/* ---------- the forge (co-op): after a horde each player spends their horde points on linked arrows they keep for the run ---------- */
+// every player gets the team's horde score as forge points (P.bank); forged arrows refill every level and are lost at game over
+const FORGE_COST = { triple: 10, rapid: 10, pierce: 10, heavy: 10, scope: 8, homing: 12, fire: 15, ice: 15, tele: 15, slowmo: 18, shrink: 18, grow: 18, confuse: 18,
+  boom: 20, storm: 20, cluster: 20, tornado: 30, blackhole: 60, meteor: 60 };
+const FORGE_MAX = 2, FORGE_SHOTS = 5, FORGE_BIG = ['blackhole', 'meteor'];
+const forgeCost = (a, b) => (FORGE_COST[a] || 0) + (FORGE_COST[b] || 0);
+const forgeShots = (a, b) => FORGE_BIG.includes(a) || FORGE_BIG.includes(b) ? 2 : FORGE_SHOTS;
+let forgePick = [], forgeLast = null;
+// host only
+function startForge() {
+  st.forge = true;
+  for (const p of st.players) p.forgeDone = false;
+  pushForge();
+}
+function forgeView(P) {
+  return { bank: P.bank || 0, list: (P.forged || []).map(q => ({ k: q.k, k2: q.k2 })), done: !!P.forgeDone, wait: st.players.filter(p => !p.forgeDone).map(p => p.name) };
+}
+function pushForge() {
+  if (!isHost() || !st || !st.forge) return;
+  for (const p of st.players) {
+    if (p === st.P) showForge(forgeView(p));
+    else sendTo(p.pid, { t: 'forgeV', v: forgeView(p) });
+  }
+}
+function forgeMake(P, a, b) {
+  if (!st || !st.forge || P.forgeDone || !FORGE_COST[a] || !FORGE_COST[b] || a === b) return;
+  const cost = forgeCost(a, b), list = P.forged = P.forged || [];
+  if (list.length >= FORGE_MAX || (P.bank || 0) < cost) return;
+  if (b === 'cluster') [a, b] = [b, a];   // cluster first, so its split arrows carry the other power
+  const n = forgeShots(a, b);
+  list.push({ k: a, k2: b, shots: n, max: n, forged: true });
+  P.bank -= cost;
+  pushForge();
+}
+function forgeDone(P) {
+  if (!st || !st.forge) return;
+  P.forgeDone = true;
+  if (st.players.every(p => p.forgeDone)) { st.forge = false; show('forgeScreen', false); startShop(); }
+  else pushForge();
+}
+// every screen: draw the forge from a view (the two powers you are picking stay on your own screen until you press FORGE)
+function showForge(v) {
+  forgeLast = v;
+  const full = v.list.length >= FORGE_MAX, [a, b] = forgePick;
+  $('forgeBank').textContent = v.bank + ' FORGE POINTS';
+  let hint;
+  if (full) hint = 'Your forge rack is full (' + FORGE_MAX + ' arrows). They stay with you until game over.';
+  else if (!a) hint = 'Tap two arrow powers to forge them into one linked arrow';
+  else if (!b) hint = POWERS[a].short + ' + … tap a second power';
+  else {
+    const c = COMBOS[comboKey(a, b)];
+    hint = POWERS[a].short + ' + ' + POWERS[b].short + (c ? '  =  ★' + c[2] : '') + '  ·  ' + forgeShots(a, b) + ' shots every level  ·  ' + forgeCost(a, b) + ' points';
+  }
+  $('forgeHint').textContent = hint;
+  let h = '';
+  for (const k in FORGE_COST) {
+    const P = POWERS[k], on = forgePick.includes(k), cant = v.done || full || (!on && forgePick.length >= 2);
+    h += `<button type="button" class="item${on ? ' sel' : ''}" data-k="${k}"${cant ? ' disabled' : ''}><i class="ico">${ICON['pw_' + k] || ''}</i><span class="txt"><b style="color:${P.col}">${P.short}</b><span class="cost">${FORGE_COST[k]}</span></span></button>`;
+  }
+  $('forgeGrid').innerHTML = h;
+  const cost = b ? forgeCost(a, b) : 0;
+  $('forgeMake').disabled = !(b && !full && !v.done && v.bank >= cost);
+  $('forgeMake').textContent = b ? (v.bank >= cost ? 'FORGE · ' + cost : 'NEED ' + cost + ' POINTS') : 'FORGE';
+  $('forgeMine').innerHTML = v.list.length ? 'YOUR FORGED ARROWS: ' + v.list.map(q => '<b style="color:' + POWERS[q.k].col + '">' + powShort(q) + '</b>').join(' · ') : '';
+  $('forgeDone').disabled = v.done;
+  $('forgeDone').textContent = v.done ? 'WAITING…' : 'TO THE SHOP ▶';
+  $('forgeWait').textContent = v.wait.length && v.done ? 'Waiting for: ' + v.wait.join(', ') : '';
+  if ($('forgeScreen').hidden) show('forgeScreen', true);
+}
+function forgeTap(k) {
+  if (forgePick.includes(k)) forgePick = forgePick.filter(x => x !== k);
+  else if (forgePick.length < 2) forgePick.push(k);
+  sfx('click', true); if (forgeLast) showForge(forgeLast);
+}
+function forgeGo() {
+  const [a, b] = forgePick;
+  if (!b) return;
+  forgePick = []; sfx('heal', true);
+  if (isHost()) forgeMake(st.P, a, b); else { sendHost({ t: 'forge', a, b }); if (forgeLast) showForge(forgeLast); }
+}
+function forgeLeave() {
+  forgePick = []; $('forgeDone').disabled = true; $('forgeDone').textContent = 'WAITING…';
+  if (isHost()) forgeDone(st.P); else sendHost({ t: 'forgeDone' });
+}
+// host only: load P's forged arrow i (an empty one waits for the next level)
+function pickForged(P, i) {
+  const q = (P.forged || [])[i];
+  if (!q || P.linking) return;
+  if (q.shots <= 0) { text(feet(P).x, feet(P).y - 150, 'RECHARGES NEXT LEVEL', '#ffd27a', 14, 1.2); return; }
+  P.power = q;
+}
+const loadedF = P => P.power && P.power.forged ? (P.forged || []).findIndex(o => o.k === P.power.k && o.k2 === P.power.k2) : -1;
+function tapForged(i) {
+  if (!st || !st.P) return;
+  sfx('click', true);
+  if (isHost()) pickForged(st.P, i);
+  else { const q = (st.P.forged || [])[i]; if (q && q.shots > 0 && !st.P.linking) st.P.power = q; sendHost({ t: 'pickF', i }); }
+}
 let quiverSig = '';
 function drawQuiver() {
-  const box = $('quiver'), on = !!(running && st && st.P && !st.shop && !st.clockOpen && inPlay(st.P));
+  const box = $('quiver'), on = !!(running && st && st.P && !st.shop && !st.forge && !st.clockOpen && inPlay(st.P));
   if (box.hidden === on) box.hidden = !on;
   if (!on) return;
   const Q = st.P.quiver || [], sel = loadedSlot(st.P), L = !!st.P.linking, LA = st.P.linkA == null ? -1 : st.P.linkA, LN = st.P.links || 0;
   box.classList.toggle('linking', L);
-  const sig = Q.map(o => o.k + (o.k2 || '') + o.shots).join() + '|' + sel + '|' + LN + L + LA;
+  const FG = st.P.forged || [], fsel = loadedF(st.P);
+  const sig = Q.map(o => o.k + (o.k2 || '') + o.shots).join() + '|' + sel + '|' + LN + L + LA + '|' + FG.map(o => o.k + o.k2 + o.shots).join() + fsel;
   if (sig === quiverSig) return;
   quiverSig = sig;
   let h = L ? `<div class="qhint">LINKING: TAP 2 ARROW TYPES TO JOIN THEM</div>` : '';
-  h += `<button type="button" data-i="-1" class="${sel < 0 && !L ? 'on' : ''}"${L ? ' disabled' : ''}><i class="qi">➶</i><span>PLAIN</span><small>∞</small></button>`;
+  h += `<button type="button" data-i="-1" class="${sel < 0 && fsel < 0 && !L ? 'on' : ''}"${L ? ' disabled' : ''}><i class="qi">➶</i><span>PLAIN</span><small>∞</small></button>`;
   for (let i = 0; i < QUIVER_SLOTS; i++) {
     const o = Q[i];
     const cls = L ? (LA === i ? 'on' : o && o.k2 ? 'empty' : 'pickme') : sel === i ? 'on' : '';
     h += o ? `<button type="button" data-i="${i}" class="${cls}"${L && o.k2 ? ' disabled' : ''}><i class="qi">${ICON['pw_' + o.k] || ''}${o.k2 ? ICON['pw_' + o.k2] || '' : ''}</i><span style="color:${POWERS[o.k].col}">${powShort(o)}</span><small>×${o.shots}</small></button>`
            : `<button type="button" class="empty" disabled><i class="qi">·</i><span>EMPTY</span><small>—</small></button>`;
   }
+  FG.forEach((o, i) => { h += `<button type="button" data-f="${i}" class="forged${fsel === i && !L ? ' on' : ''}${o.shots <= 0 ? ' dry' : ''}"${L ? ' disabled' : ''}><i class="qi">${ICON['pw_' + o.k] || ''}${ICON['pw_' + o.k2] || ''}</i><span style="color:${POWERS[o.k].col}">${powShort(o)}</span><small>⚒ ×${o.shots}</small></button>`; });
   if (LN) h += `<button type="button" data-link="1" class="link${L ? ' on' : ''}"><i class="qi">🔗</i><span>${L ? 'CANCEL' : 'LINK'}</span><small>×${LN}</small></button>`;
   box.innerHTML = h;
 }
 $('quiver').addEventListener('pointerdown', e => e.stopPropagation());
-$('quiver').addEventListener('click', e => { if (e.target.closest('button[data-link]')) { tapLink(); return; } const b = e.target.closest('button[data-i]'); if (b) tapSlot(+b.dataset.i); });
-addEventListener('keydown', e => { if (e.target && e.target.tagName === 'INPUT') return; const n = +e.key; if (running && n >= 1 && n <= 4) tapSlot(n - 2); else if (running && (e.key === 'l' || e.key === 'L')) tapLink(); });
+$('quiver').addEventListener('click', e => { if (e.target.closest('button[data-link]')) { tapLink(); return; } const fb = e.target.closest('button[data-f]'); if (fb) { tapForged(+fb.dataset.f); return; } const b = e.target.closest('button[data-i]'); if (b) tapSlot(+b.dataset.i); });
+addEventListener('keydown', e => { if (e.target && e.target.tagName === 'INPUT') return; const n = +e.key; if (running && n >= 1 && n <= 4) tapSlot(n - 2); else if (running && (n === 5 || n === 6)) tapForged(n - 5); else if (running && (e.key === 'l' || e.key === 'L')) tapLink(); });
 
 /* ---------- input ---------- */
 /* ---------- pinch with two fingers (or the mouse wheel) to zoom in and out ---------- */
@@ -5507,7 +5635,7 @@ function backToLobby(msg) {
   netClose();
   running = false; st = null; drag = null;
   Music.fade();
-  for (const id of ['overScreen', 'pauseScreen', 'shopScreen', 'clockScreen']) show(id, false);
+  for (const id of ['overScreen', 'pauseScreen', 'shopScreen', 'clockScreen', 'forgeScreen']) show(id, false);
   show('startScreen', true); lobbyView('main');
   lobbyStatus(msg || 'Team up against the enemy archers. Watch out: your arrows can hit your team.');
 }
@@ -5557,6 +5685,7 @@ function onGuestMsg(c, raw) {
       st.players.push(p);
       text(camX + W / sc / 2, -250, r.name + ' JOINED', r.col, 18, 2);
       if (st.shop) { p.offers = makeOffers(p); pushShop(); }
+      if (st.forge) p.forgeDone = true;
     }
     broadcastLobby();
     return;
@@ -5572,6 +5701,9 @@ function onGuestMsg(c, raw) {
   else if (m.t === 'split') { if (inPlay(P)) splitFor(P); }
   else if (m.t === 'place') { if (inPlay(P)) doPlace(P, m.x, m.y); }
   else if (m.t === 'link') toggleLink(P);
+  else if (m.t === 'forge') forgeMake(P, String(m.a), String(m.b));
+  else if (m.t === 'forgeDone') forgeDone(P);
+  else if (m.t === 'pickF') { const i = num(m.i); if (i !== null) pickForged(P, Math.round(i)); }
   else if (m.t === 'cat') { if (st.horde) catToggle(P); }
   else if (m.t === 'ready') setReady(P);
   else if (m.t === 'clock') { if (st.clockOpen && st.clockBy === P.id) setTime(num(m.v) || 1); }
@@ -5589,6 +5721,7 @@ function dropGuest(c) {
       text(camX + W / sc / 2, -250, P.name + ' LEFT', '#f6eedf', 16, 2);
       if (st.clockOpen && st.clockBy === P.id) setTime(1);
       if (st.shop) { if (st.players.every(p => p.ready)) nextLevel(); else pushShop(); }
+      if (st.forge) { if (st.players.every(p => p.forgeDone)) { st.forge = false; startShop(); } else pushForge(); }
       else if (running && st.overT <= 0 && st.nextT <= 0 && !livePlayers().length) st.overT = 1.8;
     }
   }
@@ -5598,7 +5731,7 @@ function startGame() {
   if (NET.role !== 'host') return;
   wakeAudio();
   newGame(); running = true; paused = false;
-  for (const id of ['startScreen', 'overScreen', 'pauseScreen', 'shopScreen', 'clockScreen']) show(id, false);
+  for (const id of ['startScreen', 'overScreen', 'pauseScreen', 'shopScreen', 'clockScreen', 'forgeScreen']) show(id, false);
   Music.start();
   sendAll({ t: 'start' });
 }
@@ -5611,7 +5744,7 @@ function endGame() {
 }
 function showOver(m) {
   running = false; drag = null; Music.fade();
-  for (const id of ['pauseScreen', 'shopScreen', 'clockScreen']) show(id, false);
+  for (const id of ['pauseScreen', 'shopScreen', 'clockScreen', 'forgeScreen']) show(id, false);
   $('newBest').textContent = 'REACHED LEVEL ' + m.lv;
   const tb = $('teamRows'); tb.innerHTML = '';
   for (const r of m.rows.slice().sort((a, b) => b.g - a.g)) {
@@ -5660,6 +5793,7 @@ function onHostMsg(raw) {
   else if (m.t === 'start') { NET.objs = new Map(); NET.gads = new Map(); st = null; show('overScreen', false); lobbyStatus('Starting…'); }
   else if (m.t === 's') applySnap(m);
   else if (m.t === 'shop') { if (st) showShop(m.v); }
+  else if (m.t === 'forgeV') { if (st) showForge(m.v); }
   else if (m.t === 'over') showOver(m);
 }
 function guestState() {
@@ -5667,7 +5801,7 @@ function guestState() {
     marchers: [], allies: [], marchQ: [], level: 1, t: 0, wind: 0, weather: 'clear', timeScale: 1, slow: 0, shake: 0, flashA: 0, flashC: '255,255,255', banner: null,
     nextT: 0, overT: 0, shop: false, clockOpen: false, clockBy: null, P: SPEC_P };
 }
-const SCAL = ['wind', 'weather', 'timeScale', 'slow', 'shake', 'flashA', 'flashC', 'banner', 'nextT', 'overT', 'shop', 'clockOpen', 'clockBy', 'extraCrates', 'extraHp', 'winBonus'];
+const SCAL = ['wind', 'weather', 'timeScale', 'slow', 'shake', 'flashA', 'flashC', 'banner', 'nextT', 'overT', 'shop', 'forge', 'clockOpen', 'clockBy', 'extraCrates', 'extraHp', 'winBonus'];
 function applySnap(m) {
   const first = !st;
   if (first) st = guestState();
@@ -5716,12 +5850,13 @@ function applySnap(m) {
   }
   if (st.level !== prevLv) { CAM.hold = 0; CAM.focus = null; camX = homeCam(); }
   if (!st.shop && !$('shopScreen').hidden) show('shopScreen', false);
+  if (!st.forge && !$('forgeScreen').hidden) { show('forgeScreen', false); forgePick = []; }
   if (st.clockOpen && st.clockBy && st.clockBy === st.P.id && inPlay(st.P) && !NET.clockShown) { NET.clockShown = true; openClock(); }
   if (!st.clockOpen) { NET.clockShown = false; if (!$('clockScreen').hidden) { show('clockScreen', false); if (Music.on) Music.start(); } }
 }
 // guest: between pictures, keep arrows and effects moving smoothly
 function guestTick(rdt) {
-  const frozen = st.shop || st.clockOpen;
+  const frozen = st.shop || st.clockOpen || st.forge;
   const k = frozen ? 0 : (st.slow > 0 ? .3 : 1) * (st.timeScale || 1), dt = rdt * k;
   st.t += dt;
   const tau0 = Math.min(.15, (performance.now() - NET.snapAt) / 1000) * k;
@@ -5828,7 +5963,7 @@ if (/[?&]debug/.test(location.search)) window.__co = {
   get st() { return st; }, NET, CAM, get running() { return running; }, get camX() { return camX; },
   step(n = 1, dt = 1 / 60) {
     for (let i = 0; i < n; i++) {
-      if (running && st) { if (isHost()) { if (!st.shop && !st.clockOpen) update(dt); } else guestTick(dt); updateCam(dt); }
+      if (running && st) { if (isHost()) { if (!st.shop && !st.clockOpen && !st.forge) update(dt); } else guestTick(dt); updateCam(dt); }
       if (running) netTick(dt);
       camY += (camYTarget() - camY) * Math.min(1, dt * 6);
     }
