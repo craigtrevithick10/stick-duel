@@ -34,6 +34,8 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 #musicBtn.off{opacity:.35;text-decoration:line-through}
 #homeBtn{position:absolute;left:max(14px,env(safe-area-inset-left,0px));bottom:14px;padding:10px 16px;border:0;cursor:pointer;font:700 14px var(--pixel);letter-spacing:.06em;color:#24150a;background:var(--ember);box-shadow:0 3px 0 rgba(0,0,0,.35)}
 #homeBtn:focus-visible{outline:3px solid var(--blood);outline-offset:3px}
+#castleBtn{position:absolute;right:max(14px,env(safe-area-inset-right,0px));bottom:70px;padding:10px 14px;border:0;cursor:pointer;font:700 13px var(--pixel);letter-spacing:.05em;color:#10240f;background:#7dff9a;box-shadow:0 3px 0 rgba(0,0,0,.35)}
+#castleBtn:focus-visible{outline:3px solid var(--blood);outline-offset:3px}
 #quiver{position:absolute;left:50%;transform:translateX(-50%);bottom:12px;display:flex;gap:6px}
 #quiver button{min-width:62px;padding:6px 8px 5px;border:2px solid rgba(246,238,223,.25);background:rgba(20,14,30,.62);color:var(--bone);font:700 11px var(--pixel);letter-spacing:.04em;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;line-height:1}
 #quiver button small{font:700 11px var(--pixel);color:var(--bone)}
@@ -98,6 +100,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
   <button id="pauseBtn" type="button" aria-label="Pause"><i></i><i></i></button>
   <button id="musicBtn" type="button" aria-label="Music on or off">♪</button>
   <button id="homeBtn" type="button" hidden>◀ ARCHER</button>
+  <button id="castleBtn" type="button" hidden>⇄ OUTER CASTLE</button>
   <div id="quiver" hidden></div>
 
   <div class="overlay" id="startScreen">
@@ -170,6 +173,20 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
     </div>
   </div>
 
+  <div class="overlay" id="hordeScreen" hidden>
+    <div class="panel">
+      <h2 class="title" style="font-size:clamp(34px,10vw,50px)">HORDE <em>OVER</em></h2>
+      <p class="newbest" id="hNewBest" hidden>NEW HORDE BEST</p>
+      <div class="stats">
+        <div class="stat"><span>Score</span><b id="hScore">0</b></div>
+        <div class="stat"><span>Kills</span><b id="hKills">0</b></div>
+        <div class="stat"><span>Time</span><b id="hTime">0</b></div>
+        <div class="stat"><span>Best</span><b id="hBest">0</b></div>
+      </div>
+      <p class="sub" id="hGp" style="font:700 13px var(--pixel);color:#ffd27a;margin:4px 0 14px">+0 GP</p>
+      <button class="btn" id="hordeNext" type="button">CONTINUE</button>
+    </div>
+  </div>
   <div class="overlay" id="overScreen" hidden>
     <div class="panel">
       <h2 class="title" id="overTitle" style="font-size:clamp(38px,11vw,54px)">YOU <em>FELL</em></h2>
@@ -312,7 +329,7 @@ const feet = a => ({ x: a.x + a.dx, y: -a.h + a.dy });
 const sizeOf = a => (a.big || 1) * (1 - (a.shrink || 0));
 const shoulder = a => { const f = feet(a); return { x: f.x, y: f.y - 64 * sizeOf(a) }; };
 const alive = () => st.enemies.filter(e => !e.dead);
-const farX = () => Math.max(...st.enemies.map(e => e.x));
+const farX = () => st.horde ? st.horde.far + 400 : Math.max(...st.enemies.map(e => e.x));
 
 function newGame() {
   st = { helpers: [], reloadMul: 1, extraShots: 0, extraCrates: 0, extraHp: 0, longAim: false, armour: 0, leech: 0, revive: 0, winBonus: 0, dmgBoost: 1, shopBuys: {}, shop: false, level: 1, kills: 0, heads: 0, gp: 0, arrows: [], parts: [], texts: [], pinned: [], enemies: [], gadgets: [],
@@ -1062,6 +1079,7 @@ function onHit(ar, a, z) {
 function kill(a, ar, z) {
   if (a.hydra && !a.heartDead) { a.hp = a.hpLock; return; }   // only a heart shot kills the hydra
   if (a === st.P && st.practice) { a.hp = a.max; text(feet(a).x, feet(a).y - 140, 'OUCH! (NO DYING IN PRACTICE)', '#ff5a4e', 14, 1.4); return; }
+  if (a === st.P && st.horde) { hordeOver(); return; }
   if (a === st.P && st.revive > 0) {
     st.revive--; a.hp = 50; a.hitT = 0;
     text(feet(a).x, feet(a).y - 140, 'SECOND WIND', '#7dff9a', 22, 1.6); ring(feet(a).x, feet(a).y - 50, 90, '#7dff9a', .6, 4); sfx('heal');
@@ -1076,6 +1094,7 @@ function kill(a, ar, z) {
   sfx('kill');
   if (a.isP) { st.slow = .8; st.overT = 1.6; return; }
   st.kills++;
+  if (st.horde) { hordeKill(HORDE_BAT_PTS, feet(a).x, feet(a).y - 120); return; }
   const bonus = 10 + st.level * 5 + (z === 'head' ? 15 : 0) + (a.boss ? 50 : 0);
   st.gp += bonus;
   const f = feet(a);
@@ -1805,6 +1824,255 @@ function updateWeather(dt) {
   }
 }
 
+/* ---------- horde bonus level (after every boss): hold the castle against an endless march ---------- */
+// horde soldiers: hp (a body hit does ~26, legs ~15), points per kill, walking speed boost
+const HORDE = {
+  footman: { hp: 12, pts: 1, spd: 2.2 }, runner: { hp: 10, pts: 2, spd: 1.7 }, shield: { hp: 12, pts: 2, spd: 2.2 },
+  knight: { hp: 24, pts: 3, spd: 2.3 }, giant: { hp: 70, pts: 5, spd: 2.6 }
+};
+const HORDE_BAT_PTS = 4, HORDE_SCALE = .8;
+function startHorde() {
+  st.hordeLv = st.level;
+  for (const c of st.clones || []) if (c.type === 'a') removeClone(c);
+  st.clones = [];
+  st.helpers = st.helpers.filter(h => !h.dead && !h.clone);
+  st.enemies = []; st.marchers = []; st.marchQ = []; st.allies = []; st.arrows = []; st.pinned = [];
+  st.tornados = []; st.holes = []; st.showers = []; st.rocks = []; st.boulders = []; st.steams = []; st.fires = [];
+  st.gadgets = []; st.dirT = undefined; st.wind = 0; st.weather = 'clear'; st.timeScale = 1; st.nextT = 0;
+  const P = st.P;
+  Object.assign(P, { big: .6, hp: P.max, confT: 0, acidT: 0, burn: 0, frozen: 0, headRed: 0, stuck: [], dead: false, rot: 0, vr: 0, dx: 0, dy: 0 });
+  const h0 = P.h; P.h = 110;   // a small castle
+  const keep = { x: P.x, h: P.h, pw: P.pw };
+  st.horde = { t: 0, score: 0, kills: 0, spawnT: 1.5, giantT: 4, batT: 6, growT: 30, itemT: 14, kegT: 18,
+    keep, outer: { x: keep.x + 1150, h: 105, pw: 64, hp: 450, max: 450, hitT: 0, down: false },
+    on: 'keep', far: keep.x + 3500, kegs: [], over: false, overT: 0, h0 };
+  // things in the field to help: windows, an arrow crate, a medkit and powder kegs
+  const H = st.horde;
+  hordeItem('win', [keep.x + 350, H.outer.x - 150]);
+  hordeItem('win', [H.outer.x + 250, H.outer.x + 1100]);
+  hordeItem('crate', [keep.x + 300, H.outer.x + 900]);
+  hordeItem('hp', [keep.x + 300, H.outer.x]);
+  for (let i = 0; i < 2; i++) hordeKeg();
+  st.banner = { t: 'BONUS: HORDE ATTACK', sub: 'HOLD THE CASTLE · EVERY KILL SCORES · ⇄ SWITCHES CASTLE', life: 3.4 };
+  st.camHold = 0; st.camFocus = null; camX = homeCam();
+  sfx('wave');
+}
+// field items sit low enough to stay clear of the score bar
+function hordeItem(type, near) { const g = addGadget(type, near); g.y = g.ty = rand(-215, -125); return g; }
+const hordeFront = () => { const H = st.horde; return H.outer.down ? H.keep.x + H.keep.pw / 2 + 48 : H.outer.x + H.outer.pw / 2 + 36; };
+function hordePick(t) {
+  const r = Math.random();
+  return t > 35 && r < .12 ? 'knight' : t > 20 && r < .27 ? 'shield' : t > 10 && r < .5 ? 'runner' : 'footman';
+}
+function hordeSpawn(type, dx) {
+  const T = MT[type], D = HORDE[type];
+  st.marchers.push({ type, horde: 1, x: st.horde.far + dx + rand(0, 220), hp: D.hp, max: D.hp, s: T.s * HORDE_SCALE, spd: T.spd * D.spd * rand(.9, 1.1),
+    ph: rand(0, 6), dead: false, deadT: 0, rot: 0, hitT: 0, burn: 0, frozen: 0, stuck: [], off: rand(0, 40) });
+}
+function hordeKeg() {
+  const H = st.horde;
+  let x = 0;
+  for (let k = 0; k < 20; k++) { x = rand(H.keep.x + 700, H.far - 500); if (H.kegs.every(o => Math.abs(o.x - x) > 260) && Math.abs(x - H.outer.x) > 160) break; }
+  H.kegs.push({ x, appear: .6 });
+}
+function kegBoom(K) {
+  const H = st.horde;
+  H.kegs = H.kegs.filter(o => o !== K);
+  const x = K.x, y = -18;
+  ring(x, y, 160, '#ff9a45', .5, 6); ring(x, y, 90, '#ffd27a', .35, 4); shake(10); sfx('boom');
+  for (let q = 0; q < 40; q++) P_(x, y, rand(-320, 320), rand(-420, -40), rand(.5, 1), rand(3, 6), q % 3 ? '#ff9a45' : '#5a4636', q % 3 ? 'flame' : 'smoke');
+  let n = 0;
+  for (const m of st.marchers) {
+    if (m.dead) continue;
+    const d = Math.abs(m.x - x);
+    if (d < 170) { hurtMarcher(m, m.type === 'giant' ? 45 : 99); if (m.dead) n++; }
+  }
+  text(x, -150, n ? 'KABOOM! ×' + n : 'KABOOM!', '#ffd27a', 22, 1.4, 1);
+}
+// soldiers walk to the first castle still standing, then hack at it (the keep: they hurt you)
+function hordeMarch(m, dt) {
+  const H = st.horde, fx = hordeFront() + m.off;
+  if (m.x > fx) { m.x = Math.max(fx, m.x - m.spd * dt); m.ph += dt * m.spd * .22; return; }
+  m.x = fx; m.ph += dt * 9;
+  const d = MDPS[m.type] * dt;
+  if (!H.outer.down) {
+    const O = H.outer;
+    O.hp -= d; O.hitT = .1;
+    if (Math.random() < dt * 3) P_(m.x - 14, -rand(10, 50), rand(-40, 40), rand(-120, -20), .4, 2, '#dcc29a', 'spark');
+    if (O.hp <= 0) hordeOuterFalls();
+  } else if (!st.P.dead && !H.over) {
+    const P = st.P;
+    P.hp -= d * .35 * (1 - st.armour); P.hitT = .05;
+    if (Math.random() < dt * 1.5) text(feet(P).x + rand(-12, 12), feet(P).y - 110, 'THEY ARE AT THE GATE!', '#ff5a4e', 12, .8);
+    if (P.hp <= 0) hordeOver();
+  }
+}
+function hordeOuterFalls() {
+  const H = st.horde, O = H.outer;
+  O.down = true; O.hp = 0; shake(14); sfx('crack');
+  for (let q = 0; q < 50; q++) P_(O.x + rand(-40, 40), -rand(0, O.h), rand(-220, 220), rand(-260, 0), rand(.6, 1.1), rand(3, 7), q % 2 ? '#dcc29a' : '#a88c6a', 'shard');
+  text(O.x, -O.h - 80, 'THE OUTER CASTLE FELL', '#ff5a4e', 20, 2, 1);
+  if (H.on === 'outer') {
+    hordeMove('keep', true);
+    st.P.hp -= 20; text(feet(st.P).x, feet(st.P).y - 150, 'RETREAT! -20', '#ff5a4e', 18, 1.4);
+    if (st.P.hp <= 0) hordeOver();
+  }
+}
+function hordeMove(to, forced) {
+  const H = st.horde, P = st.P;
+  if (!H || H.over || P.dead || H.on === to) return;
+  if (to === 'outer' && H.outer.down) { text(feet(P).x, feet(P).y - 150, 'THE OUTER CASTLE IS GONE', '#ff5a4e', 14, 1.2); return; }
+  const from = feet(P), T = to === 'outer' ? H.outer : H.keep;
+  for (let q = 0; q < 16; q++) P_(from.x, from.y - 40, rand(-120, 120), rand(-160, 20), .5, 2.4, '#f6eedf', 'smoke');
+  H.on = to; P.x = T.x; P.h = T.h; P.pw = T.pw; P.dx = 0; P.dy = 0; P.pow = 0;
+  st.reload = Math.max(st.reload, .5); drag = null;
+  const f = feet(P);
+  for (let q = 0; q < 16; q++) P_(f.x, f.y - 40, rand(-120, 120), rand(-160, 20), .5, 2.4, '#7dff9a', 'spark');
+  if (!forced) text(f.x, f.y - 140, to === 'outer' ? 'OUTER CASTLE' : 'BACK TO THE KEEP', '#7dff9a', 16, 1.1);
+  st.camHome = true; camX = homeCam(); sfx('whoosh');
+}
+function hordeOver() {
+  const H = st.horde, P = st.P;
+  if (!H || H.over) return;
+  H.over = true; H.overT = 2.2;
+  P.hp = 0; P.dead = true; P.vr = -2; P.vy = -100; st.slow = .8; shake(14); sfx('kill');
+  text(feet(P).x, feet(P).y - 150, 'OVERRUN!', '#ff5a4e', 26, 2, 1);
+}
+function hordeStep(dt, rdt) {
+  const H = st.horde;
+  if (H.over) {
+    if (!st.hordeShow && (H.overT -= rdt) <= 0) showHordeScreen();
+    return;
+  }
+  if (st.P.dead) return;
+  H.t += dt;
+  const t = H.t;
+  if ((H.spawnT -= dt) <= 0) {
+    const n = Math.min(10, 1 + Math.floor(t / 40) + (Math.random() < .3 ? 1 : 0));
+    for (let i = 0; i < n; i++) hordeSpawn(hordePick(t), i * rand(30, 70));
+    H.spawnT = Math.max(1.1, 3.4 - t * .02) * rand(.7, 1.3);
+  }
+  if (t > 25 && (H.giantT -= dt) <= 0) { hordeSpawn('giant', 0); H.giantT = Math.max(5, 16 - t * .06) * rand(.8, 1.2); }
+  if (t > 42 && (H.batT -= dt) <= 0) {
+    const k = Math.min(4, 1 + Math.floor((t - 42) / 60));
+    for (let i = 0; i < k; i++) { const e = makeFlyer(st.level, i); e.hordeBat = 1; st.enemies.push(e); }
+    st.banner = { t: 'FLYING BEASTS!', sub: k + (k === 1 ? ' ACID BAT' : ' ACID BATS'), life: 1.8 };
+    H.batT = rand(18, 26);
+  }
+  if ((H.growT -= dt) <= 0) { H.growT = 30; st.banner = { t: 'THE HORDE GROWS', sub: Math.floor(t) + ' SECONDS · SCORE ' + H.score, life: 1.8 }; sfx('wave'); }
+  // new help turns up in the field now and then
+  if ((H.itemT -= dt) <= 0) {
+    H.itemT = rand(13, 19);
+    const live = st.gadgets.filter(g => !g.gone);
+    if (live.filter(g => g.type === 'crate' || g.type === 'hp').length < 2) { const g = hordeItem(Math.random() < .6 ? 'crate' : 'hp', [H.keep.x + 300, H.outer.x + 900]); g.appearT = .6; }
+    else if (live.filter(g => g.type === 'win').length < 2) { const g = hordeItem('win', [H.keep.x + 350, H.outer.x + 1100]); g.appearT = .6; }
+  }
+  if ((H.kegT -= dt) <= 0) { H.kegT = rand(14, 20); if (H.kegs.length < 3) hordeKeg(); }
+  for (const K of H.kegs) K.appear = Math.max(0, K.appear - dt);
+  // player arrows set off the powder kegs
+  for (const ar of st.arrows) {
+    if (ar.done || !ar.owner || !ar.owner.isP || ar.y < -60) continue;
+    for (const K of H.kegs) {
+      if (segDist(K.x, -16, ar.x - ar.vx * dt * 1.5, ar.y - ar.vy * dt * 1.5, ar.x, ar.y) < 20) { ar.done = true; kegBoom(K); break; }
+    }
+  }
+}
+function hordeKill(pts, x, y) {
+  const H = st.horde;
+  H.score += pts; H.kills++;
+  text(x, y, '+' + pts, pts >= 4 ? '#ffd27a' : '#f6eedf', pts >= 4 ? 18 : 13, .9);
+}
+function showHordeScreen() {
+  const H = st.horde;
+  st.hordeShow = true;
+  let bank = 0, best = 0;
+  try { bank = (+localStorage.getItem('stickHordeBank') || 0) + H.score; best = Math.max(+localStorage.getItem('stickHordeBest') || 0, H.score);
+    localStorage.setItem('stickHordeBank', bank); localStorage.setItem('stickHordeBest', best); } catch (e) { bank = H.score; best = H.score; }
+  $('hScore').textContent = H.score; $('hKills').textContent = H.kills; $('hBest').textContent = best;
+  $('hTime').textContent = Math.floor(H.t) + ' S';
+  $('hGp').textContent = '+' + H.score + ' GP · ' + bank + ' HORDE POINTS SAVED';
+  $('hNewBest').hidden = !(H.score >= best && H.score > 0);
+  show('hordeScreen', true);
+}
+function endHorde() {
+  const H = st.horde, P = st.P;
+  st.hordeShow = false; show('hordeScreen', false);
+  st.gp += H.score;
+  st.horde = null;
+  Object.assign(P, { x: H.keep.x, h: H.h0, pw: H.keep.pw, dead: false, hp: P.max, rot: 0, vr: 0, vy: 0, vx: 0, dx: 0, dy: 0, stuck: [], confT: 0, acidT: 0, burn: 0, headRed: 0, pow: 0 });
+  delete P.big;
+  st.marchers = []; st.enemies = []; st.arrows = []; st.gadgets = []; st.slow = 0;
+  openShop();
+}
+// the castles: the keep (with its gate wall) and the smaller outer castle out in the field
+function hordeWall(x0, hgt, wid, frac) {
+  const x = SX(x0), y = SY(-hgt), w = wid * sc, gy = SY(0);
+  if (x > W + 40 || x + w < -40) return;
+  ctx.fillStyle = '#cdb38c'; ctx.fillRect(x, y, w, gy - y + 4);
+  ctx.fillStyle = 'rgba(60,30,40,.18)'; ctx.fillRect(x + w - 4 * sc, y, 4 * sc, gy - y);
+  const mw = w / 5;
+  ctx.fillStyle = '#cdb38c';
+  for (let i = 0; i < 3; i++) ctx.fillRect(x + i * 2 * mw, y - 9 * sc, mw, 9 * sc);
+  ctx.fillStyle = '#2a1c14'; ctx.beginPath();
+  ctx.moveTo(x + w * .25, gy); ctx.lineTo(x + w * .25, gy - hgt * .45 * sc); ctx.arc(x + w * .5, gy - hgt * .45 * sc, w * .25, Math.PI, 0); ctx.lineTo(x + w * .75, gy); ctx.fill();
+  ctx.strokeStyle = 'rgba(40,20,10,.7)'; ctx.lineWidth = 2;
+  if (frac < .66) { ctx.beginPath(); ctx.moveTo(x + w * .2, y + 6 * sc); ctx.lineTo(x + w * .35, y + hgt * .3 * sc); ctx.lineTo(x + w * .28, y + hgt * .5 * sc); ctx.stroke(); }
+  if (frac < .33) { ctx.beginPath(); ctx.moveTo(x + w * .85, y + 4 * sc); ctx.lineTo(x + w * .7, y + hgt * .35 * sc); ctx.lineTo(x + w * .8, y + hgt * .6 * sc); ctx.stroke(); }
+}
+function drawHordeCastles() {
+  const H = st.horde, O = H.outer;
+  if (H.on !== 'keep') drawPillarRaw({ x: H.keep.x, h: H.keep.h, pw: H.keep.pw, isP: true, dx: 0, dy: 0 });
+  hordeWall(H.keep.x + H.keep.pw / 2, 64, 46, H.outer.down ? clamp(st.P.hp / st.P.max, 0, 1) : 1);
+  if (!O.down) {
+    if (H.on !== 'outer') drawPillarRaw({ x: O.x, h: O.h, pw: O.pw, isP: true, dx: 0, dy: 0 });
+    hordeWall(O.x + O.pw / 2, 52, 34, O.hp / O.max);
+    const bx = SX(O.x - 30), by = SY(-O.h) - 22 * sc;
+    if (bx > -80 && bx < W + 20) {
+      ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(bx, by, 60 * sc, 6 * sc);
+      ctx.fillStyle = O.hitT > 0 ? '#ffffff' : O.hp / O.max > .35 ? '#7dff9a' : '#ff5a4e'; ctx.fillRect(bx, by, 60 * sc * O.hp / O.max, 6 * sc);
+    }
+    O.hitT -= 1 / 60;
+  } else {
+    const x = SX(O.x), gy = SY(0);
+    if (x > -120 && x < W + 120) {
+      ctx.fillStyle = '#a88c6a';
+      for (let i = 0; i < 7; i++) { const rx = x + (i - 3) * 16 * sc, rh = (10 + ((i * 37) % 17)) * sc; ctx.fillRect(rx - 9 * sc, gy - rh, 18 * sc, rh); }
+    }
+  }
+  // powder kegs
+  for (const K of H.kegs) {
+    const x = SX(K.x), y = SY(0);
+    if (x < -40 || x > W + 40) continue;
+    ctx.save(); ctx.globalAlpha = 1 - K.appear / .6; ctx.translate(x, y); ctx.scale(sc, sc);
+    ctx.fillStyle = '#7a4a26'; ctx.strokeStyle = '#3a2412'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.ellipse(0, -16, 13, 16, 0, 0, 6.283); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = '#2a2a2a'; ctx.lineWidth = 2.5;
+    for (const yy of [-26, -6]) { ctx.beginPath(); ctx.moveTo(-11, yy); ctx.lineTo(11, yy); ctx.stroke(); }
+    ctx.fillStyle = '#ffd27a'; ctx.font = '700 10px Silkscreen, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('TNT', 0, -16);
+    const fl = .5 + .5 * Math.sin(st.t * 12 + K.x);
+    ctx.fillStyle = 'rgba(255,200,90,' + fl + ')'; ctx.beginPath(); ctx.arc(4, -35, 2.5, 0, 6.283); ctx.fill();
+    ctx.restore();
+  }
+}
+// score, a map of the whole field (castles, soldiers, bats, your view) and the outer wall's health
+function drawHordeHUD() {
+  const H = st.horde, cx = W / 2, w = Math.min(340, W * .42), x0 = cx - w / 2, y0 = 40;
+  ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  ctx.font = '700 22px Silkscreen, monospace'; ctx.fillStyle = '#ffd27a'; ctx.fillText('SCORE ' + H.score, cx, 10);
+  const L = H.keep.x - 100, R = H.far + 320, X = v => x0 + clamp((v - L) / (R - L), 0, 1) * w;
+  ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(x0, y0, w, 12);
+  const from = H.on === 'outer' ? H.outer.x : H.keep.x;
+  ctx.fillStyle = 'rgba(125,255,154,.2)'; ctx.fillRect(X(from), y0, X(from + 2300) - X(from), 12);
+  ctx.fillStyle = '#f6e6c8'; ctx.fillRect(X(H.keep.x) - 2, y0 - 3, 5, 18);
+  if (!H.outer.down) { ctx.fillStyle = '#dcc29a'; ctx.fillRect(X(H.outer.x) - 2, y0 - 2, 4, 16); }
+  ctx.fillStyle = '#ffd27a'; for (const K of H.kegs) ctx.fillRect(X(K.x) - 1.5, y0 + 8, 3, 3);
+  for (const m of st.marchers) if (!m.dead) { const r = m.type === 'giant' ? 3 : 1.5; ctx.fillStyle = m.type === 'giant' ? '#ff9a45' : '#ff5a4e'; ctx.fillRect(X(m.x) - r, y0 + 6 - r, r * 2, r * 2); }
+  ctx.fillStyle = '#8cff5a'; for (const e of st.enemies) if (!e.dead && e.flyer) ctx.fillRect(X(e.x) - 2, y0 + 1, 4, 4);
+  ctx.strokeStyle = 'rgba(246,238,223,.75)'; ctx.lineWidth = 1; ctx.strokeRect(X(camX), y0 - 2, Math.max(4, X(camX + W / sc) - X(camX)), 16);
+  ctx.font = '700 10px Silkscreen, monospace'; ctx.fillStyle = '#f6eedf';
+  ctx.fillText(H.kills + ' KILLS  ·  ' + Math.floor(H.t) + ' S' + (H.outer.down ? '  ·  OUTER CASTLE GONE' : '  ·  OUTER WALL ' + Math.ceil(H.outer.hp / H.outer.max * 100) + '%'), cx, y0 + 18);
+  ctx.restore();
+}
 /* ---------- marching soldiers ---------- */
 const MT = {
   footman: { name: 'FOOTMAN', hp: 22,  spd: 30, s: .62, gp: 6,  col: '#d4322c' },
@@ -1908,8 +2176,8 @@ function hurtMarcher(m, dmg, ar) {
   text(m.x, -100 * m.s - 14, '-' + dmg, T.armour ? '#c9ccd6' : '#f6eedf', 14, .8);
   if (m.hp <= 0 && !m.dead) {
     m.dead = true; m.hp = 0; st.kills++;
-    const gp = T.gp + st.level * 2; st.gp += gp;
-    text(m.x, -120 * m.s - 20, '+' + gp + ' GP', '#ffd27a', 16, 1.1);
+    if (st.horde) hordeKill(HORDE[m.type].pts, m.x, -120 * m.s - 20);
+    else { const gp = T.gp + st.level * 2; st.gp += gp; text(m.x, -120 * m.s - 20, '+' + gp + ' GP', '#ffd27a', 16, 1.1); }
     if (m.type === 'giant') { shake(10); text(m.x, -140 * m.s - 30, 'GIANT DOWN', '#ffd27a', 20, 1.3); }
     sfx('kill');
   }
@@ -1949,6 +2217,7 @@ function updateMarchers(dt) {
     }
     if (m.frozen > 0) { m.frozen -= dt; continue; }
     if (m.engaged) { m.engaged = false; m.ph += dt * 10; continue; }
+    if (st.horde) { hordeMarch(m, dt); continue; }
     m.x -= m.spd * dt; m.ph += dt * m.spd * .22;
     if (m.x <= cx + 10 * m.s) {
       m.x = cx + 10 * m.s;
@@ -2936,8 +3205,9 @@ function update(rdt) {
     if (SOLDIERS) updateAllies(dt);
     updateMarchers(dt);
     if (st.practice) practiceStep(rdt);
-    else if (st.enemies.every(e => e.dead) && !st.marchQ.length && st.marchers.every(m => m.dead)) clearLevel();
+    else if (!st.horde && st.enemies.every(e => e.dead) && !st.marchQ.length && st.marchers.every(m => m.dead)) clearLevel();
   }
+  if (st.horde) hordeStep(dt, rdt);
   // gadgets ease towards their targets
   for (const g of st.gadgets) {
     const k = Math.min(1, rdt * 6);
@@ -3823,11 +4093,11 @@ function drawHUD() {
   if (st.combo >= 2) { ctx.font = '700 13px Silkscreen, monospace'; ctx.fillStyle = '#ff8ad8'; ctx.fillText('COMBO ×' + st.combo, lx, st.power ? 112 : 78); ctx.font = '700 10px Silkscreen, monospace'; }
   if (st.barrier) { ctx.font = '700 11px Silkscreen, monospace'; ctx.fillStyle = '#8fc8ff'; ctx.fillText('BARRIER ' + Math.max(0, Math.round(st.barrier.hp)), lx + 150, 38); ctx.font = '700 10px Silkscreen, monospace'; }
   if (st.lastShot) { ctx.fillStyle = 'rgba(246,238,223,.7)'; ctx.fillText('LAST ' + Math.round(st.lastShot.p * 100) + '% ' + Math.round(-st.lastShot.a * 180 / Math.PI) + '°', lx, 64); }
-  drawBossBar();
+  if (!st.horde) drawBossBar();
   // enemy list
   const rx = W - 18 - 52;
   ctx.textAlign = 'right'; ctx.font = '700 12px Silkscreen, monospace'; ctx.fillStyle = '#f6eedf';
-  ctx.fillText(st.practice ? 'LAST SHOT ' + Math.round(st.shotDmg || 0) + ' DMG  ·  BEST ' + Math.round(st.bestDmg || 0) : 'LEVEL ' + st.level + '  ·  ' + alive().length + '/' + st.enemies.length + ' LEFT', rx, 12);
+  ctx.fillText(st.horde ? 'BONUS · HORDE' : st.practice ? 'LAST SHOT ' + Math.round(st.shotDmg || 0) + ' DMG  ·  BEST ' + Math.round(st.bestDmg || 0) : 'LEVEL ' + st.level + '  ·  ' + alive().length + '/' + st.enemies.length + ' LEFT', rx, 12);
   st.enemies.forEach((E, i) => {
     const y = 32 + i * 13, ef = clamp(E.hp / E.max, 0, 1);
     ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(rx - 90, y, 90, 6);
@@ -3887,6 +4157,7 @@ function draw() {
   ctx.translate(shx, shy);
   for (const g of st.gadgets) { if (g.appearT > 0) ctx.globalAlpha = Math.max(.05, 1 - g.appearT / .6); drawGadget(g); ctx.globalAlpha = 1; }
   for (const h of st.helpers) drawPillar(h);
+  if (st.horde) drawHordeCastles();
   drawPillar(st.P);
   for (const e of st.enemies) drawPillar(e);
   for (const p of st.pinned) {
@@ -4003,6 +4274,7 @@ function draw() {
   if (st.flashA > 0) { ctx.fillStyle = `rgba(${st.flashC},${st.flashA.toFixed(3)})`; ctx.fillRect(0, 0, W, H); }
   drawInset();
   if (running) drawHUD();
+  if (running && st.horde) drawHordeHUD();
   drawQuiver();
   if (st && st.placing) drawPlaceBox(st.placing.g, st.placing.t, true);
   drawZoomNote();
@@ -4206,15 +4478,20 @@ $('shopNext').onclick = () => {
   show('shopScreen', false); st.shop = false;
   st.helpers = st.helpers.filter(h => !h.dead && !h.clone);
   st.helpers.forEach((h, i) => { h.x = st.P.x - 72 - i * 52; h.h = st.P.h - 22 - i * 16; h.dx = 0; h.dy = 0; h.rot = 0; h.hp = h.max; h.stuck = []; });
+  if (st.level % 5 === 0 && st.hordeLv !== st.level) { startHorde(); return; }
   st.level++; spawnLevel(false); st.camHold = 0; st.camFocus = null; camX = homeCam();
 };
+$('hordeNext').onclick = () => endHorde();
+$('castleBtn').onclick = () => { if (st && st.horde) hordeMove(st.horde.on === 'keep' ? 'outer' : 'keep'); };
 function frame(ts) {
   if (st) { const away = running && !paused && Math.abs(camX - homeCam()) > 60 && !st.camHome; if ($('homeBtn').hidden === away) $('homeBtn').hidden = !away; }
   const dt = Math.min(.04, (ts - last) / 1000 || 0); last = ts;
   const portrait = running && H > W && !forcePortrait;
   if ($('rotateScreen').hidden === portrait) show('rotateScreen', portrait);
   if (st && st.placing && running && !paused && (st.placing.t -= dt) <= 0) finishPlace(null);
-  if (running && !paused && !portrait && !(st && (st.shop || st.clockOpen || st.linking || st.rack || st.placing))) update(dt);
+  if (st) { const H = st.horde, on = !!(H && running && !paused && !H.over && !H.outer.down); if ($('castleBtn').hidden === on) $('castleBtn').hidden = !on;
+    if (on) { const lb = H.on === 'keep' ? '⇄ OUTER CASTLE' : '⇄ BACK TO KEEP'; if ($('castleBtn').textContent !== lb) $('castleBtn').textContent = lb; } }
+  if (running && !paused && !portrait && !(st && (st.shop || st.clockOpen || st.linking || st.rack || st.placing || st.hordeShow))) update(dt);
   camY += (camYTarget() - camY) * Math.min(1, dt * 6);
   draw();
   requestAnimationFrame(frame);
@@ -4308,7 +4585,7 @@ $('quiver').addEventListener('click', e => {
   if (e.target.closest('button[data-reset]')) { resetDummies(); return; }
   if (e.target.closest('button[data-fb]')) { st.dummyFire = !st.dummyFire; for (const d of st.enemies) if (d.dummy) { d.aiT = st.dummyFire ? rand(1.5, 3.5) : 1e9; d.aiAim = null; } quiverSig = ''; sfx('click'); return; }
   if (e.target.closest('button[data-link]')) { toggleLink(); return; } const b = e.target.closest('button[data-i]'); if (b) pickSlot(+b.dataset.i); });
-addEventListener('keydown', e => { if (running && st.practice && (e.key === 'a' || e.key === 'A')) { if (st.rack) closeRack(); else openRack(); return; } const n = +e.key; if (running && n >= 1 && n <= 4) pickSlot(n - 2); else if (running && (e.key === 'l' || e.key === 'L')) toggleLink(); });
+addEventListener('keydown', e => { if (running && st.horde && (e.key === 'c' || e.key === 'C')) { hordeMove(st.horde.on === 'keep' ? 'outer' : 'keep'); return; } if (running && st.practice && (e.key === 'a' || e.key === 'A')) { if (st.rack) closeRack(); else openRack(); return; } const n = +e.key; if (running && n >= 1 && n <= 4) pickSlot(n - 2); else if (running && (e.key === 'l' || e.key === 'L')) toggleLink(); });
 
 /* ---------- input ---------- */
 /* ---------- pinch with two fingers (or the mouse wheel) to zoom in and out ---------- */
@@ -4352,6 +4629,7 @@ document.addEventListener('gesturestart', e => e.preventDefault());
 // zoomed in: slide the view up so your archer stays on screen (never shows below the ground)
 function camYTarget() {
   if (!st) return 0;
+  if (st.horde) return -Math.min(80, H * .2);   // horde: lift the ground above the arrow buttons so the soldiers show
   const P = st.P, yF = P && !P.dead && P.inLevel !== false ? -(P.h + 95) : -230;
   return Math.max(0, H * .3 - (H - GROUND + yF * sc));
 }
@@ -4629,7 +4907,8 @@ function start(practice) {
   newGame(); running = true; paused = false;
   if (practice === true) setupPractice();
   Music.start();
-  show('startScreen', false); show('overScreen', false); show('pauseScreen', false); show('shopScreen', false); show('clockScreen', false); show('rackScreen', false);
+  show('startScreen', false); show('overScreen', false); show('pauseScreen', false); show('shopScreen', false); show('clockScreen', false); show('rackScreen', false); show('hordeScreen', false);
+  if (practice !== true && /[?&]horde\b/.test(location.search)) startHorde();
 }
 function gameOver() {
   running = false; Music.fade();
