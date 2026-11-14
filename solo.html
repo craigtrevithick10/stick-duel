@@ -5137,7 +5137,10 @@ function start(practice) {
   if (practice === true) setupPractice();
   Music.start();
   show('startScreen', false); show('overScreen', false); show('pauseScreen', false); show('shopScreen', false); show('clockScreen', false); show('rackScreen', false); show('hordeScreen', false);
-  if (practice !== true && /[?&]horde\b/.test(location.search)) startHorde();
+  if (practice !== true && /[?&]horde\b/.test(location.search)) {   // test links: ?horde, ?horde&cat (catapult built)
+    startHorde();
+    if (/[?&]cat\b/.test(location.search)) { st.horde.pieces = { wheel: 1, arm: 1, rope: 1 }; buildCatapult(); }
+  }
 }
 function gameOver() {
   running = false; Music.fade();
