@@ -34,6 +34,12 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 #pauseBtn i{display:block;width:10px;height:30px;background:var(--bone);box-shadow:0 2px 0 rgba(0,0,0,.35)}
 #musicBtn{position:absolute;right:calc(max(14px,env(safe-area-inset-right,0px)) + 54px);bottom:14px;width:44px;height:44px;border:0;background:none;cursor:pointer;padding:0;font:700 28px var(--body);color:var(--bone);text-shadow:0 2px 0 rgba(0,0,0,.35)}
 #musicBtn.off{opacity:.35;text-decoration:line-through}
+#catBtn{position:absolute;right:max(14px,env(safe-area-inset-right,0px));bottom:70px;padding:10px 14px;border:0;cursor:pointer;font:700 13px var(--pixel);letter-spacing:.05em;color:#2a1608;background:#ffb347;box-shadow:0 3px 0 rgba(0,0,0,.35)}
+#catBtn.on{background:#fff36b;outline:3px solid #ff9a45}
+#catBtn.ready{animation:catPulse 1s ease-in-out infinite}
+@keyframes catPulse{50%{transform:scale(1.08);box-shadow:0 0 0 4px rgba(255,179,71,.45),0 3px 0 rgba(0,0,0,.35)}}
+#catBtn.wait{opacity:.6}
+#catBtn:focus-visible{outline:3px solid var(--blood);outline-offset:3px}
 #homeBtn{position:absolute;left:max(14px,env(safe-area-inset-left,0px));bottom:14px;padding:10px 16px;border:0;cursor:pointer;font:700 14px var(--pixel);letter-spacing:.06em;color:#24150a;background:var(--ember);box-shadow:0 3px 0 rgba(0,0,0,.35)}
 #homeBtn:focus-visible{outline:3px solid var(--blood);outline-offset:3px}
 #quiver{position:absolute;left:50%;transform:translateX(-50%);bottom:12px;display:flex;gap:6px}
@@ -111,6 +117,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
   <button id="pauseBtn" type="button" aria-label="Pause"><i></i><i></i></button>
   <button id="musicBtn" type="button" aria-label="Music on or off">♪</button>
   <button id="homeBtn" type="button" hidden>◀ ARCHER</button>
+  <button id="catBtn" type="button" hidden>🪨 CATAPULT</button>
   <div id="quiver" hidden></div>
 
   <div id="note" hidden></div>
@@ -342,7 +349,7 @@ function resize() {
   const r = cv.getBoundingClientRect();
   W = r.width; H = r.height;
   cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
-  scBase = Math.min((H - GROUND) / 345, W / 470); sc = scBase * zoom;
+  scBase = Math.min((H - GROUND) / 345, W / 470); sc = scBase * zoom * viewK();
   if (st) camX = homeCam();
 }
 
@@ -358,7 +365,7 @@ const feet = a => ({ x: a.x + a.dx, y: -a.h + a.dy });
 const sizeOf = a => (a.big || 1) * (1 - (a.shrink || 0));
 const shoulder = a => { const f = feet(a); return { x: f.x, y: f.y - 64 * sizeOf(a) }; };
 const alive = () => st.enemies.filter(e => !e.dead);
-const farX = () => Math.max(...st.enemies.map(e => e.x), ...st.players.map(p => p.x));
+const farX = () => st.horde ? st.horde.far + 400 : Math.max(...st.enemies.map(e => e.x), ...st.players.map(p => p.x));
 
 function newGame() {
   st = { players: [], helpers: [], extraCrates: 0, extraHp: 0, winBonus: 0, shop: false, level: 1, kills: 0, arrows: [], parts: [], texts: [], pinned: [], enemies: [], gadgets: [],
@@ -370,6 +377,10 @@ function newGame() {
   hintOn = true; CAM.hold = 0; CAM.focus = null;
   spawnLevel(true);
   camX = homeCam();
+  if (/[?&]horde\b/.test(location.search)) {
+    startHorde();
+    if (/[?&]cat\b/.test(location.search)) { st.horde.pieces = { wheel: 1, arm: 1, rope: 1 }; buildCatapult(); }
+  }
 }
 
 function spawnLevel(first) {
@@ -718,6 +729,8 @@ function gadgetStep(ar, sdt) {
         const P = ownerOf(ar.owner);
         if (!P) continue;
         g.gone = true; ar.done = true;
+        if (g.piece) { hordePiece(g); return; }
+        if (g.recruit) { hordeRecruit(g, P); for (let i = 0; i < 20; i++) P_(g.x, g.y, rand(-180, 180), rand(-220, 60), .6, 2.6, i % 2 ? '#b07a43' : '#7dff9a', 'spark'); sfx('heal'); return; }
         const pw = POWERS[g.pk];
         if (g.pk === 'shield') { P.barrier = { hp: 120, max: 120, hitT: 0 }; P.bside = sideToward(P); }
         else givePower(P, g.pk, pw.shots + P.up.extraShots);
@@ -1175,7 +1188,7 @@ function kill(a, ar, z) {
     text(f.x, f.y - 150, a.name + (by && by !== a ? ' HIT BY ' + by.name : ' IS DOWN'), a.col || '#ff5a4e', 16, 2.2);
     ev({ k: 'down', id: a.id });
     st.slow = Math.max(st.slow, .4);
-    if (!st.players.some(inPlay)) { st.slow = .8; st.overT = 1.8; }
+    if (!st.players.some(inPlay) && !st.horde) { st.slow = .8; st.overT = 1.8; }
     return;
   }
   st.kills++;
@@ -1481,6 +1494,10 @@ function comboStep(dt) {
     if (!F.burnE) continue;
     for (const E of st.enemies) { if (E.dead) continue; const f = feet(E); if (Math.abs(f.x - F.x) < 50 && Math.abs(f.y - 30 - F.y) < 70) infuse(E, 'fire', F.by); }
   }
+  for (const F of st.fires) {   // walking through fire on the ground hurts: soldiers catch light
+    if (F.y < -40) continue;
+    for (const m of st.marchers) if (!m.dead && !(m.burn > 0) && Math.abs(m.x - F.x) < 30) { m.burn = 3; text(m.x, -95 * m.s, 'BURN', '#ff9a45', 11, .6); }
+  }
 }
 // everything a combo does when the arrow lands (called once, after both powers have gone off)
 function comboImpact(ar, x, y) {
@@ -1738,6 +1755,10 @@ function updateVortices(dt) {
         if (E.hp <= 0) kill(E, { vx: T.dir * 300, owner: T.by }, 'body');
       }
     }
+    for (const m of st.marchers) {   // horde soldiers in its path
+      if (m.dead || Math.abs(m.x - T.x) > 42 * (T.w || 1)) continue;
+      if (!(T.hitM = T.hitM || new Set()).has(m)) { T.hitM.add(m); hurtMarcher(m, 52, { owner: T.by }); }
+    }
     for (const ar of st.arrows) {
       if (ar.done || ar.ret || T.t < .15 || Math.abs(ar.x - T.x) > 46 || ar.y < -300) continue;
       ar.ret = true;
@@ -1949,6 +1970,481 @@ function updateWeather(dt) {
   }
 }
 
+/* ---------- horde bonus level (after every boss level's shop): the team holds the castle against an endless march ---------- */
+// horde soldiers: hp (a body hit does ~26, legs ~15), points per kill, walking speed boost
+const HORDE = {
+  footman: { hp: 12, pts: 1, spd: 2.2 }, runner: { hp: 10, pts: 2, spd: 1.7 }, shield: { hp: 12, pts: 2, spd: 2.2 },
+  knight: { hp: 24, pts: 3, spd: 2.3 }, giant: { hp: 70, pts: 5, spd: 2.6 }
+};
+const HORDE_SCALE = .8, HORDE_VIEW = .42;
+const viewK = () => st && st.horde ? HORDE_VIEW : 1;   // the horde is seen from further away: everything looks miniature
+const hordeNP = () => Math.max(1, st.players.filter(p => p.inLevel).length);
+// how many at the gate overruns the castle (a bigger team holds out longer, but more come)
+const overrunN = () => 30 + 10 * (hordeNP() - 1);
+// where each player stands: the first on the keep, the others on towers behind it (behind the catapult)
+const hordeSpot = i => i === 0 ? { x: 0, h: 110 } : { x: -270 - (i - 1) * 85, h: 120 + Math.min(3, i) * 12 };
+function startHorde() {
+  st.hordeLv = st.level;
+  for (const c of st.clones || []) if (c.type === 'a') removeClone(c);
+  st.clones = [];
+  st.helpers = st.helpers.filter(h => !h.dead && !h.clone && !h.mini && !h.life);
+  st.enemies = []; st.marchers = []; st.marchQ = []; st.allies = []; st.arrows = []; st.pinned = [];
+  st.tornados = []; st.holes = []; st.showers = []; st.rocks = []; st.boulders = []; st.steams = []; st.fires = [];
+  st.gadgets = []; st.dirT = undefined; st.wind = 0; st.weather = 'clear'; st.timeScale = 1; st.nextT = 0; st.overT = 0;
+  st.players.forEach((p, i) => {
+    const s = hordeSpot(i);
+    Object.assign(p, { x: s.x, h: s.h, f: 1, bside: 1, aim: -.35, big: .75, inLevel: true, hp: p.max, confT: 0, acidT: 0, burn: 0, frozen: 0, headRed: 0,
+      stuck: [], dead: false, rot: 0, vr: 0, vx: 0, vy: 0, dx: 0, dy: 0, pow: 0, reload: 0, ready: false, shrink: 0 });
+  });
+  const keep = { x: 0, h: 110, pw: 72 };
+  st.horde = { t: 0, score: 0, kills: 0, spawnT: 1.5, giantT: 4, growT: 30, itemT: 14, kegT: 18,
+    keep, outer: { x: keep.x + 1150, h: 105, pw: 64, hp: 0, max: 450, down: true, gone: true },   // one castle for now
+    on: 'keep', far: keep.x + 3500, kegs: [], over: false, overT: 0, stage: 0, pieces: {}, cat: null, rams: [], ramT: 22, bench: [] };
+  const H = st.horde;
+  hordeItem('win', [keep.x + 350, H.outer.x - 150]);
+  hordeItem('win', [H.outer.x + 50, H.outer.x + 900]);
+  hordeItem('crate', [keep.x + 300, H.outer.x + 900]);
+  hordeItem('hp', [keep.x + 300, H.outer.x]);
+  for (let i = 0; i < 2; i++) hordeKeg();
+  // helpers you bought go on the walls (the rest wait out this level)
+  H.bench = st.helpers.slice(WALL_MAX); st.helpers = st.helpers.slice(0, WALL_MAX);
+  st.helpers.forEach((h, i) => { h.dead = false; h.hp = h.max; toWall(h, i); });
+  hordeRecruitCrate();
+  hordePieceCrate();
+  st.banner = { t: 'BONUS: HORDE ATTACK', sub: 'HOLD THE CASTLE TOGETHER · EVERY KILL SCORES', life: 3.4 };
+  resize(); CAM.hold = 0; CAM.focus = null; camX = homeCam();
+  sfx('wave');
+}
+// field items sit low enough to stay clear of the score bar
+function hordeItem(type, near) { const g = addGadget(type, near); g.y = g.ty = rand(-215, -125); return g; }
+const hordeFront = () => { const H = st.horde; return H.keep.x + H.keep.pw / 2 + 48; };
+function hordePick(t) {
+  const r = Math.random();
+  return t > 35 && r < .12 ? 'knight' : t > 20 && r < .27 ? 'shield' : t > 10 && r < .5 ? 'runner' : 'footman';
+}
+function hordeSpawn(type, dx) {
+  const T = MT[type], D = HORDE[type];
+  st.marchers.push({ type, horde: 1, x: st.horde.far + dx + rand(0, 220), hp: D.hp, max: D.hp, s: T.s * HORDE_SCALE, spd: T.spd * D.spd * rand(.9, 1.1),
+    ph: rand(0, 6), dead: false, deadT: 0, rot: 0, hitT: 0, burn: 0, frozen: 0, stuck: [], off: rand(0, 40) });
+}
+// battering ram: 4 soldiers carry a log. At the gate it counts RAM_W; kill 3 carriers and they drop it.
+const RAM_W = 5, RAM_GAP = 18;
+function hordeRam() {
+  const H = st.horde, R = { x: H.far + rand(0, 200), spd: MT.footman.spd * HORDE.footman.spd * .8, drop: false, at: false, logT: 0 };
+  H.rams.push(R);
+  for (let i = 0; i < 4; i++) {
+    hordeSpawn('footman', 0);
+    const m = st.marchers[st.marchers.length - 1];
+    m.ram = R; m.ri = i; m.x = R.x + i * RAM_GAP;
+  }
+  st.banner = { t: 'BATTERING RAM!', sub: 'SHOOT THE CARRIERS', life: 1.8 };
+}
+function ramStep(dt) {
+  const H = st.horde;
+  for (const R of H.rams) {
+    if (R.drop) { R.logT -= dt; continue; }
+    const cs = st.marchers.filter(m => m.ram === R && !m.dead);
+    if (cs.length < 2) {
+      R.drop = true; R.at = false; R.logT = 6;
+      for (const m of cs) delete m.ram;
+      H.score += 3; text(R.x + RAM_GAP * 1.5, -115, 'RAM DROPPED! +3', '#ffd27a', 16, 1.2);
+      for (let q = 0; q < 14; q++) P_(R.x + rand(0, RAM_GAP * 3), -10, rand(-90, 90), rand(-160, -40), .5, 2.6, '#7a4a2c', 'shard');
+      sfx('thud');
+      continue;
+    }
+    if (cs.some(m => m.frozen > 0)) continue;   // a frozen carrier holds the whole ram up
+    const stop = hordeFront() + 6;
+    if (R.x > stop) R.x = Math.max(stop, R.x - R.spd * dt);
+    else {
+      R.at = true;
+      if ((R.bangT = (R.bangT || 0) - dt) <= 0) {
+        R.bangT = 1.3; shake(4); sfx('thud');
+        text(R.x - 10, -125, 'BOOM!', '#ffd27a', 14, .7); ring(R.x - 16, -45, 26, '#dcc29a', .3, 3);
+      }
+    }
+  }
+  H.rams = H.rams.filter(R => !R.drop || R.logT > 0);
+}
+function drawRam(R) {
+  const a = R.drop ? clamp(R.logT / 1.5, 0, 1) : 1;
+  if (a <= 0) return;
+  const s = MT.footman.s * HORDE_SCALE, swing = R.at ? -Math.max(0, Math.sin(st.t * 4.8)) * 9 : 0;
+  const x1 = R.x - 16 + swing, x2 = R.x + 3 * RAM_GAP + 14 + swing;
+  const yy = R.drop ? -5 : -58 * s + Math.sin(st.t * 8) * 1.2;
+  const X1 = SX(x1), X2 = SX(x2), Y = SY(yy), th = 10 * sc;
+  if (X2 < -40 || X1 > W + 40) return;
+  ctx.save(); ctx.globalAlpha = a;
+  ctx.fillStyle = '#7a4a2c'; ctx.fillRect(X1, Y - th / 2, X2 - X1, th);
+  ctx.fillStyle = 'rgba(40,20,10,.35)'; ctx.fillRect(X1, Y + th * .15, X2 - X1, th * .35);
+  ctx.fillStyle = '#4a4e57'; for (const u of [.3, .7]) ctx.fillRect(X1 + (X2 - X1) * u - 1.5 * sc, Y - th * .6, 3 * sc, th * 1.2);
+  ctx.fillStyle = '#6b6f78'; ctx.beginPath(); ctx.moveTo(X1 - 9 * sc, Y); ctx.lineTo(X1, Y - th * .8); ctx.lineTo(X1 + 6 * sc, Y - th * .8); ctx.lineTo(X1 + 6 * sc, Y + th * .8); ctx.lineTo(X1, Y + th * .8); ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+function hordeKeg() {
+  const H = st.horde;
+  let x = 0;
+  for (let k = 0; k < 20; k++) { x = rand(H.keep.x + 700, H.far - 500); if (H.kegs.every(o => Math.abs(o.x - x) > 260)) break; }
+  H.kegs.push({ x, appear: .6 });
+}
+function kegBoom(K, by) {
+  const H = st.horde;
+  H.kegs = H.kegs.filter(o => o !== K);
+  const x = K.x, y = -18;
+  ring(x, y, 160, '#ff9a45', .5, 6); ring(x, y, 90, '#ffd27a', .35, 4); shake(10); sfx('boom');
+  for (let q = 0; q < 40; q++) P_(x, y, rand(-320, 320), rand(-420, -40), rand(.5, 1), rand(3, 6), q % 3 ? '#ff9a45' : '#5a4636', q % 3 ? 'flame' : 'smoke');
+  let n = 0;
+  for (const m of st.marchers) {
+    if (m.dead) continue;
+    if (Math.abs(m.x - x) < 170) { hurtMarcher(m, m.type === 'giant' ? 45 : 99, by ? { owner: by } : null); if (m.dead) n++; }
+  }
+  text(x, -150, n ? 'KABOOM! ×' + n : 'KABOOM!', '#ffd27a', 22, 1.4, 1);
+}
+// soldiers walk to the gate and pile up there
+function hordeMarch(m, dt) {
+  const H = st.horde;
+  if (m.ram) {
+    const R = m.ram;
+    if (!R.drop) { m.x = R.x + m.ri * RAM_GAP; m.ph += dt * (R.at ? 5 : m.spd * .22); return; }
+    delete m.ram;
+  }
+  if (!m.at) {
+    const stop = hordeFront() + (m.type === 'giant' ? m.off : H.pileW || 0);
+    if (m.x > stop) { m.x = Math.max(stop, m.x - m.spd * dt); m.ph += dt * m.spd * .22; return; }
+    m.at = H.t + Math.random() * .01;
+  }
+  if (m.tx != null) { const k = Math.min(1, dt * 4); m.x += (m.tx - m.x) * k; m.y = (m.y || 0) + (m.ty - (m.y || 0)) * Math.min(1, dt * 5); }
+  m.ph += dt * 9;
+  if (!H.over && st.t - (H.gateMsg || -9) > 2.5) { H.gateMsg = st.t; text(H.keep.x, -H.keep.h - 110, 'THEY ARE AT THE GATE!', '#ff5a4e', 12, 1.2); }
+}
+// the soldiers waiting at the wall pack in shoulder to shoulder, a few rows deep, the crowd growing back from the wall
+const PILE_DX = 9, PILE_LANES = 3, PILE_LIFT = 6, HORDE_MAX = 260;
+// overrun = how many are at the gate, not damage: a small soldier counts 1, a giant 3
+const gateW = m => m.type === 'giant' ? 3 : 1;
+function drawGateMeter() {
+  const H = st.horde, N = H.ovN || 30, n = H.press || 0, p = clamp(n / N, 0, 1), w = Math.min(170, W * .24), x = W / 2 - w / 2, y = 76;
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(x, y, w, 9);
+  ctx.fillStyle = p > .75 ? ((st.t * 6) % 2 < 1 ? '#ff5a4e' : '#ffb0a8') : p > .5 ? '#ff9a45' : '#7dff9a'; ctx.fillRect(x, y, w * p, 9);
+  ctx.strokeStyle = 'rgba(246,238,223,.6)'; ctx.lineWidth = 1; ctx.strokeRect(x, y, w, 9);
+  ctx.font = '700 10px Silkscreen, monospace'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(24,30,20,.6)';
+  ctx.textAlign = 'right'; ctx.strokeText('GATE', x - 6, y + 5); ctx.fillStyle = '#f6eedf'; ctx.fillText('GATE', x - 6, y + 5);
+  ctx.textAlign = 'left'; ctx.strokeText(n + '/' + N, x + w + 6, y + 5); ctx.fillText(n + '/' + N, x + w + 6, y + 5);
+  ctx.restore();
+}
+// spots for archers on the walls: two on the gate wall, two on a back wall behind the keep
+const WALL_MAX = 4, WALL_H = 64;
+function wallSpot(i) { const K = st.horde.keep; return i < 2 ? K.x + K.pw / 2 + 12 + i * 22 : K.x - K.pw / 2 - 12 - (i - 2) * 22; }
+function toWall(h, i) {
+  if (!h.home) h.home = { x: h.x, h: h.h, pw: h.pw };
+  Object.assign(h, { x: wallSpot(i), h: WALL_H, pw: 20, big: .7, wall: 1, f: 1, dx: 0, dy: 0, aiAim: null, pow: 0, aiT: rand(.5, 1.5) });
+}
+function hordeRecruit(g, P) {
+  const H = st.horde, n = st.helpers.filter(h => h.wall && !h.dead).length;
+  if (n >= WALL_MAX) { H.score += 5; text(g.x, g.y - 26, 'WALLS FULL · +5', '#7dff9a', 16, 1.3); return; }
+  const h = mkArcher(0, WALL_H, 1, 60, true, 20);
+  h.helper = true; h.kind = 'archer'; h.recruit = 1; h.owner = P; h.name = HELPER_NAMES[Math.floor(Math.random() * HELPER_NAMES.length)];
+  toWall(h, n); st.helpers.push(h);
+  text(g.x, g.y - 26, '+1 ARCHER', '#7dff9a', 18, 1.4);
+  text(h.x, -WALL_H - 110, 'ARCHER JOINS THE WALL!', '#7dff9a', 16, 1.6, 1);
+  for (let q = 0; q < 16; q++) P_(h.x, -WALL_H - 40, rand(-120, 120), rand(-160, 20), .5, 2.4, '#7dff9a', 'spark');
+}
+function hordeRecruitCrate() { const H = st.horde, g = hordeItem('crate', [H.keep.x + 600, H.outer.x + 1300]); g.recruit = true; g.appearT = .6; return g; }
+// a wall archer shoots at the nearest of the horde
+function hordeTarget(Hh) {
+  const K = st.horde.keep, c = [];
+  for (const m of st.marchers) if (!m.dead && m.x < K.x + 2100) c.push({ x: m.x, y: -(m.y || 0) - 55 * m.s, d: m.x });
+  if (!c.length) return null;
+  c.sort((a, b) => a.d - b.d);
+  return c[Math.floor(Math.random() * Math.min(6, c.length))];
+}
+function hordePile() {
+  const H = st.horde, fx = hordeFront();
+  const pile = st.marchers.filter(m => m.at && !m.dead && m.type !== 'giant').sort((a, b) => a.at - b.at), N = pile.length;
+  for (let i = 0; i < N; i++) {
+    const m = pile[i], lane = i % PILE_LANES, col = Math.floor(i / PILE_LANES);
+    m.tx = fx + col * PILE_DX + lane * 3 + m.off * .08; m.ty = lane * PILE_LIFT;   // back rows sit a touch higher: depth, not stacking
+  }
+  H.pileW = Math.ceil(N / PILE_LANES) * PILE_DX;
+}
+// overrun: nobody dies, the bonus level just ends (score shown, then the shop)
+function hordeOver() {
+  const H = st.horde;
+  if (!H || H.over) return;
+  H.over = true; H.overT = 2.2; H.stage = 1;
+  st.slow = .8; shake(14); sfx('kill');
+  for (const p of st.players) p.pow = 0;
+  text(H.keep.x, -H.keep.h - 150, 'OVERRUN!', '#ff5a4e', 26, 2, 1);
+}
+function hordeStep(dt, rdt) {
+  const H = st.horde;
+  if (H.over) {
+    if ((H.overT -= rdt) > 0) return;
+    if (H.stage === 1) {
+      H.stage = 2; H.overT = 3.6;
+      st.banner = { t: 'HORDE SCORE ' + H.score, sub: H.kills + ' KILLS · ' + Math.floor(H.t) + ' SECONDS · +' + H.score + ' GP EACH', life: 3.6 };
+      sfx('wave');
+    } else if (H.stage === 2) { H.stage = 3; endHorde(); }
+    return;
+  }
+  if (!st.players.some(inPlay)) { hordeOver(); return; }
+  H.t += dt;
+  const t = H.t, np = hordeNP(), more = 1 + (np - 1) * .5;
+  H.ovN = overrunN();
+  hordePile();
+  ramStep(dt);
+  if (t > 30 && (H.ramT -= dt) <= 0) { hordeRam(); H.ramT = rand(24, 34) * Math.max(.6, 1 - t / 600) / Math.sqrt(more); }
+  H.press = 0; for (const m of st.marchers) if (m.at && !m.dead && !m.ram) H.press += gateW(m);
+  for (const R of H.rams) if (R.at && !R.drop) H.press += RAM_W;
+  if (H.press >= H.ovN * .75 && !H.warned) { H.warned = true; text(H.keep.x, -H.keep.h - 170, 'THE GATE IS BUCKLING!', '#ff5a4e', 18, 1.6, 1); shake(6); }
+  if (H.press < H.ovN * .5) H.warned = false;
+  if (H.press >= H.ovN) { hordeOver(); return; }
+  if (H.cat && H.cat.reload > 0) H.cat.reload -= dt;
+  if ((H.spawnT -= dt) <= 0 && st.marchers.length < HORDE_MAX) {
+    const n = Math.min(14, Math.round((1 + Math.floor(t / 40) + (Math.random() < .3 ? 1 : 0)) * more));
+    for (let i = 0; i < n; i++) hordeSpawn(hordePick(t), i * rand(30, 70));
+    H.spawnT = Math.max(1.1, 3.4 - t * .02) * rand(.7, 1.3);
+  }
+  if (t > 25 && (H.giantT -= dt) <= 0) { hordeSpawn('giant', 0); H.giantT = Math.max(5, 16 - t * .06) * rand(.8, 1.2) / more; }
+  if ((H.growT -= dt) <= 0) { H.growT = 30; st.banner = { t: 'THE HORDE GROWS', sub: Math.floor(t) + ' SECONDS · SCORE ' + H.score, life: 1.8 }; sfx('wave'); }
+  // new help turns up in the field now and then
+  if ((H.itemT -= dt) <= 0) {
+    H.itemT = rand(13, 19) / Math.sqrt(more);
+    const live = st.gadgets.filter(g => !g.gone);
+    if (!H.cat && !live.some(g => g.piece) && Math.random() < .6) hordePieceCrate();
+    else if (st.helpers.filter(h => h.wall).length < WALL_MAX && !live.some(g => g.recruit) && Math.random() < .55) hordeRecruitCrate();
+    else if (live.filter(g => g.type === 'crate' || g.type === 'hp').length < 1 + np) { const g = hordeItem(Math.random() < .6 ? 'crate' : 'hp', [H.keep.x + 300, H.outer.x + 900]); g.appearT = .6; }
+    else if (live.filter(g => g.type === 'win').length < 2) { const g = hordeItem('win', [H.keep.x + 350, H.outer.x + 1100]); g.appearT = .6; }
+  }
+  if ((H.kegT -= dt) <= 0) { H.kegT = rand(14, 20); if (H.kegs.length < 3) hordeKeg(); }
+  for (const K of H.kegs) K.appear = Math.max(0, K.appear - dt);
+  // player arrows set off the powder kegs
+  for (const ar of st.arrows) {
+    if (ar.done || !ar.owner || !ar.owner.isP || ar.y < -60) continue;
+    for (const K of H.kegs) {
+      if (segDist(K.x, -16, ar.x - ar.vx * dt * 1.5, ar.y - ar.vy * dt * 1.5, ar.x, ar.y) < 20) { ar.done = true; kegBoom(K, ownerOf(ar.owner)); break; }
+    }
+  }
+}
+function hordeKill(pts, x, y) {
+  const H = st.horde;
+  H.score += pts; H.kills++;
+  text(x, y, '+' + pts, pts >= 4 ? '#ffd27a' : '#f6eedf', pts >= 4 ? 18 : 13, .9);
+}
+// back to the campaign: everyone gets the team score as GP, then the shop
+function endHorde() {
+  const H = st.horde;
+  st.horde = null; resize();
+  for (const p of st.players) {
+    p.gp += H.score; p.earned = (p.earned || 0) + H.score;
+    Object.assign(p, { dead: false, hp: p.max, rot: 0, vr: 0, vy: 0, vx: 0, dx: 0, dy: 0, stuck: [], confT: 0, acidT: 0, burn: 0, headRed: 0, pow: 0 });
+    delete p.big;
+  }
+  st.helpers = st.helpers.filter(h => !h.recruit).concat(H.bench || []);
+  for (const h of st.helpers) { if (h.home) Object.assign(h, h.home); delete h.home; delete h.big; delete h.wall; h.aiAim = null; h.dead = false; h.hp = h.max; }
+  st.marchers = []; st.enemies = []; st.arrows = []; st.gadgets = []; st.pinned = []; st.fires = []; st.tornados = []; st.holes = []; st.slow = 0;
+  startShop();
+}
+// the keep with its gate wall (cracks show as the crowd at the gate grows)
+function hordeWall(x0, hgt, wid, frac) {
+  const x = SX(x0), y = SY(-hgt), w = wid * sc, gy = SY(0);
+  if (x > W + 40 || x + w < -40) return;
+  ctx.fillStyle = '#cdb38c'; ctx.fillRect(x, y, w, gy - y + 4);
+  ctx.fillStyle = 'rgba(60,30,40,.18)'; ctx.fillRect(x + w - 4 * sc, y, 4 * sc, gy - y);
+  const mw = w / 5;
+  ctx.fillStyle = '#cdb38c';
+  for (let i = 0; i < 3; i++) ctx.fillRect(x + i * 2 * mw, y - 9 * sc, mw, 9 * sc);
+  ctx.fillStyle = '#2a1c14'; ctx.beginPath();
+  ctx.moveTo(x + w * .25, gy); ctx.lineTo(x + w * .25, gy - hgt * .45 * sc); ctx.arc(x + w * .5, gy - hgt * .45 * sc, w * .25, Math.PI, 0); ctx.lineTo(x + w * .75, gy); ctx.fill();
+  ctx.strokeStyle = 'rgba(40,20,10,.7)'; ctx.lineWidth = 2;
+  if (frac < .66) { ctx.beginPath(); ctx.moveTo(x + w * .2, y + 6 * sc); ctx.lineTo(x + w * .35, y + hgt * .3 * sc); ctx.lineTo(x + w * .28, y + hgt * .5 * sc); ctx.stroke(); }
+  if (frac < .33) { ctx.beginPath(); ctx.moveTo(x + w * .85, y + 4 * sc); ctx.lineTo(x + w * .7, y + hgt * .35 * sc); ctx.lineTo(x + w * .8, y + hgt * .6 * sc); ctx.stroke(); }
+}
+function drawHordeCastles() {
+  const H = st.horde;
+  hordeWall(H.keep.x + H.keep.pw / 2, 64, 46, 1 - clamp((H.press || 0) / (H.ovN || 30), 0, 1));
+  hordeWall(H.keep.x - H.keep.pw / 2 - 46, WALL_H, 46, 1);
+  // powder kegs
+  for (const K of H.kegs) {
+    const x = SX(K.x), y = SY(0);
+    if (x < -40 || x > W + 40) continue;
+    ctx.save(); ctx.globalAlpha = 1 - K.appear / .6; ctx.translate(x, y); ctx.scale(sc, sc);
+    ctx.fillStyle = '#7a4a26'; ctx.strokeStyle = '#3a2412'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.ellipse(0, -16, 13, 16, 0, 0, 6.283); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = '#2a2a2a'; ctx.lineWidth = 2.5;
+    for (const yy of [-26, -6]) { ctx.beginPath(); ctx.moveTo(-11, yy); ctx.lineTo(11, yy); ctx.stroke(); }
+    ctx.fillStyle = '#ffd27a'; ctx.font = '700 10px Silkscreen, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('TNT', 0, -16);
+    const fl = .5 + .5 * Math.sin(st.t * 12 + K.x);
+    ctx.fillStyle = 'rgba(255,200,90,' + fl + ')'; ctx.beginPath(); ctx.arc(4, -35, 2.5, 0, 6.283); ctx.fill();
+    ctx.restore();
+  }
+}
+// score, a map of the whole field (castle, soldiers, your view), the gate meter and catapult pieces
+function drawHordeHUD() {
+  drawCatHUD(); drawGateMeter();
+  const H = st.horde, cx = W / 2, w = Math.min(340, W * .42), x0 = cx - w / 2, y0 = 40;
+  ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  ctx.lineJoin = 'round'; ctx.strokeStyle = 'rgba(24,30,20,.6)'; ctx.lineWidth = 4;
+  ctx.font = '700 22px Silkscreen, monospace'; ctx.fillStyle = '#ffd27a'; ctx.strokeText('SCORE ' + H.score, cx, 10); ctx.fillText('SCORE ' + H.score, cx, 10);
+  const L = H.keep.x - 100, R = H.far + 320, X = v => x0 + clamp((v - L) / (R - L), 0, 1) * w;
+  ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(x0, y0, w, 12);
+  ctx.fillStyle = 'rgba(125,255,154,.2)'; ctx.fillRect(X(H.keep.x), y0, X(H.keep.x + 2300) - X(H.keep.x), 12);
+  ctx.fillStyle = '#f6e6c8'; ctx.fillRect(X(H.keep.x) - 2, y0 - 3, 5, 18);
+  ctx.fillStyle = '#ffd27a'; for (const K of H.kegs) ctx.fillRect(X(K.x) - 1.5, y0 + 8, 3, 3);
+  for (const m of st.marchers) if (!m.dead) { const r = m.type === 'giant' ? 3 : 1.5; ctx.fillStyle = m.type === 'giant' ? '#ff9a45' : '#ff5a4e'; ctx.fillRect(X(m.x) - r, y0 + 6 - r, r * 2, r * 2); }
+  ctx.fillStyle = '#c08040'; for (const R2 of H.rams) if (!R2.drop) ctx.fillRect(X(R2.x) - 1, y0 + 3, 8, 5);
+  ctx.strokeStyle = 'rgba(246,238,223,.75)'; ctx.lineWidth = 1; ctx.strokeRect(X(camX), y0 - 2, Math.max(4, X(camX + W / sc) - X(camX)), 16);
+  ctx.font = '700 10px Silkscreen, monospace'; ctx.fillStyle = '#f6eedf'; ctx.lineWidth = 3;
+  const info = H.kills + ' KILLS  ·  ' + Math.floor(H.t) + ' S';
+  ctx.strokeText(info, cx, y0 + 18); ctx.fillText(info, cx, y0 + 18);
+  ctx.restore();
+}
+
+/* ---------- horde catapult: collect WHEEL, ARM and ROPE in the field; the whole team shares it ---------- */
+const CAT_PARTS = ['wheel', 'arm', 'rope'], CAT_NAMES = { wheel: 'WHEEL', arm: 'ARM', rope: 'ROPE' }, CAT_RELOAD = 7, CAT_R = 120;
+function hordePieceCrate() {
+  const H = st.horde, live = st.gadgets.filter(g => !g.gone && g.piece).map(g => g.piece);
+  const want = CAT_PARTS.filter(k => !H.pieces[k] && !live.includes(k));
+  if (!want.length || H.cat) return null;
+  const g = hordeItem('crate', [H.keep.x + 500, H.outer.x + 1300]); g.piece = want[Math.floor(Math.random() * want.length)]; g.appearT = .6;
+  return g;
+}
+function hordePiece(g) {
+  const H = st.horde;
+  H.pieces[g.piece] = 1;
+  const n = CAT_PARTS.filter(k => H.pieces[k]).length;
+  text(g.x, g.y - 26, CAT_NAMES[g.piece] + '  ' + n + '/3', '#ffb347', 18, 1.4);
+  for (let i = 0; i < 20; i++) P_(g.x, g.y, rand(-180, 180), rand(-220, 60), .6, 2.6, i % 2 ? '#b07a43' : '#ffb347', 'spark');
+  sfx('heal');
+  if (n >= 3) buildCatapult();
+}
+function buildCatapult() {
+  const H = st.horde, K = H.keep;
+  H.cat = { x: K.x - K.pw / 2 - 46 - 95, reload: 0, armed: 0 };   // on the ground behind the castle
+  for (let q = 0; q < 24; q++) P_(H.cat.x, -40, rand(-140, 140), rand(-200, 0), .6, 3, q % 2 ? '#b07a43' : '#ffd27a', 'spark');
+  st.banner = { t: 'CATAPULT BUILT!', sub: 'ANYONE CAN USE IT: TAP 🪨 (BOTTOM RIGHT), THEN PULL BACK AND SHOOT', life: 3.4 };
+  sfx('wave');
+}
+const CAT_K = 1.9;   // how big the catapult is drawn
+const catPt = () => ({ x: st.horde.cat.x + 13 * CAT_K, y: -70 * CAT_K });   // where the arm lets go
+// armed by this player? (H.cat.armed holds the id of whoever tapped the button)
+const catArmed = P => !!(st && st.horde && st.horde.cat && P && st.horde.cat.armed && st.horde.cat.armed === P.id);
+// host only
+function catToggle(P) {
+  const C = st.horde && st.horde.cat;
+  if (!C || C.reload > 0 || st.horde.over || !inPlay(P)) return;
+  C.armed = C.armed === P.id ? 0 : P.id; sfx('click');
+  if (C.armed) text(C.x, -200, P.name + ': CATAPULT READY', P.col || '#ffb347', 14, 1.2);
+}
+// the shot flies from the catapult as a boulder (it keeps the arrow power, so windows and upgrades still work)
+function catLaunch(n0) {
+  const C = st.horde.cat, p = catPt();
+  for (let q = n0; q < st.arrows.length; q++) { const ar = st.arrows[q]; ar.rock = true; ar.x = ar.sx = p.x; ar.y = ar.sy = p.y; }
+  C.armed = 0; C.reload = CAT_RELOAD; shake(5); sfx('whoosh');
+}
+// the boulder lands: everything in the strike zone goes down. Powers change the blast.
+function catBoom(ar) {
+  const H = st.horde;
+  if (!H) return;
+  const x = ar.x, y = Math.min(ar.y, -2), by = ar.owner ? ownerOf(ar.owner) : null;
+  const fire = hasPk(ar, 'fire'), ice = hasPk(ar, 'ice'), boom = hasPk(ar, 'boom'), zap = hasPk(ar, 'storm');
+  const R = CAT_R * (hasPk(ar, 'heavy') ? 1.4 : 1) * (boom ? 1.35 : 1), hit = { owner: ar.owner };
+  ring(x, y, R, fire ? '#ff9a45' : ice ? '#bfe9ff' : '#ffd27a', .5, 6); ring(x, y, R * .6, '#f6eedf', .35, 4);
+  shake(boom ? 14 : 9); sfx('boom');
+  for (let q = 0; q < 34; q++) P_(x + rand(-20, 20), y, rand(-280, 280), rand(-400, -60), rand(.5, 1), rand(3, 6), q % 3 ? '#8a7f74' : '#5a4636', 'shard');
+  if (fire) for (let q = 0; q < 30; q++) P_(x + rand(-R, R) * .7, y, rand(-60, 60), rand(-260, -60), rand(.4, .9), rand(2.5, 5), q % 2 ? '#ff9a45' : '#ffd27a', 'flame');
+  if (ice) for (let q = 0; q < 24; q++) P_(x + rand(-R, R), y - rand(0, 40), rand(-60, 60), rand(-160, -20), rand(.4, .8), 2.6, q % 2 ? '#bfe9ff' : '#ffffff', 'spark');
+  let n = 0;
+  for (const m of st.marchers) {
+    if (m.dead) continue;
+    const d = Math.hypot(m.x - x, -(m.y || 0) - 40 * m.s - y);
+    if (d < R) { hurtMarcher(m, m.type === 'giant' ? 60 : 99, hit); if (m.dead) n++; }
+    if (!m.dead && fire && d < R * 1.6) m.burn = Math.max(m.burn, 4);
+    if (!m.dead && ice && d < R * 1.7) m.frozen = Math.max(m.frozen, 4);
+  }
+  if (zap) {   // lightning jumps from the strike zone to the next few soldiers
+    const near = st.marchers.filter(m => !m.dead && Math.abs(m.x - x) < 520).sort((a, b) => Math.abs(a.x - x) - Math.abs(b.x - x)).slice(0, 6);
+    let px = x, py = y;
+    for (const m of near) {
+      const my = -(m.y || 0) - 50 * m.s;
+      for (let k = 0; k < 8; k++) P_(px + (m.x - px) * k / 8, py + (my - py) * k / 8 + rand(-8, 8), 0, 0, .3, 2.2, '#fff36b', 'spark');
+      hurtMarcher(m, 99, hit); if (m.dead) n++;
+      px = m.x; py = my;
+    }
+    sfx('zap');
+  }
+  for (const K of H.kegs.slice()) if (Math.abs(K.x - x) < R) kegBoom(K, by);
+  text(x, y - 110, n > 1 ? 'SMASH! ×' + n : 'SMASH!', '#ffd27a', n > 4 ? 24 : 18, 1.3, n > 4 ? 1 : 0);
+}
+function drawRock(ar) {
+  const x = SX(ar.x), y = SY(ar.y), r = 13 * sc;
+  if (ar.col) { ctx.fillStyle = ar.col + '55'; ctx.beginPath(); ctx.arc(x, y, r * 1.8, 0, 6.283); ctx.fill(); }
+  ctx.fillStyle = '#8a7f74'; ctx.strokeStyle = '#3a3029'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(x, y, r, 0, 6.283); ctx.fill(); ctx.stroke();
+  const a = st.t * 9;
+  ctx.strokeStyle = 'rgba(40,30,25,.5)'; ctx.beginPath(); ctx.moveTo(x + Math.cos(a) * r * .6, y + Math.sin(a) * r * .6); ctx.lineTo(x - Math.cos(a) * r * .3, y - Math.sin(a) * r * .3); ctx.stroke();
+  if (Math.random() < .5) LP_(ar.x, ar.y, rand(-20, 20), rand(-20, 20), .35, 2.4, ar.col || 'rgba(160,150,140,.8)', 'smoke');
+}
+// the catapult behind the castle: the arm snaps forward when it fires and cranks back while it reloads
+function drawCatapult() {
+  const H = st.horde, C = H && H.cat;
+  if (!C) return;
+  const x = SX(C.x), y = SY(0), k = sc * CAT_K;
+  if (x < -160 || x > W + 160) return;
+  ctx.save(); ctx.translate(x, y); ctx.scale(k, k);
+  ctx.lineCap = 'round';
+  if (C.armed) {
+    const A = st.players.find(p => p.id === C.armed), col = (A && A.col) || '#ffb347';
+    ctx.globalAlpha = .25 + .15 * Math.sin(st.t * 8); ctx.fillStyle = col; ctx.beginPath(); ctx.arc(0, -24, 46, 0, 6.283); ctx.fill(); ctx.globalAlpha = 1;
+  }
+  ctx.fillStyle = '#7a4a2c'; ctx.fillRect(-26, -12, 52, 7);
+  ctx.fillStyle = '#3a2418';
+  for (const wx of [-17, 17]) { ctx.beginPath(); ctx.arc(wx, -5, 6, 0, 6.283); ctx.fill(); }
+  ctx.strokeStyle = '#5e3c1c'; ctx.lineWidth = 5;
+  ctx.beginPath(); ctx.moveTo(-14, -12); ctx.lineTo(0, -34); ctx.lineTo(14, -12); ctx.stroke();
+  const rest = Math.PI - .35, fired = Math.PI * 2 - 1.25, u = C.reload > 0 ? C.reload / CAT_RELOAD : 0, ang = rest + (fired - rest) * u;
+  ctx.save(); ctx.translate(0, -32); ctx.rotate(ang);
+  ctx.strokeStyle = '#8a5a34'; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(-10, 0); ctx.lineTo(40, 0); ctx.stroke();
+  ctx.fillStyle = '#5e3c1c'; ctx.beginPath(); ctx.arc(40, 0, 7, 0, Math.PI); ctx.fill();
+  if (C.reload <= 0) { ctx.fillStyle = '#8a7f74'; ctx.strokeStyle = '#3a3029'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(40, -6, 7, 0, 6.283); ctx.fill(); ctx.stroke(); }
+  ctx.restore();
+  ctx.fillStyle = '#3a2418'; ctx.beginPath(); ctx.arc(0, -32, 3.5, 0, 6.283); ctx.fill();
+  ctx.restore();
+}
+function drawCatHUD() {
+  const H = st.horde;
+  if (!H || H.cat) return;
+  const n = CAT_PARTS.filter(k => H.pieces[k]).length;
+  ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.font = '700 10px Silkscreen, monospace';
+  ctx.lineJoin = 'round'; ctx.strokeStyle = 'rgba(24,30,20,.6)'; ctx.lineWidth = 3;
+  const t = 'CATAPULT ' + n + '/3: ' + CAT_PARTS.map(k => (H.pieces[k] ? '✓' : '·') + CAT_NAMES[k]).join(' ');
+  ctx.strokeText(t, W / 2, 94); ctx.fillStyle = '#ffb347'; ctx.fillText(t, W / 2, 94);
+  ctx.restore();
+}
+// guest: the horde as the host sends it (m.hz, and the soldiers as short rows in m.mz)
+const MZ_T = ['footman', 'runner', 'shield', 'knight', 'giant'];
+function packHorde() {
+  const H = st.horde;
+  if (!H) return null;
+  return { t: H.t, score: H.score, kills: H.kills, press: H.press || 0, ovN: H.ovN || 30, over: H.over, keep: H.keep, outer: H.outer, far: H.far, kegs: H.kegs,
+    cat: H.cat, pieces: H.pieces, rams: H.rams.map(R => ({ x: R.x, at: R.at, drop: R.drop, logT: R.logT })) };
+}
+function packMarchers() {
+  return st.marchers.map(m => [MZ_T.indexOf(m.type), Math.round(m.x), Math.round((m.y || 0) * 10) / 10, Math.round(m.ph * 10) / 10, m.dead ? Math.round(m.rot * 100) / 100 : -1,
+    (m.hitT > 0 ? 1 : 0) | (m.burn > 0 ? 2 : 0) | (m.frozen > 0 ? 4 : 0), m.stuck.length ? m.stuck.slice(-3).map(s => [Math.round(s.x), Math.round(s.y), Math.round(s.ang * 100) / 100]) : 0]);
+}
+function applyHorde(m) {
+  const was = !!st.horde;
+  st.horde = m.hz || null;
+  if (st.horde) {
+    st.marchers = (m.mz || []).map(r => {
+      const type = MZ_T[r[0]] || 'footman';
+      return { type, horde: 1, x: r[1], y: r[2], ph: r[3], dead: r[4] >= 0, rot: Math.max(0, r[4]), deadT: r[4] >= 0 ? 1 : 0, hitT: r[5] & 1 ? .1 : 0, burn: r[5] & 2 ? 1 : 0, frozen: r[5] & 4 ? 1 : 0,
+        s: MT[type].s * HORDE_SCALE, hp: 1, max: 1, stuck: (r[6] || []).map(s => ({ x: s[0], y: s[1], ang: s[2] })) };
+    });
+  } else if (was) st.marchers = [];
+  if (was !== !!st.horde) { resize(); CAM.hold = 0; CAM.focus = null; camX = homeCam(); }
+}
+
 /* ---------- marching soldiers ---------- */
 const MT = {
   footman: { name: 'FOOTMAN', hp: 22,  spd: 30, s: .62, gp: 6,  col: '#d4322c' },
@@ -2034,7 +2530,7 @@ function spawnMarcher(type) {
   const T = MT[type], hp = Math.round(T.hp * (1 + st.level * .08));
   st.marchers.push({ type, x: farX() + 260, hp, max: hp, s: T.s, spd: T.spd * rand(.9, 1.1), ph: rand(0, 6), dead: false, deadT: 0, rot: 0, hitT: 0, burn: 0, frozen: 0, stuck: [] });
 }
-function mLocal(m, x, y) { return { x: (x - m.x) / m.s, y: y / m.s }; }
+function mLocal(m, x, y) { return { x: (x - m.x) / m.s, y: (y + (m.y || 0)) / m.s }; }
 function mZone(m, x, y) {
   if (m.dead) return null;
   const p = mLocal(m, x, y);
@@ -2052,8 +2548,8 @@ function hurtMarcher(m, dmg, ar) {
   text(m.x, -100 * m.s - 14, '-' + dmg, T.armour ? '#c9ccd6' : '#f6eedf', 14, .8);
   if (m.hp <= 0 && !m.dead) {
     m.dead = true; m.hp = 0; st.kills++;
-    const gp = T.gp + st.level * 2; st.gp += gp;
-    text(m.x, -120 * m.s - 20, '+' + gp + ' GP', '#ffd27a', 16, 1.1);
+    if (st.horde) { const by = ar && ar.owner ? ownerOf(ar.owner) : null; if (by) by.kills++; hordeKill(HORDE[m.type].pts, m.x, -(m.y || 0) - 120 * m.s - 20); }
+    else { const gp = T.gp + st.level * 2; st.gp += gp; text(m.x, -120 * m.s - 20, '+' + gp + ' GP', '#ffd27a', 16, 1.1); }
     if (m.type === 'giant') { shake(10); text(m.x, -140 * m.s - 30, 'GIANT DOWN', '#ffd27a', 20, 1.3); }
     sfx('kill');
   }
@@ -2084,7 +2580,7 @@ function updateMarchers(dt) {
   while (st.marchQ.length && st.marchQ[0].t <= st.marchT) spawnMarcher(st.marchQ.shift().type);
   const cx = castleX();
   for (const m of st.marchers) {
-    if (m.dead) { m.deadT += dt; m.rot = Math.min(1.5, m.rot + dt * 5); continue; }
+    if (m.dead) { m.deadT += dt; m.rot = Math.min(1.5, m.rot + dt * 5); if (m.y > 0) m.y = Math.max(0, m.y - 260 * dt); continue; }
     m.hitT -= dt;
     if (m.burn > 0) {
       m.burn -= dt; m.hp -= 8 * dt;
@@ -2093,6 +2589,7 @@ function updateMarchers(dt) {
     }
     if (m.frozen > 0) { m.frozen -= dt; continue; }
     if (m.engaged) { m.engaged = false; m.ph += dt * 10; continue; }
+    if (st.horde) { hordeMarch(m, dt); continue; }
     m.x -= m.spd * dt; m.ph += dt * m.spd * .22;
     if (m.x <= cx + 10 * m.s) {
       m.x = cx + 10 * m.s;
@@ -2106,7 +2603,7 @@ function updateMarchers(dt) {
   st.marchers = st.marchers.filter(m => !m.dead || m.deadT < 2.5);
 }
 function drawMarcher(m) {
-  const x = SX(m.x), y = SY(0), T = MT[m.type];
+  const x = SX(m.x), y = SY(-(m.y || 0)), T = MT[m.type];
   if (x < -60 || x > W + 60) return;
   ctx.save(); ctx.translate(x, y); ctx.scale(sc * m.s * (m.ally ? -1 : 1), sc * m.s);
   if (m.dead) { ctx.globalAlpha = clamp(1 - (m.deadT - 1.5), 0, 1); ctx.rotate(m.rot); }
@@ -2145,7 +2642,7 @@ function drawMarcher(m) {
   if (m.frozen > 0 && !m.dead) { ctx.fillStyle = 'rgba(191,233,255,.4)'; ctx.fillRect(-20, -100, 40, 100); }
   for (const s2 of m.stuck) { ctx.save(); ctx.translate(s2.x, s2.y); ctx.rotate(s2.ang); drawArrowShape(22); ctx.restore(); }
   ctx.restore();
-  if (!m.dead && m.hp < m.max) {
+  if (!m.dead && m.hp < m.max && !m.horde) {
     const w = 34 * Math.max(.7, m.s), bx = x - w / 2, by = SY(-108 * m.s) - 4;
     ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(bx, by, w, 4);
     ctx.fillStyle = '#ff5a4e'; ctx.fillRect(bx, by, w * m.hp / m.max, 4);
@@ -2218,12 +2715,13 @@ function pickTarget(E) {
   return ps[ps.length - 1];
 }
 function playerFire(P, aim, pow) {
-  if (!running || !st || st.shop || !inPlay(P) || P.reload > 0 || !(pow > .1)) return;
+  if (!running || !st || st.shop || !inPlay(P) || P.reload > 0 || !(pow > .1) || (st.horde && st.horde.over)) return;
   aim = clamp(aim, -Math.PI, Math.PI); pow = clamp(pow, 0, 1);
   P.aim = aim; P.f = Math.cos(aim) < 0 ? -1 : 1;
   const pk = P.power ? P.power.k : null, pk2 = P.power ? P.power.k2 || null : null, n0 = st.arrows.length;
   fire(P, aim, 300 + pow * 1100, pk, pk2);
   mateShot(P, aim, 300 + pow * 1100, pk, pk2);
+  if (catArmed(P)) catLaunch(n0);
   if ((pk === 'cluster' || pk2 === 'cluster') && (P.splitHints = (P.splitHints || 0) + 1) <= 3) text(feet(P).x, feet(P).y - 150, 'TAP THE SCREEN TO SPLIT IT', '#ffb3f0', 14, 1.6);
   const vol = { alive: st.arrows.length - n0, hits: 0, by: P };
   for (let q = n0; q < st.arrows.length; q++) st.arrows[q].vol = vol;
@@ -3102,9 +3600,16 @@ function update(rdt) {
         const n0 = st.arrows.length;
         fire(Hh, A.ang, A.v, Hh.kind === 'mage' ? 'fire' : null);
         for (let q = n0; q < st.arrows.length; q++) { if (Hh.kind === 'mage') st.arrows[q].magic = true; st.arrows[q].dmgMul = .8; }
-        Hh.pow = 0; Hh.aiAim = null; Hh.aiT = (Hh.mini ? rand(1.1, 1.5) : rand(2.8, 3.8)) * (Hh.kind === 'crossbow' ? 1.2 : 1);
+        Hh.pow = 0; Hh.aiAim = null; Hh.aiT = Hh.wall ? rand(1.2, 1.9) : (Hh.mini ? rand(1.1, 1.5) : rand(2.8, 3.8)) * (Hh.kind === 'crossbow' ? 1.2 : 1);
       }
     } else if ((Hh.aiT -= dt) <= 0) {
+      if (Hh.wall && st.horde) {
+        const T = hordeTarget(Hh);
+        if (!T) { Hh.aiT = .6; continue; }
+        const sol = solve(Hh, T.x, T.y), e = (sol.e + gauss() * 1.6) * Math.PI / 180;
+        Hh.f = 1; Hh.aiAim = { ang: -e, v: sol.v + gauss() * 18, t: 0, dur: .45, from: Hh.aim };
+        continue;
+      }
       const tgts = st.enemies.filter(e => !e.dead && e.rise <= 0);
       if (!tgts.length) { Hh.aiT = 1; continue; }
       const T = tgts[Math.floor(Math.random() * tgts.length)], tf = feet(T);
@@ -3122,7 +3627,8 @@ function update(rdt) {
   acidStep(dt);
   confStep(dt);
   updateWeather(dt);
-  if (st.nextT <= 0 && st.overT <= 0 && anyAlive && st.enemies.every(e => e.dead)) clearLevel();
+  if (!st.horde && st.nextT <= 0 && st.overT <= 0 && anyAlive && st.enemies.every(e => e.dead)) clearLevel();
+  if (st.horde) { updateMarchers(dt); hordeStep(dt, rdt); }
   // gadgets ease towards their targets
   for (const g of st.gadgets) {
     const k = Math.min(1, rdt * 6);
@@ -3192,7 +3698,7 @@ function update(rdt) {
         if (ar.done) break;
         for (const E of st.enemies) { if (ar.hit && ar.hit.has(E)) continue; const z = zone(E, ar.x, ar.y); if (z) { onHit(ar, E, z); break; } }
         // friendly fire: a player's arrow hurts teammates (never the one who shot it)
-        if (!ar.done && !ar.owner.helper) for (const p of st.players) {
+        if (!ar.done && !ar.owner.helper && !st.horde) for (const p of st.players) {
           if (p === ar.owner || !inPlay(p) || (ar.hit && ar.hit.has(p))) continue;
           const z = zone(p, ar.x, ar.y); if (z) { onHit(ar, p, z); break; }
         }
@@ -3245,7 +3751,7 @@ function update(rdt) {
       }
       if (!ar.done && ar.y >= 0) {
         ar.done = true;
-        st.pinned.push({ x: ar.x, y: -2, ang: Math.atan2(ar.vy, ar.vx), col: ar.col });
+        if (!ar.rock) st.pinned.push({ x: ar.x, y: -2, ang: Math.atan2(ar.vy, ar.vx), col: ar.col });
         for (let q = 0; q < 6; q++) st.parts.push({ x: ar.x, y: -2, vx: rand(-80, 80), vy: rand(-140, -30), life: .4, max: .4, r: 2, col: '#6a5470' });
         impactFX(ar, ar.x, -2, false);
         if (hasPk(ar, 'boom')) blast(ar.x, ar.y, ar.owner, riderOf(ar, 'boom')); else sfx('thud');
@@ -3260,6 +3766,7 @@ function update(rdt) {
     if (p.shrink <= 0 && !p.dead) text(feet(p).x, feet(p).y - 130, 'FULL SIZE', '#b6ff5c', 12, .8);
   }
   for (const a of st.arrows) if (a.done && a.tpE) { const id = a.tpE; a.tpE = null; teleportTo(id, a.x, Math.min(a.y, 0)); }
+  for (const a of st.arrows) if (a.done && a.rock && !a.rockBoom) { a.rockBoom = true; catBoom(a); }
   st.arrows = st.arrows.filter(a => !a.done);
 
   for (const a of [...st.players, ...st.helpers, ...st.enemies]) {
@@ -3355,11 +3862,15 @@ const SKY_PALS = [
   { name: 'dawn', sky: ['#2b3a6e', '#6e6fae', '#c98fb5', '#f7b6a8', '#ffe3c2'], sunY: .7, sun: '#fff6e0', g1: '#fff0dc', g2: '#ffd6c8', g3: '#f0b4c0', ray: '#ffe6dc', cl1: '#ffe6f0', cl2: '#e6b4d2', lay: [['#a99ac4', '#8a7aa8'], ['#7c6a9e', '#5e4f80'], ['#4c3f6c', '#322850']], tree: '#2a2244', haze: '#ffd2dc', ember: '#fff0dc', stars: .45, sunA: 1 },
   { name: 'day', sky: ['#3d6fbe', '#6a9ce0', '#9cc4ee', '#cfe2f2', '#f3ecd6'], sunY: .2, sun: '#fffbea', g1: '#fffaf0', g2: '#fff4d6', g3: '#ffeac0', ray: '#fffae6', cl1: '#ffffff', cl2: '#dce8f8', lay: [['#93abcc', '#7690b4'], ['#6e84a8', '#57698c'], ['#4e5878', '#363d5a']], tree: '#2a2c44', haze: '#eef2ff', ember: '#ffffff', stars: 0, sunA: .9 },
 ].map(p => { const o = { name: p.name }; for (const k in p) if (k !== 'name') o[k] = typeof p[k] === 'string' ? hexC(p[k]) : Array.isArray(p[k]) ? p[k].map(v => Array.isArray(v) ? v.map(hexC) : hexC(v)) : p[k]; return o; });
+// the horde's open green fields (not in the level rotation)
+const FIELD_PAL = [{ name: 'fields', sky: ['#3f7fd6', '#6aa6ea', '#a0cdf2', '#d2ebf6', '#eef6dc'], sunY: .18, sun: '#fffbea', g1: '#fffaf0', g2: '#fff4d6', g3: '#ffeac0', ray: '#fffae6', cl1: '#ffffff', cl2: '#e4f0fa',
+  lay: [['#a6d09a', '#8cbc84'], ['#78b562', '#62a050'], ['#56963f', '#447f32']], tree: '#2f5e28', haze: '#f2fbe8', ember: '#ffffff', stars: 0, sunA: .9 }]
+  .map(p => { const o = { name: p.name }; for (const k in p) if (k !== 'name') o[k] = typeof p[k] === 'string' ? hexC(p[k]) : Array.isArray(p[k]) ? p[k].map(v => Array.isArray(v) ? v.map(hexC) : hexC(v)) : p[k]; return o; })[0];
 const mixV = (a, b, u) => typeof a === 'number' ? a + (b - a) * u : a.map((v, i) => mixV(v, b[i], u));
 const rgba = (c, al = 1) => `rgba(${Math.round(c[0])},${Math.round(c[1])},${Math.round(c[2])},${al})`;
 const SKY = { lv: null, from: null, to: null, t0: 0 };
 function skyPal() {
-  const lv = st ? st.level : 1, to = SKY_PALS[(Math.max(1, lv) - 1) % SKY_PALS.length], now = performance.now();
+  const hz = !!(st && st.horde), lv = hz ? 'horde' : st ? st.level : 1, to = hz ? FIELD_PAL : SKY_PALS[(Math.max(1, lv) - 1) % SKY_PALS.length], now = performance.now();
   if (SKY.lv === null) { SKY.lv = lv; SKY.from = SKY.to = to; }
   if (lv !== SKY.lv) { SKY.from = skyNow(now); SKY.to = to; SKY.t0 = now; SKY.lv = lv; }
   return skyNow(now);
@@ -3437,9 +3948,10 @@ function drawBG() {
   // ground with grass tufts
   const gy = H - GROUND + camY;
   const gg = ctx.createLinearGradient(0, gy, 0, H);
-  gg.addColorStop(0, '#3a2a48'); gg.addColorStop(1, '#1c1424');
+  const grass = !!(st && st.horde);
+  gg.addColorStop(0, grass ? '#5fa33f' : '#3a2a48'); gg.addColorStop(1, grass ? '#3a6e26' : '#1c1424');
   ctx.fillStyle = gg; ctx.fillRect(0, gy, W, H - gy);
-  ctx.strokeStyle = '#2a1e38'; ctx.lineWidth = 1.6;
+  ctx.strokeStyle = grass ? '#4a8f30' : '#2a1e38'; ctx.lineWidth = 1.6;
   const gs = 9 * sc, startG = Math.floor(camX / 9);
   for (let k = startG; k < startG + W / gs + 2; k++) {
     if (hash(k * 1.7) < .35) continue;
@@ -3513,21 +4025,22 @@ function drawShip(a) {
 function drawPillarRaw(a, isTop) {
   const x = SX(a.x - a.pw / 2), y = SY(-a.h + (a.isP || !a.rise ? 0 : a.dy)), w = a.pw * sc;
   if (x > W + 30 || x + w < -30) return;
+  const BOT = st && st.horde ? SY(0) + 3 : H;   // horde: the ground is lifted, so the tower stops at the grass
   // stone body
   const g = ctx.createLinearGradient(x, 0, x + w, 0);
   g.addColorStop(0, '#f6e6c8'); g.addColorStop(.55, '#dcc29a'); g.addColorStop(1, '#a88c6a');
-  ctx.fillStyle = g; ctx.fillRect(x, y, w, H - y + 4);
+  ctx.fillStyle = g; ctx.fillRect(x, y, w, BOT - y + 4);
   // block courses
   ctx.strokeStyle = 'rgba(90,60,40,.28)'; ctx.lineWidth = 1.2;
   const bh = 26 * sc;
-  for (let k = 0, yy = y + 10 * sc; yy < H; k++, yy += bh) {
+  for (let k = 0, yy = y + 10 * sc; yy < BOT; k++, yy += bh) {
     ctx.beginPath(); ctx.moveTo(x, yy); ctx.lineTo(x + w, yy); ctx.stroke();
     const off = (k % 2 ? .33 : .66) * w;
     ctx.beginPath(); ctx.moveTo(x + off, yy); ctx.lineTo(x + off, yy + bh); ctx.stroke();
   }
   // sun-side highlight & shade side
-  ctx.fillStyle = 'rgba(255,220,170,.25)'; ctx.fillRect(x + w - 4 * sc, y, 3 * sc, H - y);
-  ctx.fillStyle = 'rgba(60,30,40,.18)'; ctx.fillRect(x, y, 5 * sc, H - y);
+  ctx.fillStyle = 'rgba(255,220,170,.25)'; ctx.fillRect(x + w - 4 * sc, y, 3 * sc, BOT - y);
+  ctx.fillStyle = 'rgba(60,30,40,.18)'; ctx.fillRect(x, y, 5 * sc, BOT - y);
   // cap ledge
   ctx.fillStyle = '#c9ad84'; ctx.fillRect(x - 4 * sc, y, w + 8 * sc, 9 * sc);
   ctx.fillStyle = '#fff1d6'; ctx.fillRect(x - 4 * sc, y, w + 8 * sc, 2.5 * sc);
@@ -3820,7 +4333,7 @@ function drawGadget(g) {
     return;
   }
   if (g.type === 'crate') {
-    const pw = POWERS[g.pk], by = y + Math.sin(st.t * 2 + g.bob) * 6 * sc, r = 15 * sc;
+    const pw = g.recruit ? { col: '#7dff9a', short: '+ARCHER' } : g.piece ? { col: '#ffb347', short: CAT_NAMES[g.piece] } : POWERS[g.pk], by = y + Math.sin(st.t * 2 + g.bob) * 6 * sc, r = 15 * sc;
     ctx.fillStyle = pw.col + '33'; ctx.beginPath(); ctx.arc(x, by, r * 1.9, 0, 6.283); ctx.fill();
     ctx.fillStyle = '#a8743f'; ctx.fillRect(x - r, by - r, r * 2, r * 2);
     ctx.strokeStyle = '#5e3c1c'; ctx.lineWidth = 2.5 * sc; ctx.strokeRect(x - r + 3 * sc, by - r + 3 * sc, r * 2 - 6 * sc, r * 2 - 6 * sc);
@@ -3947,10 +4460,11 @@ function drawPreview() {
   if (!drag || P.pow < .05 || P.dead) return;
   if (inSteam(P)) return;
   const s = shoulder(P), v = (300 + P.pow * 1100) * sizeOf(P);
-  let x = s.x + Math.cos(P.aim) * 24, y = s.y + Math.sin(P.aim) * 24, vx = Math.cos(P.aim) * v, vy = Math.sin(P.aim) * v;
+  const cp = catArmed(P) ? catPt() : null;
+  let x = cp ? cp.x : s.x + Math.cos(P.aim) * 24, y = cp ? cp.y : s.y + Math.sin(P.aim) * 24, vx = Math.cos(P.aim) * v, vy = Math.sin(P.aim) * v;
   const dt = 1 / 60;
-  ctx.fillStyle = P.reload > 0 ? 'rgba(20,20,20,.3)' : 'rgba(255,255,255,.85)';
-  const scope = P.power && (P.power.k === 'scope' || P.power.k2 === 'scope'), N = scope ? 160 : P.up.longAim ? 55 : 22;
+  ctx.fillStyle = P.reload > 0 ? 'rgba(20,20,20,.3)' : cp ? 'rgba(255,179,71,.95)' : 'rgba(255,255,255,.85)';
+  const scope = P.power && (P.power.k === 'scope' || P.power.k2 === 'scope'), N = scope ? 160 : cp ? 45 : P.up && P.up.longAim ? 55 : 22;
   for (let i = 0; i < N; i++) {
     for (let k = 0; k < 2; k++) { vx += st.wind * dt; vy += G * dt; x += vx * dt; y += vy * dt; }
     if (y > 0) break;
@@ -3975,7 +4489,7 @@ function drawReloadRing() {
 }
 const insetW = () => Math.min(170, W * .26);
 function drawInset() {
-  if (!st || !running) return;
+  if (!st || !running || st.horde) return;
   const away = !spectating() && Math.abs(camX - homeCam()) > 80;
   CAM.insetA = (CAM.insetA || 0) + ((away ? 1 : 0) - (CAM.insetA || 0)) * .2;
   if (CAM.insetA < .03) return;
@@ -4060,7 +4574,7 @@ function drawHUD() {
   // enemy list
   const rx = W - 18 - 52;
   ctx.textAlign = 'right'; ctx.font = '700 12px Silkscreen, monospace'; ctx.fillStyle = '#f6eedf';
-  ctx.fillText('LEVEL ' + st.level + '  ·  ' + alive().length + '/' + st.enemies.length + ' LEFT', rx, 12);
+  ctx.fillText(st.horde ? 'BONUS · HORDE' : 'LEVEL ' + st.level + '  ·  ' + alive().length + '/' + st.enemies.length + ' LEFT', rx, 12);
   st.enemies.forEach((E, i) => {
     const y = 32 + i * 13, ef = clamp(E.hp / E.max, 0, 1);
     ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(rx - 90, y, 90, 6);
@@ -4135,9 +4649,10 @@ function draw() {
   const shx = st.shake > .3 ? rand(-st.shake, st.shake) : 0, shy = st.shake > .3 ? rand(-st.shake, st.shake) : 0;
   ctx.translate(shx, shy);
   for (const g of st.gadgets) { if (g.appearT > 0) ctx.globalAlpha = Math.max(.05, 1 - g.appearT / .6); drawGadget(g); ctx.globalAlpha = 1; }
-  for (const h of st.helpers) drawPillar(h);
+  for (const h of st.helpers) if (!h.wall) drawPillar(h);
   for (const p of st.players) if (p.inLevel) drawPillar(p);
   for (const e of st.enemies) drawPillar(e);
+  if (st.horde) { drawHordeCastles(); drawCatapult(); }
   for (const p of st.pinned) {
     if (p.g) { if (p.g.gone) continue; if (p.ox === undefined) { p.ox = p.x - p.g.x; p.oy = p.y - p.g.y; } p.x = p.g.x + p.ox; p.y = p.g.y + p.oy; }
     ctx.save(); ctx.translate(SX(p.x), SY(p.y)); ctx.scale(sc, sc); ctx.rotate(p.ang); drawArrowShape(26, p.col); ctx.restore();
@@ -4146,10 +4661,12 @@ function draw() {
   for (const p of st.players) if (p.inLevel) drawArcher(p);
   for (const e of st.enemies) drawArcher(e);
   drawBossFX();
-  for (const m of st.marchers) drawMarcher(m);
+  for (const m of st.horde ? [...st.marchers].sort((a, b) => (b.y || 0) - (a.y || 0)) : st.marchers) drawMarcher(m);
+  if (st.horde) for (const R of st.horde.rams || []) drawRam(R);
   for (const a of st.allies) drawMarcher(a);
   trackTrails(); drawTrails();
   for (const ar of st.arrows) {
+    if (ar.rock) { drawRock(ar); continue; }
     const hk = holeK(ar);
     ctx.save(); ctx.translate(SX(ar.x), SY(ar.y)); ctx.scale(sc * hk, sc * hk); ctx.rotate(Math.atan2(ar.vy, ar.vx));
     const tg = ctx.createLinearGradient(-36, 0, -110, 0);
@@ -4236,7 +4753,7 @@ function draw() {
   }
   drawPreview();
   for (const e of st.enemies) drawHPBar(e);
-  for (const h of st.helpers) drawHPBar(h);
+  for (const h of st.helpers) if (!h.wall) drawHPBar(h);
   for (const p of st.players) if (p !== st.P) drawHPBar(p);
   if (running) drawReloadRing();
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -4255,6 +4772,7 @@ function draw() {
   if (st.flashA > 0) { ctx.fillStyle = `rgba(${st.flashC},${st.flashA.toFixed(3)})`; ctx.fillRect(0, 0, W, H); }
   drawInset();
   if (running) drawHUD();
+  if (running && st.horde) drawHordeHUD();
   drawQuiver();
   const mp = running && myPlace(); if (mp) drawPlaceBox(mp, mp.placeT || 0, false);
   drawZoomNote();
@@ -4436,6 +4954,7 @@ function setReady(P) {
 }
 function nextLevel() {
   st.shop = false; show('shopScreen', false);
+  if (st.level % 5 === 0 && st.hordeLv !== st.level) { startHorde(); return; }
   st.helpers = st.helpers.filter(h => !h.dead && !h.clone);
   st.level++; spawnLevel(false);
   CAM.hold = 0; CAM.focus = null; camX = homeCam();
@@ -4528,6 +5047,9 @@ function frame(ts) {
   if (st) { const away = running && !spectating() && Math.abs(camX - homeCam()) > 60 && !CAM.home; if ($('homeBtn').hidden === away) $('homeBtn').hidden = !away; }
   const portrait = running && H > W && !forcePortrait;
   if ($('rotateScreen').hidden === portrait) show('rotateScreen', portrait);
+  { const Hz = st && st.horde, C = Hz && Hz.cat, cOn = !!(C && running && !paused && !Hz.over && inPlay(st.P)); if ($('catBtn').hidden === cOn) $('catBtn').hidden = !cOn;
+    if (cOn) { const mine = catArmed(st.P), other = C.armed && !mine, lb = mine ? '🪨 AIM & SHOOT' : C.reload > 0 ? '🪨 RELOAD ' + Math.ceil(C.reload) : other ? '🪨 TAKE CATAPULT' : '🪨 CATAPULT'; if ($('catBtn').textContent !== lb) $('catBtn').textContent = lb;
+      $('catBtn').classList.toggle('on', mine); $('catBtn').classList.toggle('wait', C.reload > 0); $('catBtn').classList.toggle('ready', !C.armed && C.reload <= 0); } }
   if (running && st) {
     if (isHost()) { if (!st.shop && !st.clockOpen) update(dt); }
     else guestTick(dt);
@@ -4635,7 +5157,7 @@ const ZMIN = .5, ZMAX = 1.8, fingers = new Map();
 let pinch = null, pinchLock = false, zoomShowT = 0;
 function setZoom(z, cx) {
   z = clamp(z, ZMIN, ZMAX); if (Math.abs(z - zoom) < .001) return;
-  const wx = camX + cx / sc; zoom = z; sc = scBase * zoom; camX = wx - cx / sc; zoomShowT = performance.now();
+  const wx = camX + cx / sc; zoom = z; sc = scBase * zoom * viewK(); camX = wx - cx / sc; zoomShowT = performance.now();
   try { localStorage.setItem('stickZoom', zoom.toFixed(2)); } catch (e) {}
 }
 const twoFingers = () => [...fingers.values()].slice(0, 2);
@@ -4671,6 +5193,7 @@ document.addEventListener('gesturestart', e => e.preventDefault());
 // zoomed in: slide the view up so your archer stays on screen (never shows below the ground)
 function camYTarget() {
   if (!st) return 0;
+  if (st.horde) return -Math.min(80, H * .2);   // horde: lift the ground above the arrow buttons so the soldiers show
   const P = st.P, yF = P && !P.dead && P.inLevel !== false ? -(P.h + 95) : -230;
   return Math.max(0, H * .3 - (H - GROUND + yF * sc));
 }
@@ -4982,6 +5505,7 @@ function onGuestMsg(c, raw) {
   else if (m.t === 'split') { if (inPlay(P)) splitFor(P); }
   else if (m.t === 'place') { if (inPlay(P)) doPlace(P, m.x, m.y); }
   else if (m.t === 'link') toggleLink(P);
+  else if (m.t === 'cat') { if (st.horde) catToggle(P); }
   else if (m.t === 'ready') setReady(P);
   else if (m.t === 'clock') { if (st.clockOpen && st.clockBy === P.id) setTime(num(m.v) || 1); }
 }
@@ -5104,6 +5628,7 @@ function applySnap(m) {
   st.arrows = (m.ar || []).map(a => Object.assign(a, { owner: NET.objs.get(a.o) || { isP: false }, bx: a.x, by: a.y, bvx: a.vx, bvy: a.vy }));
   st.tornados = m.tn || []; st.holes = m.bh || []; st.fires = m.fi || []; st.rocks = m.rk || []; st.steams = m.sm || [];
   st.boulders = (m.bo || []).map(R => Object.assign(R, { bx: R.x, by: R.y, bvx: R.vx, bvy: R.vy }));
+  applyHorde(m);
   for (const e of st.enemies) if (e.flyer) { e.gx = e.x; e.gh = e.h; }
   const fx = m.fx || {};
   for (const p of fx.p || []) if (st.parts.length < 900) st.parts.push({ x: p[0], y: p[1], vx: p[2], vy: p[3], life: p[4], max: p[5], r: p[6], col: p[7], kind: p[8] || undefined });
@@ -5145,7 +5670,7 @@ function guestTick(rdt) {
   ageFX(rdt, dt);
 }
 // host: send a picture of the game about 15 times a second
-const SKIP_A = new Set(['swallow', 'tgt', 'lastBy', 'owner', 'offers', 'aiShots', 'aiT', 'vol', 'hit', 'via', 'shopBuys', 'shopSold', 'pingT', 'vr', 'vx', 'vy']);
+const SKIP_A = new Set(['home', 'swallow', 'tgt', 'lastBy', 'owner', 'offers', 'aiShots', 'aiT', 'vol', 'hit', 'via', 'shopBuys', 'shopSold', 'pingT', 'vr', 'vx', 'vy']);
 const SKIP_G = new Set(['cutBy', 'rainBy']);
 const isRef = v => v && typeof v === 'object' && !Array.isArray(v) && (v.stuck || v.type || v.pid || v instanceof Set);
 function pack(o, skip) {
@@ -5175,10 +5700,11 @@ function netTick(rdt) {
   m.pl = st.players.map(packA); m.en = st.enemies.map(packA); m.hp = st.helpers.map(packA);
   m.gd = st.gadgets.map(g => pack(g, SKIP_G));
   m.pin = st.pinned.map(p => ({ x: p.x, y: p.y, ang: p.ang, col: p.col, gid: p.g ? p.g.id : 0 }));
-  m.ar = st.arrows.filter(a => !a.done).map(a => ({ tid: a.tid || (a.owner && a.owner.isP && !a.owner.helper ? (a.tid = ++uid) : 0), x: a.x, y: a.y, vx: a.vx, vy: a.vy, o: a.owner ? a.owner.id : 0, col: a.col, pk: a.pk, pk2: a.pk2, split: a.split, magic: a.magic, tm: a.tm, el: a.el }));
+  m.ar = st.arrows.filter(a => !a.done).map(a => ({ tid: a.tid || (a.owner && a.owner.isP && !a.owner.helper ? (a.tid = ++uid) : 0), x: a.x, y: a.y, vx: a.vx, vy: a.vy, o: a.owner ? a.owner.id : 0, col: a.col, pk: a.pk, pk2: a.pk2, split: a.split, magic: a.magic, tm: a.tm, el: a.el, rock: a.rock || undefined }));
+  m.hz = packHorde(); if (m.hz) m.mz = packMarchers();
   m.bo = (st.boulders || []).map(R => ({ x: R.x, y: R.y, vx: R.vx, vy: R.vy, r: R.r, spin: R.spin }));
   m.rk = (st.rocks || []).map(R => ({ x: R.x, y: R.y, vx: R.vx, vy: R.vy, r: R.r, spin: R.spin, k: R.k || null }));
-  m.tn = st.tornados.map(T => pack(T, new Set(['hitG', 'by', 'hitE', 'hit2'])));
+  m.tn = st.tornados.map(T => pack(T, new Set(['hitG', 'by', 'hitE', 'hit2', 'hitM'])));
   m.bh = st.holes.map(B => pack(B, new Set(['by', 'hitE', 'tw'])));
   m.fi = st.fires.map(f => ({ x: f.x, y: f.y, life: f.life }));
   m.sm = (st.steams || []).map(S => ({ x: S.x, y: S.y, life: S.life, r: S.r }));
@@ -5209,6 +5735,9 @@ function wakeAudio() {
   if (!AC) { try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { AC = null; } }
   if (AC && AC.resume) AC.resume().catch(() => {});
 }
+function catTap() { if (!st || !st.horde || !st.horde.cat) return; if (isHost()) catToggle(st.P); else { sendHost({ t: 'cat' }); sfx('click', true); } }
+$('catBtn').onclick = catTap;
+addEventListener('keydown', e => { if (e.target && e.target.tagName === 'INPUT') return; if (running && st && st.horde && (e.key === 'b' || e.key === 'B')) catTap(); });
 function setMenu(p) { if (!running) return; paused = p; show('pauseScreen', p); }
 $('hostBtn').onclick = hostGame;
 $('joinOpen').onclick = () => { myName(); lobbyView('join'); lobbyStatus('Ask the host for the 4-letter code.'); setTimeout(() => $('codeIn').focus(), 50); };
