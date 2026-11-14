@@ -3822,7 +3822,7 @@ function update(rdt) {
   for (const a of st.arrows) if (a.owner === P && (!lead || a.x > lead.x)) lead = a;
   let target = home, speed = 3;
   if (st.lookT > 0 && !st.camHome) { st.lookT -= rdt; target = Math.max(home, st.lookX - viewW * .5); speed = 6; }
-  else if (st.camHome) { target = aimLook(P, viewW, home); speed = drag && P.pow > .05 ? 7 : 14; st.camHold = 0; st.camFocus = null; }
+  else if (st.camHome) { target = home; speed = 14; /* camera stays still while you pull: aimLook pan taken out 2026-11-14 */ st.camHold = 0; st.camFocus = null; }
   else if (lead) { target = Math.max(home, lead.x - viewW * .5); st.camLast = target; st.camHold = 1.1; speed = 10; }
   else if (st.camFocus && st.camHold > 0) { st.camHold -= rdt; target = Math.max(home, feet(st.camFocus).x - viewW * .55); speed = 4; }
   else if (st.camHold > 0 && !drag) { st.camHold -= rdt; target = st.camLast; speed = 6; }

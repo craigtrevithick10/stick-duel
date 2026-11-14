@@ -3998,7 +3998,7 @@ function updateCam(rdt) {
   let target = home, speed = 3;
   const fwd = x => right ? Math.max(home, x) : Math.min(home, x);
   if (CAM.lookT > 0 && !CAM.home) { CAM.lookT -= rdt; target = CAM.lookX - viewW * .5; speed = 6; }
-  else if (CAM.home) { target = aimLook(P, viewW, home); speed = drag && P.pow > .05 ? 7 : 14; CAM.hold = 0; CAM.focus = null; }
+  else if (CAM.home) { target = home; speed = 14; /* camera stays still while you pull: aimLook pan taken out 2026-11-14 */ CAM.hold = 0; CAM.focus = null; }
   else if (lead) { target = fwd(lead.x - viewW * .5); CAM.last = target; CAM.hold = 1.1; speed = 10; }
   else if (CAM.focus && CAM.hold > 0) { CAM.hold -= rdt; target = fwd(feet(CAM.focus).x - viewW * .5); speed = 4; }
   else if (CAM.hold > 0 && !drag) { CAM.hold -= rdt; target = CAM.last; speed = 6; }
