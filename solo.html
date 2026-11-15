@@ -100,9 +100,16 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 #rackHint{color:#7dffe8;min-height:1.2em}
 #forgeScreen .shopgrid{max-height:calc(100vh - 262px);max-height:calc(100dvh - 262px);overflow-y:auto}
 #keepScreen .knew{outline:2px dashed #ffd27a;outline-offset:2px}#keepScreen .shopgrid{max-height:calc(100dvh - 150px);overflow-y:auto}
-#forgeScreen .gcbig .txt{display:flex;flex-direction:row;flex-wrap:wrap;gap:0 10px;align-items:baseline}#forgeScreen .gcbig .txt>*{display:inline}#forgeScreen .gcbig .txt span{margin:0}
-@media (max-height:520px){#forgeScreen{padding-top:6px;padding-bottom:6px}#forgeScreen .panel{gap:3px!important}#forgeScreen .title{font-size:22px!important}#forgeScreen .btn{padding:7px 18px!important;font-size:14px!important}#forgeScreen .shopgrid{max-height:calc(100vh - 218px);max-height:calc(100dvh - 218px)}#forgeScreen .item{padding:4px 8px}#forgeScreen .item .ico{font-size:20px}}
-#forgeScreen .gcbig{grid-column:1/-1;border:2px solid #ffc83a;background:rgba(255,200,58,.2);animation:qnew .45s ease-in-out infinite alternate}#forgeScreen .gcbig b{color:#ffc83a}#forgeScreen .gcbig.sel{background:#ffc83a;animation:none}#forgeScreen .gcbig.sel b,#forgeScreen .gcbig.sel span{color:#1a1020}
+#forgeScreen .shopgrid{max-height:calc(100vh - 226px);max-height:calc(100dvh - 226px)}
+#forgeScreen .gchead{grid-column:1/-1;font:700 11px var(--pixel);color:#ffc83a;letter-spacing:.06em;text-align:left;margin:6px 2px 0}#forgeScreen .gchead.pw{color:#c9bfae}
+#forgeScreen .gccard{border:2px solid rgba(255,200,58,.5);background:rgba(40,30,10,.7);min-height:54px}#forgeScreen .gccard b{color:#ffc83a}#forgeScreen .gccard .ico{font-size:26px}
+#forgeScreen .gccard .why{font-style:normal;color:#ff9a7a}
+#forgeScreen .gccard.ready{grid-column:1/-1;min-height:58px;border-color:#ffc83a;background:rgba(255,200,58,.22);animation:qnew .45s ease-in-out infinite alternate}
+#forgeScreen .gccard.ready .txt{display:flex;flex-direction:row;flex-wrap:wrap;gap:0 12px;align-items:baseline}#forgeScreen .gccard.ready .txt>*{display:inline}#forgeScreen .gccard.ready b{font-size:16px}
+#forgeScreen .gccard.sel{background:#ffc83a;animation:none}#forgeScreen .gccard.sel b,#forgeScreen .gccard.sel span{color:#1a1020}
+#forgeScreen .gccard[disabled]{opacity:.55;cursor:default}#forgeScreen .gccard:not(.ready) .txt span{font-size:11px;line-height:1.25}#forgeScreen .gccard:not(.ready) .ico{font-size:20px}#forgeScreen .gccard.unk{opacity:.35;border-style:dashed}
+#forgeHint.gold{color:#ffc83a;font-weight:700}
+@media (max-height:520px){#forgeScreen{padding-top:6px;padding-bottom:6px}#forgeScreen .panel{gap:3px!important}#forgeScreen .title{font-size:22px!important}#forgeScreen .btn{padding:7px 18px!important;font-size:14px!important}#forgeScreen .shopgrid{max-height:calc(100vh - 180px);max-height:calc(100dvh - 180px)}#forgeScreen .item{padding:4px 8px}#forgeScreen .item .ico{font-size:20px}}
 #forgeScreen .item{padding:6px 10px}#forgeScreen .item .ico{font-size:24px;width:30px}
 #quiver button.mega{border-color:#ffb347!important;box-shadow:0 0 10px rgba(255,179,71,.55),inset 0 0 0 1px rgba(255,210,122,.6)}
 #quiver button.mega small{color:#ffd27a}
@@ -7011,6 +7018,15 @@ const gcReady = v => Object.keys(GC).filter(id => gcState(v, id).ok);
 // tapping a power in the grid: is there a ready Game Changer that adds exactly that power?
 const gcForAdd = (v, k) => v && gcReady(v).find(id => !GC[id].pair && GC[id].add === k) || null;
 const gcPrice = (v, cost) => v.bank >= cost ? cost + ' POINTS' : 'NEED ' + cost + ' POINTS (YOU HAVE ' + v.bank + ')';
+// one GAME CHANGER card in the forge (Craig 2026-11-15: make them easy to see and pick)
+function gcCard(v, id, sel) {
+  const Gc = GC[id], s = gcState(v, id), c = COMBOS[Gc.base], have = v.list.some(u => u.gc === id), recipe = '★' + c[0] + ' + ' + gcAddName(Gc);
+  if (!s.known) return `<button type="button" class="item gccard unk" disabled><i class="ico">❔</i><span class="txt"><b>???</b><span>${recipe}</span></span></button>`;
+  const ok = s.ok && !v.done, on = sel === id;
+  return `<button type="button" class="item gccard${ok ? ' ready' : ''}${on ? ' sel' : ''}" data-gcb="${id}"${ok ? '' : ' disabled'}><i class="ico">${Gc.icon}</i><span class="txt"><b>${on ? '✓ ' : ''}${Gc.name}${have ? ' ✓' : ''}</b><span>${recipe}${ok && !s.fromMade ? ' (QUIVER)' : ''}</span>`
+    + `<span class="cost">${ok ? gcPrice(v, s.cost) + (on ? ' · NOW TAP FORGE' : ' · TAP TO CHOOSE') : '<em class="why">' + s.why + '</em>'}</span></span></button>`;
+}
+let gcReadySig = '';
 function gcListHTML(v, sel) {
   let h = '<div class="gch">GAME CHANGERS · ONE PER VISIT</div>';
   const ids = Object.keys(GC), rank = id => { const s = gcState(v, id); return s.ok ? 0 : s.known ? 1 : 2; };
@@ -7025,36 +7041,40 @@ function gcListHTML(v, sel) {
 // draw the forge from a view: { bank, list, today, uses, made, gcDone, carried, done, team }
 function forgeRender(v) {
   if (forgeGCSel && !gcState(v, forgeGCSel).ok) forgeGCSel = null;
-  const [a, b] = forgePick, G = forgeGCSel;
+  const [a, b] = forgePick, G = forgeGCSel, ready = !v.done && v.uses > 0 ? gcReady(v) : [];
   $('forgeBank').textContent = v.bank + ' POINTS  ·  FORGES LEFT: ' + v.uses + ' / 2';
   $('forgeToday').textContent = "TODAY'S FORGE: just these " + v.today.filter(k => FORGE_COST[k]).length + ' powers · new picks every horde' + (v.team ? ' · each player gets different ones' : '');
-  let hint;
+  let hint, gold = false;
   if (v.done) hint = 'Done. Waiting for the team…';
   else if (v.msg && !a && !G) hint = v.msg + (v.uses <= 0 ? '  ·  No forges left. On to the shop!' : '');
   else if (v.uses <= 0) hint = 'No forges left this visit. On to the shop!';
   else if (G) hint = GC[G].icon + ' ' + GC[G].name + ' (GAME CHANGER, 1 shot): ' + GC[G].desc + (gcState(v, G).fromMade && !GC[G].pair ? '' : '  ·  uses up your ★' + COMBOS[GC[G].base][0] + ' from your quiver') + (!GC[G].pair && fromQ(v, GC[G].add) ? '  ·  and your ' + POWERS[GC[G].add].short + ' arrows' : '');
+  else if (!a && ready.length) { hint = ready.map(id => GC[id].icon + ' ' + GC[id].name).join(' / ') + (ready.length > 1 ? ' are' : ' is') + ' ready: tap it below (or tap two powers for a POWERFUL arrow)'; gold = true; }
   else if (v.msg && !a) hint = v.msg;
   else if (!a) { const gcOk = Object.keys(GC).some(id => gcState(v, id).ok); hint = (v.uses === 2 ? 'Forge 1 of 2: tap two powers to make a POWERFUL arrow' : 'Forge 2 of 2: another POWERFUL arrow') + (gcOk ? ', or forge the GAME CHANGER ' + gcReady(v).map(id => GC[id].icon + ' ' + GC[id].name).join(' / ') + ' (gold button)' : ''); }
   else if (!b) hint = POWERS[a].short + ' + … tap a second power';
   else { const c = COMBOS[comboKey(a, b)]; hint = POWERS[a].short + ' + ' + POWERS[b].short + (c ? '  =  ★' + c[0] : '') + '  ·  ' + forgedShots(a, b) + ' shots per FORGED crate  ·  ' + pickCost(v, a, b) + ' points' + (fromQ(v, a) || fromQ(v, b) ? ' (your quiver arrow is used up)' : ''); }
-  $('forgeHint').textContent = hint;
+  $('forgeHint').textContent = hint; $('forgeHint').classList.toggle('gold', gold);
   let h = '';
-  if (!v.done && v.uses > 0 && !a) for (const id of gcReady(v)) {
-    const Gc = GC[id], gs = gcState(v, id), c = COMBOS[Gc.base];
-    h += `<button type="button" class="item gcbig${G === id ? ' sel' : ''}" data-gcb="${id}"><i class="ico">${Gc.icon}</i><span class="txt"><b>${G === id ? '✓ ' : ''}FORGE ${Gc.name} · GAME CHANGER</b><span>★${c[0]} + ${gcAddName(Gc)}${G === id ? ' · now tap FORGE below' : ' · tap to choose'}</span><span class="cost">${gcPrice(v, gs.cost)}</span></span></button>`;
-  }
+  const top = ready.length && !a, rank = id => { const q = gcState(v, id); return q.ok ? 0 : q.known ? 1 : 2; };
+  if (top) { h += '<div class="gchead">★ GAME CHANGER READY TO FORGE · ONE PER VISIT</div>'; for (const id of ready) h += gcCard(v, id, G); h += '<div class="gchead pw">OR TWO POWERS FOR A POWERFUL ARROW</div>'; }
   for (const k of [...v.today, ...(v.have || []).filter(k => !v.today.includes(k))]) {
     const P = POWERS[k], gAdd = !!G && !GC[G].pair && GC[G].add === k, on = forgePick.includes(k) || gAdd, gcOnly = !FORGE_COST[k], mine = fromQ(v, k), cant = v.done || v.uses <= 0 || (gcOnly && !gAdd) || (!!G && !gAdd) || (!on && forgePick.length >= 2);
     h += `<button type="button" class="item${on ? ' sel' : ''}" data-k="${k}"${cant ? ' disabled' : ''}><i class="ico">${ICON['pw_' + k] || ''}</i><span class="txt"><b style="color:${P.col}">${P.short}</b><span class="cost">${gcOnly ? 'GAME CHANGER ONLY' : mine ? 'YOUR QUIVER · FREE' : FORGE_COST[k]}</span></span></button>`;
   }
+  h += '<div class="gchead">' + (top ? 'ALL GAME CHANGERS' : '★ GAME CHANGERS · ONE PER VISIT') + '</div>';
+  for (const id of Object.keys(GC).sort((p, q) => rank(p) - rank(q))) if (!(top && ready.includes(id))) h += gcCard(v, id, G);
+  const keepY = $('forgeGrid').scrollTop;
   $('forgeGrid').innerHTML = h;
+  const rs = ready.join();   // a Game Changer just became ready: bring it into view
+  $('forgeGrid').scrollTop = rs && rs !== gcReadySig ? 0 : keepY; gcReadySig = rs;
   const cost = G ? gcState(v, G).cost : b ? pickCost(v, a, b) : 0, can = !v.done && v.uses > 0 && !!(G || b);
   $('forgeMake').disabled = !(can && v.bank >= cost);
   $('forgeMake').textContent = !can ? (v.uses <= 0 ? 'NO FORGES LEFT' : 'FORGE') : v.bank >= cost ? 'FORGE' + (G ? ' ' + GC[G].name : '') + ' · ' + cost : 'NEED ' + cost + ' POINTS (YOU HAVE ' + v.bank + ')';
   const nm = c => forgedName({ k: c.split('+')[0], k2: c.split('+')[1] });
   $('forgeMine').innerHTML = (v.carried.length ? 'IN YOUR QUIVER: ' + v.carried.map(c => { const g = Object.keys(GC).filter(id => GC[id].base === c && !GC[id].pair); return '<b style="color:' + TIER_COL[3] + '">★' + nm(c) + '</b>' + (g.length ? ' → ' + g.map(id => GC[id].icon + GC[id].name + ' (+' + gcAddName(GC[id]) + ')').join(' or ') : ' (no Game Changer uses it)'); }).join(' · ') + '<br>' : '')
     + (v.list.length ? (v.team ? 'TEAM FORGED ARROWS' : 'FORGED THIS RUN') + ' (turn up as crates): ' + v.list.map(q => '<b style="color:' + (q.gc ? GC_GOLD : POWERS[q.k].col) + '">' + powShort(q) + '</b>').join(' · ') : '');
-  $('gcList').innerHTML = gcListHTML(v, G); $('gcList').scrollLeft = 0;   // ready ones are at the start
+  $('gcList').innerHTML = ''; $('gcList').hidden = true;   // the old sideways strip: replaced by the cards in the grid
 }
 // make one forge for holder H (solo st, co-op player); returns { cost, gc | k, k2 } or null
 function forgeDo(H, v, pick, gcId, bank, by) {
