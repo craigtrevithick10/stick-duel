@@ -47,6 +47,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 #quiver{position:absolute;left:50%;transform:translateX(-50%);bottom:12px;display:flex;gap:6px}
 #quiver button{min-width:62px;padding:6px 8px 5px;border:2px solid rgba(246,238,223,.25);background:rgba(20,14,30,.62);color:var(--bone);font:700 11px var(--pixel);letter-spacing:.04em;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;line-height:1}
 #quiver button small{font:700 11px var(--pixel);color:var(--bone)}
+#quiver button.webbed{position:relative;filter:grayscale(.75) brightness(.8)}#quiver button.webbed::after{content:'';position:absolute;inset:0;pointer-events:none;background:repeating-linear-gradient(45deg,rgba(238,243,250,.4) 0 1.5px,transparent 1.5px 8px),repeating-linear-gradient(-45deg,rgba(238,243,250,.4) 0 1.5px,transparent 1.5px 8px)}
 #quiver button.isnew{animation:qnew .45s ease-in-out infinite alternate}@keyframes qnew{from{box-shadow:0 0 0 0 rgba(255,210,122,0)}to{box-shadow:0 0 12px 3px rgba(255,210,122,.95)}}#quiver .qnew{color:#ffd27a}
 #quiver button.on{border-color:var(--ember);background:rgba(242,166,90,.28);box-shadow:0 0 0 2px rgba(242,166,90,.35)}
 #quiver button.empty{opacity:.3;cursor:default}
@@ -456,7 +457,9 @@ function newGame() {
 
 function spawnLevel(first) {
   st.cy = ceilNow();   // this level's ceiling = the top of the screen
-  if (st.P && st.P.home) { st.P.x = st.P.home.x; st.P.h = st.P.home.h; st.P.home = null; }   // a teleport only lasts the level
+  if (st.P && st.P.home) { st.P.x = st.P.home.x; st.P.h = st.P.home.h; st.P.home = null; }   // a teleport (or a worm's tower smash) only lasts the level
+  if (st.P) { st.P.stickT = 0; st.P.sandT = 0; }
+  for (const q of st.quiver || []) q.webT = 0;
   for (const q of st.forged || []) q.shots = q.max;   // forged arrows refill every level
   if (GC_TEST && !st.gcGiven) gcGive();
   const lv = st.level, n = Math.min(lv, 6);
@@ -503,6 +506,7 @@ function spawnLevel(first) {
       if (Math.random() < .35) e.cover = { hp: 3, max: 3 };
     }
     e.dy = first ? 0 : 420 + i * 90; e.rise = first ? 0 : 1;
+    if (e.beast) { e.dy = 0; e.rise = 0; }
     e.aiT = (first ? 3 : 2.4) + i * rand(.7, 1.3);
     st.enemies.push(e);
   }
@@ -1119,6 +1123,7 @@ function impactFX(ar, x, y, onBody) {
   const pk = ar.pk, ang = Math.atan2(ar.vy, ar.vx);
   if (ar.owner && ar.owner.isP && !ar.owner.helper && hasPk(ar, 'portal') && shotOnce(ar, 'portal')) portalShot(ar.owner, x, y);
   if (ar.owner && ar.owner.isP && !ar.owner.helper && hasPk(ar, 'thunder') && shotOnce(ar, 'thunder')) spawnStorm(x, y, ar.owner, false);
+  if (ar.webglob) { ring(x, y, 24, WEB_COL, .35, 2); for (let i = 0; i < 12; i++) P_(x, y, rand(-120, 120), rand(-160, 0), rand(.3, .6), rand(1.6, 2.6), WEB_COL, 'spark'); }
   if (ar.acid) {   // acid splat
     glow(x, y, 40, 'rgba(140,255,90,', .3); ring(x, y, 26, '#8cff5a', .35, 2.5);
     for (let i = 0; i < 16; i++) P_(x, y, rand(-140, 140), rand(-220, -30), rand(.35, .7), rand(1.8, 3.4), i % 2 ? '#8cff5a' : '#5fd13a', 'spark');
@@ -1244,7 +1249,7 @@ function segDist(px, py, ax, ay, bx, by) {
   return Math.hypot(px - ax - vx * t, py - ay - vy * t);
 }
 function zone(a, x, y) {
-  if (a.dead || a.hydra || a.flyer) return null;
+  if (a.dead || a.hydra || a.flyer || a.beast) return null;
   const p = toLocal(a, x, y);
   if (Math.hypot(p.x, p.y + 84) < 11) return 'head';
   if (segDist(p.x, p.y, 0, -72, 0, -40) < 9) return 'body';
@@ -1354,6 +1359,7 @@ function onHit(ar, a, z) {
   a.hp -= dmg; a.hitT = .12; a.flinchT = st.t; reactHit(ar, a);
   if (a.bc) stopCharge(a, ar.owner);
   if (ar.acid && (a.isP || a.helper)) { a.acidT = 3; text(feet(a).x, feet(a).y - 150, 'ACID!', '#8cff5a', 16, 1.1); }
+  if (ar.webglob && (a.isP || a.helper)) beastStick(a, 2);
   if (ar.chill && a === st.P) { st.reload = Math.max(st.reload, 2); text(feet(a).x, feet(a).y - 150, 'BOW FROZEN!', '#9fe6ff', 16, 1.2); }
   const p = toLocal(a, ar.x, ar.y);
   if (a.isP || a.helper || !canBounce(ar)) a.stuck.push({ x: p.x, y: p.y, ang: Math.atan2(ar.vy, ar.vx) - a.rot });
@@ -1412,6 +1418,7 @@ function onHit(ar, a, z) {
 }
 function kill(a, ar, z) {
   if (a.hydra && !a.heartDead) { a.hp = a.hpLock; return; }   // only a heart shot kills the hydra
+  if (a.worm && a.wm.st === 'under') { a.hp = Math.max(1, a.wm.lock); return; }   // safe underground
   if (a === st.P && st.practice) { a.hp = a.max; text(feet(a).x, feet(a).y - 140, 'OUCH! (NO DYING IN PRACTICE)', '#ff5a4e', 14, 1.4); return; }
   if (a === st.P && st.horde) { hordeOver(); return; }
   if (a === st.P && st.revive > 0) {
@@ -1457,7 +1464,7 @@ function clearLevel() {
 const CONF_COL = '#ff3df2', CONF_T = 6;
 // a hit archer is confused for a while: players get flipped controls, enemies aim the wrong way
 function confuse(a, t) {
-  if (!a || a.dead || a.flyer || a.hydra || a.ship) return;
+  if (!a || a.dead || a.flyer || a.hydra || a.ship || a.beast) return;
   const f = feet(a), was = a.confT > 0;
   a.confT = Math.max(a.confT || 0, t);
   if (!was) {
@@ -1679,7 +1686,7 @@ function comboHole(B, dt) {
     B.worm = 2;
     const by = st.P, tag = by && by.tpTag;
     let E = tag ? st.enemies.find(e => e.id === tag && !e.dead) : null;
-    if (!E) { let bd = 1e9; for (const e of st.enemies) { if (e.dead || e.hydra) continue; const f = feet(e), d = Math.hypot(f.x - B.x, f.y - 50 - B.y); if (d > 300 && d < bd) { bd = d; E = e; } } }
+    if (!E) { let bd = 1e9; for (const e of st.enemies) { if (e.dead || e.hydra || e.beast) continue; const f = feet(e), d = Math.hypot(f.x - B.x, f.y - 50 - B.y); if (d > 300 && d < bd) { bd = d; E = e; } } }
     if (by) by.tpTag = null;
     if (E) {
       const f = feet(E);
@@ -2380,6 +2387,7 @@ function bounceZap(ar, x, y, first) {
 const WEB_COL = '#eef3fa', WEB_T = 5, WEB_BOSS = 2.5, WEB_GAD = 20;
 function webA(a, ar, by, t) {
   if (!a || a.dead || a.isP) return;
+  if (a.spider) { if ((a.webMsgT || 0) < st.t) { a.webMsgT = st.t + 2; text(feet(a).x, feet(a).y - 140, 'SHE LOVES WEB!', WEB_COL, 14, 1.1); } return; }
   const f = feet(a), ice = ar && hasPk(ar, 'ice');
   t = t || (a.boss ? WEB_BOSS : WEB_T) * (ice ? 2 : 1);
   if (!(a.webT > 0)) text(f.x, f.y - 140, ice ? 'FROZEN WEB' : 'WEBBED', WEB_COL, 14, 1);
@@ -4259,12 +4267,14 @@ function crashShip(E) {
 
 /* ---------- bosses: SKY CAPTAIN (airship), OGRE (walks, throws boulders, clubs you), WIZARD KING (jumps tower to tower), HYDRA (heads grow back) ---------- */
 // each boss has a special move it charges up (hit it to stop it) and gets angry at half health (faster, calls 2 guards)
-const BOSSES = ['ship', 'giant', 'wizard', 'hydra'];
+const BOSSES = ['ship', 'spider', 'giant', 'worm', 'wizard', 'hydra'];
 const BOSS_INFO = {
   ship: { name: 'SKY CAPTAIN', hp: 1.8, move: 'ARROW RAIN', col: '#ff5a4e' },
   giant: { name: 'OGRE', hp: 3, move: 'BOULDER STORM', col: '#ffd27a' },
   wizard: { name: 'WIZARD KING', hp: 1.6, move: 'FIREBALL BURST', col: '#ff9a45' },
-  hydra: { name: 'HYDRA', hp: 1.8, move: 'ALL HEADS ATTACK', col: '#7dff9a' }
+  hydra: { name: 'HYDRA', hp: 1.8, move: 'ALL HEADS ATTACK', col: '#7dff9a' },
+  spider: { name: 'SPIDER QUEEN', hp: 1.7, move: 'POUNCE', col: '#ff3b3b' },
+  worm: { name: 'SAND WORM', hp: 1.8, move: 'TOWER SMASH', col: '#e8c27a' }
 };
 const bossTypeFor = lv => BOSSES[(Math.floor(lv / 5) - 1) % BOSSES.length];
 function makeBoss(e, bt, lv) {
@@ -4274,13 +4284,18 @@ function makeBoss(e, bt, lv) {
   if (bt === 'ship') { e.ship = { baseX: e.x, ph: rand(0, 6), tx: e.x, th: 120, vx: 0, vh: 0, wT: 0, leak: 0, puffT: 0, sinking: false, down: false }; e.h = rand(110, 130); e.pw = 70; }
   else if (bt === 'giant') { e.walker = true; e.big = 1.9; e.h = 0; e.pw = 40; e.walkPh = 0; e.throwT = rand(3, 6); e.throwP = 0; e.swingT = 0; e.swingP = 0; e.clubT = 0; e.bossT = rand(10, 14); }
   else if (bt === 'hydra') hydraInit(e, round);
+  else if (bt === 'spider') spiderInit(e);
+  else if (bt === 'worm') wormInit(e);
   else { e.kind = 'mage'; e.h = rand(90, 200); e.tpT = rand(6, 9); }
 }
 const bossFoes = () => [st.P, ...st.helpers].filter(a => !a.dead);
 const bossTarget = E => st.P.dead ? null : st.P;
-const bossTop = E => feet(E).y - (E.ship ? 200 : E.hydra ? 340 : 125 * sizeOf(E));
+const bossTop = E => E.worm ? -Math.max(70, 240 * E.wm.u * sizeOf(E)) : feet(E).y - (E.ship ? 200 : E.hydra ? 340 : E.spider ? 100 * sizeOf(E) : 125 * sizeOf(E));
 function bossStep(E, dt) {
   if (E.hydra) hydraStep(E, dt, !!E.bc);
+  if (E.spider) spiderStep(E, dt, !!E.bc);
+  if (E.worm) wormStep(E, dt, !!E.bc);
+  if (E.dead) return true;
   if (!E.rage && E.hp <= E.max / 2) enrage(E);
   const C = E.bc;
   if (C) {
@@ -4291,6 +4306,7 @@ function bossStep(E, dt) {
     return true;
   }
   if (E.hydra) { if (!(E.rearT > 0) && (E.bossT -= dt) <= 0) startCharge(E); return true; }
+  if (E.beast) { if (beastFree(E) && (E.bossT -= dt) <= 0) startCharge(E); return true; }
   if (E.btype === 'giant') {
     giantStep(E, dt);
     if (!E.swingT && !E.throwP && (E.bossT -= dt) <= 0) startCharge(E);
@@ -4307,7 +4323,7 @@ function startCharge(E) {
   E.bc = { t: 0, dur: 1.7, tx: tf.x, ty: tf.y, tid: T.id };
   E.aiAim = null; E.pow = 0; E.throwP = 0;
   text(f.x, bossTop(E) - 34, '!! ' + I.move + ' !!', I.col, 18, 1.7);
-  text(f.x, bossTop(E) - 14, E.hydra ? 'SHOOT A HEAD TO STOP IT' : 'HIT HIM TO STOP IT', '#f6eedf', 12, 1.7);
+  text(f.x, bossTop(E) - 14, E.hydra ? 'SHOOT A HEAD TO STOP IT' : E.spider ? 'HIT HER TO STOP IT' : E.worm ? 'HIT IT TO STOP IT · THE MOUTH IS OPEN!' : 'HIT HIM TO STOP IT', '#f6eedf', 12, 1.7);
   ring(f.x, f.y - 55 * sizeOf(E), 90, I.col, .6, 4); sfx('whoosh');
 }
 function stopCharge(E, by) {
@@ -4332,7 +4348,9 @@ function bossAttack(E, C) {
     const n = more ? 5 : 3;
     for (let i = 0; i < n; i++) throwBoulder(E, tf.x + (i - (n - 1) / 2) * 70, tf.y - 58, 1.4);
     shake(6);
-  } else if (E.hydra) {
+  } else if (E.spider) spiderPounce(E, T);
+  else if (E.worm) wormSmash(E, T);
+  else if (E.hydra) {
     const live = E.heads.filter(h => h.t <= 0 && h.g >= 1);
     live.forEach((h, i) => hydraBreath(E, h, (i - (live.length - 1) / 2) * 1.6, T));
   } else {
@@ -4531,7 +4549,7 @@ function drawBossFX() {
       g.addColorStop(0, '#ff3a2a'); g.addColorStop(1, 'rgba(255,58,42,0)');
       ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, 6.283); ctx.fill(); ctx.restore();
     }
-    if (E.btype !== 'wizard' && !E.hydra && !E.rot) {
+    if (E.btype !== 'wizard' && !E.hydra && !E.beast && !E.rot) {
       const s = sc * k, cx = x, cy = SY(f.y - 93 * k);
       ctx.fillStyle = '#ffd27a'; ctx.strokeStyle = '#8a6a1a'; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(cx - 9 * s, cy); ctx.lineTo(cx + 9 * s, cy); ctx.lineTo(cx + 9 * s, cy - 9 * s); ctx.lineTo(cx + 4.5 * s, cy - 4 * s);
@@ -4555,6 +4573,565 @@ function drawBossFX() {
     }
   }
 }
+/* ---------- SPIDER QUEEN + SAND WORM (Craig's picks, 2026-11-15). Both draw themselves and have their own hit areas (E.beast).
+   SPIDER: hangs on silk. WEB SPIT sticks your bow 2 s, POUNCE (her charged move; hit her in mid-air to knock her down), QUIVER COCOON
+   locks a special arrow 10 s, WEB NETS catch arrows (fire burns them), SILK DROP dodges. Weak spot: the red hourglass on top (lob onto it).
+   Fire on her thread or a shrink hit makes her fall; while she is down every hit does x1.5.
+   WORM: lives under the ground. BURROW (dust trail shows where), TOWER SMASH (its charged move: bursts up under your tower, which drops),
+   ACID SPIT, TAIL WHIP (shoot the tail before it whips), SAND SPRAY hides your aim dots. Weak spot: inside the open mouth; an explosive
+   arrow in the mouth is swallowed and blows up inside. ---------- */
+const SPI = { body: '#17121c', shine: '#4a2d66', eye: '#ff3b3b', leg: '#c9c1d6' }, WRM = { skin: '#c9a46a', band: '#7a5a32', tooth: '#f2dfb0', throat: '#3a2a1a' };
+const bLerp = (a, b, k) => a + (b - a) * k, bEase = k => k * k * (3 - 2 * k);
+const onThread = S => ['hang', 'drop', 'climb', 'intro', 'move', 'up', 'bite'].includes(S.st);
+function beastSpot(E, lo, hi, away) {   // a clear x for the boss, away from everyone
+  const others = [...bossFoes(), ...st.enemies.filter(o => o !== E && !o.dead)];
+  let x = clamp(E.x, lo, hi), bg = -1;
+  for (let k = 0; k < 40; k++) {
+    const c = rand(lo, hi);
+    if (Math.abs(c - E.x) < away) continue;
+    const g = others.length ? Math.min(...others.map(o => Math.abs(o.x - c))) : 1e9;
+    if (g > bg) { bg = g; x = c; }
+    if (g > 260) break;
+  }
+  return x;
+}
+const beastNear = E => bossFoes().reduce((b, a) => !b || Math.abs(a.x - E.x) < Math.abs(b.x - E.x) ? a : b, null);   // the closest one: who it faces
+const beastFree = E => E.spider ? E.sp.st === 'hang' && !(E.sp.spitP > 0) : E.wm.st === 'up' && !E.wm.tail && !(E.wm.spitP > 0) && !(E.wm.bomb > 0) && !(E.wm.stun > 0);
+function beastDamage(E, ar, mult, label, col) {
+  const m0 = ar.dmgMul; ar.dmgMul = (m0 || 1) * mult;
+  onHit(ar, E, 'body');
+  ar.dmgMul = m0; E.stuck.length = 0;
+  if (label) text(feet(E).x, bossTop(E) - 4, label, col || '#ffd27a', mult >= 2 ? 19 : 13, 1.1);
+  if (mult >= 2) { ring(ar.x, ar.y, 50, col || '#ffd27a', .4, 3); shake(6); sfx('head'); }
+}
+// ----- spider -----
+function spiderInit(e) {
+  e.spider = true; e.beast = 'spider'; e.walker = true; e.pw = 0; e.big = 1.3; beastPlace(e);
+  const top = -(topY() || -330) - 60, hh = clamp(rand(170, 240), 120, top - 70);
+  e.sp = { st: 'intro', t: 0, ax: e.x, hh, top, spitT: rand(2.2, 3.5), spitP: 0, cocT: rand(8, 11), netT: 1.2, moveT: rand(9, 12), dropCD: 1, sh: 0, eye: 0, j: null, vy: 0, silk: [] };
+  e.h = top; e.nets = []; e.bossT = rand(9, 12);
+}
+function spiderStep(E, dt, charging) {
+  const S = E.sp, T = bossTarget(E);
+  S.t += dt; S.eye = Math.max(charging ? 1 : 0, S.eye - dt * 2);
+  if (S.dropCD > 0) S.dropCD -= dt;
+  const N0 = beastNear(E); if (N0 && S.st !== 'pounce') { const d = Math.sign(N0.x - E.x); if (d) E.f = d; }
+  const sh = E.shrink || 0;
+  if (sh > S.sh + .01 && onThread(S) && S.st !== 'bite') { S.sh = sh; spiderFall(E, 'SHRUNK! SHE LOST HER GRIP'); return; }
+  S.sh = sh;
+  const go = s2 => { S.st = s2; S.t = 0; };
+  switch (S.st) {
+    case 'intro': E.h = bLerp(S.top, S.hh, bEase(clamp(S.t / 1.6, 0, 1))); if (S.t >= 1.6) go('hang'); return;
+    case 'drop': E.h = bLerp(S.dh0, S.dh, bEase(clamp(S.t / .22, 0, 1))); if (S.t > .85) go('climb'); return;
+    case 'climb': E.h = Math.min(S.hh, E.h + 190 * dt); if (E.h >= S.hh) go('hang'); return;
+    case 'move': {
+      const k = clamp(S.t / 2.4, 0, 1);
+      E.x = bLerp(S.mx0, S.mx1, bEase(k)); E.h = S.hh + (S.top - 30 - S.hh) * Math.sin(Math.PI * k);
+      if (k >= 1) { S.ax = E.x; go('hang'); }
+      return;
+    }
+    case 'pounce': case 'leap': {
+      const J = S.j, k = clamp(S.t / J.dur, 0, 1);
+      E.x = bLerp(J.x0, J.x1, k); E.h = bLerp(J.h0, J.h1, k) + J.arc * Math.sin(Math.PI * k);
+      if (k >= 1) { if (S.st === 'pounce') go('bite'); else { S.ax = E.x; go('hang'); } }
+      return;
+    }
+    case 'bite': {
+      if (!S.bit && S.t >= .3) {
+        S.bit = true;
+        const V = bossFoes().find(a => a.id === S.j.tid);
+        if (V && !V.dead && Math.abs(V.x - E.x) < 130) { bossHurt(V, E.rage ? 40 : 30, E.x, 'SPIDER BITE!'); sfx('crack'); }
+      }
+      if (S.t >= .9) { S.bit = false; S.j = { x0: E.x, h0: E.h, x1: S.ax, h1: S.hh, arc: 120, dur: .95, tid: S.j.tid }; go('leap'); }
+      return;
+    }
+    case 'fall':
+      S.vy += G * dt; E.h -= S.vy * dt;
+      if (E.h <= 0) {
+        E.h = 0; S.vy = 0; go('down'); shake(8); sfx('thud');
+        const f = feet(E);
+        for (let q = 0; q < 14; q++) P_(f.x + rand(-40, 40), -3, rand(-120, 120), rand(-140, -20), rand(.4, .8), rand(3, 5), 'rgba(200,180,150,.8)', 'smoke');
+        text(f.x, f.y - 140, "SHE'S DOWN! HIT HER!", '#ffd27a', 15, 1.4);
+      }
+      return;
+    case 'down': if (S.t >= (E.rage ? 2.2 : 3)) go('up'); return;
+    case 'up':
+      E.h = Math.min(S.hh, E.h + 120 * dt);
+      if (E.h >= S.hh) {
+        if (bossFoes().some(a => Math.abs(a.x - E.x) < 500)) { S.mx0 = E.x; S.mx1 = beastSpot(E, ...beastRange(E), 0); go('move'); }
+        else { S.ax = E.x; go('hang'); }
+      }
+      return;
+  }
+  // hanging on her thread
+  E.h += (S.hh - E.h) * Math.min(1, dt * 3);
+  if (charging) return;
+  if (spiderDodge(E)) return;
+  if (S.spitP > 0) { S.spitP -= dt; S.eye = 1; if (S.spitP <= 0) { S.spitP = 0; spiderSpit(E, T); } return; }
+  const r = E.rage ? .7 : 1;
+  if ((S.spitT -= dt) <= 0) { S.spitT = rand(3.2, 5) * r; if (T) S.spitP = .55; }
+  else if ((S.cocT -= dt) <= 0) { S.cocT = rand(12, 16) * r; if (T) spiderCocoon(E, T); }
+  else if ((S.netT -= dt) <= 0) { S.netT = rand(11, 15) * r; if (T && E.nets.filter(N => !N.burn).length < (E.rage ? 3 : 2)) spinNet(E, T); }
+  else if ((S.moveT -= dt) <= 0) { S.moveT = rand(9, 13); S.mx0 = E.x; S.mx1 = beastSpot(E, ...beastRange(E), 280); go('move'); }
+}
+// SILK DROP: an arrow about to hit her and she drops down her thread (about half the time), then climbs back
+function spiderDodge(E) {
+  const S = E.sp;
+  if (S.dropCD > 0 || E.h < 120) return false;
+  const f = feet(E), s = sizeOf(E), cx = f.x, cy = f.y - 50 * s;
+  for (const ar of st.arrows) {
+    if (ar.done || !ar.owner || !ar.owner.isP || ar.spRoll === E.id || Math.abs(ar.x - cx) > 420) continue;
+    let hit = false;
+    for (let t = 0; t <= .3; t += .05) { const x = ar.x + ar.vx * t, y = ar.y + ar.vy * t + .5 * G * t * t; if (Math.hypot(x - cx, (y - cy) * .8) < 46 * s) { hit = true; break; } }
+    if (!hit) continue;
+    ar.spRoll = E.id;
+    if (Math.random() > (E.rage ? .62 : .48)) continue;
+    S.dh0 = E.h; S.dh = Math.max(36, E.h - 150); S.st = 'drop'; S.t = 0; S.dropCD = E.rage ? 3 : 4.5;
+    text(f.x, f.y - 125 * s, 'SILK DROP!', SPI.leg, 14, .9); sfx('whoosh');
+    return true;
+  }
+  return false;
+}
+function spiderFall(E, msg) {
+  const S = E.sp; S.st = 'fall'; S.t = 0; S.vy = 0; S.spitP = 0; S.bit = false;
+  if (E.bc) { E.bc = null; E.bossT = E.rage ? rand(5, 7) : rand(7, 10); }
+  text(feet(E).x, bossTop(E) - 10, msg, '#ffd27a', 16, 1.3); sfx('crack');
+}
+// WEB SPIT: a sticky ball; it sticks your bow for 2 s
+function spiderSpit(E, T) {
+  if (!T || T.dead) return;
+  const f = feet(E), s = sizeOf(E), mx = f.x, my = f.y - 4 * s, tf = feet(T);
+  const fake = { x: mx, h: -my - 64, dx: 0, dy: 0 }, sol = solve(fake, tf.x, tf.y - 60);
+  const er = Math.max(1.4, 4.2 - st.level * .12), dir = tf.x < mx ? -1 : 1;
+  const e = (sol.e + gauss() * er) * Math.PI / 180, v = (sol.v + gauss() * 22) * (1 - (E.shrink || 0)), ang = dir < 0 ? Math.PI + e : -e;
+  const ar = { x: mx, y: my, sx: mx, sy: my, vx: Math.cos(ang) * v, vy: Math.sin(ang) * v, owner: E, done: false, via: new Set(),
+    pk: null, pk2: null, dmgMul: .3, col: WEB_COL, magic: true, el: 'web', webglob: true };
+  if (E.slowT > 0) ar.tm = E.slowM;
+  st.arrows.push(ar);
+  for (let q = 0; q < 8; q++) P_(mx, my, Math.cos(ang) * 90 + rand(-50, 50), Math.sin(ang) * 90 + rand(-50, 50), .35, 2.2, q % 2 ? WEB_COL : SPI.leg, 'spark');
+  E.fireT = st.t; sfx('spit');
+}
+// QUIVER COCOON: webs up one of your special arrows for 10 s (fire on her or her webs burns it free)
+function spiderCocoon(E, T) {
+  const Q = beastQ(T), live = (Q || []).filter(q => !(q.webT > st.t));
+  if (!live.length) return false;
+  const q = live[Math.floor(Math.random() * live.length)];
+  q.webT = st.t + 10; beastUnload(T, q);
+  const f = feet(E), s = sizeOf(E), tf = feet(T);
+  E.sp.silk.push({ x1: f.x, y1: f.y - 4 * s, x2: tf.x - 6 * (T.f || 1), y2: tf.y - 60, life: .7 });
+  text(tf.x, tf.y - 155, 'QUIVER COCOON!', WEB_COL, 17, 1.4);
+  text(tf.x, tf.y - 135, powShort(q) + ' WEBBED FOR 10 s · FIRE BURNS IT FREE', SPI.leg, 11, 2);
+  sfx('glass');
+  return true;
+}
+function burnCocoons(P) {
+  let n = 0;
+  for (const q of beastQ(P) || []) if (q.webT > st.t) { q.webT = 0; n++; }
+  if (n) { const f = feet(P); text(f.x, f.y - 150, 'FIRE BURNT YOUR QUIVER FREE!', '#ff9a45', 14, 1.4); sfx('whoosh'); }
+}
+// WEB NETS: hang between you and her and catch your arrows. Fire burns them, 5 arrows (or 1 explosive) tear them
+function spinNet(E, T) {
+  const f = feet(E), s = sizeOf(E), tf = feet(T), dir = Math.sign(f.x - tf.x) || 1;
+  const near = tf.x + dir * 300, far = f.x - dir * 220;
+  if ((far - near) * dir < 60) return;
+  let x = near;
+  for (let k = 0; k < 12; k++) { x = bLerp(near, far, Math.random()); if (!E.nets.some(N => !N.burn && Math.abs(N.x - x) < 160)) break; }
+  const ry = rand(78, 100), y = clamp(rand(-340, -170), topY() + ry + 30, -ry - 40);
+  E.nets.push({ id: ++uid, x, y, rx: 38, ry, hp: 5, burn: 0, grow: 0, caught: [], seed: rand(0, 99) });
+  E.sp.silk.push({ x1: f.x, y1: f.y - 50 * s, x2: x, y2: y, life: .5 });
+  text(x, y - ry - 16, 'WEB NET!', WEB_COL, 14, 1.1); sfx('whoosh');
+}
+function beastNetHit(ar) {
+  for (const E of st.enemies) {
+    if (!E.spider || !E.nets || !E.nets.length) continue;
+    for (const N of E.nets) {
+      if (N.burn || N.grow < .6 || ar.via.has('n' + N.id)) continue;
+      const dx = (ar.x - N.x) / N.rx, dy = (ar.y - N.y) / N.ry;
+      if (dx * dx + dy * dy > 1) continue;
+      ar.via.add('n' + N.id);
+      if (hasPk(ar, 'fire')) {
+        N.burn = .01; text(N.x, N.y - N.ry - 14, 'WEB BURNT!', '#ff9a45', 15, 1.1); burnCocoons(ar.owner);
+        for (let q = 0; q < 16; q++) P_(N.x + rand(-N.rx, N.rx), N.y + rand(-N.ry, N.ry), rand(-40, 40), rand(-90, -20), rand(.4, .7), rand(2, 3.4), q % 2 ? '#ff9a45' : '#ffd27a', 'flame');
+        sfx('whoosh'); return false;   // the arrow flies on through
+      }
+      ar.done = true;
+      N.caught.push([ar.x - N.x, ar.y - N.y, Math.atan2(ar.vy, ar.vx)]);
+      N.hp -= hasPk(ar, 'boom') ? 5 : hasPk(ar, 'heavy') ? 2 : 1;
+      impactFX(ar, ar.x, ar.y, false);
+      if (hasPk(ar, 'boom')) blast(ar.x, ar.y, ar.owner, riderOf(ar, 'boom'));
+      if (N.hp <= 0) { N.burn = .01; N.torn = 1; text(N.x, N.y - N.ry - 14, 'NET TORN!', '#ffd27a', 15, 1.1); }
+      else if ((N.msgT || 0) < st.t) { N.msgT = st.t + 1.5; text(ar.x, ar.y - 18, 'CAUGHT IN THE WEB', WEB_COL, 12, .9); }
+      for (let q = 0; q < 6; q++) P_(ar.x, ar.y, rand(-60, 60), rand(-60, 30), .35, 1.8, WEB_COL, 'spark');
+      sfx('thud'); return true;
+    }
+  }
+  return false;
+}
+// POUNCE (her charged move): leaps onto your tower and bites, then leaps back. Hit her in mid-air and she falls
+function spiderPounce(E, T) {
+  if (!T || T.dead) return;
+  const S = E.sp, side = Math.sign(E.x - T.x) || 1;
+  S.j = { x0: E.x, h0: E.h, x1: T.x + side * 54, h1: T.h + 44, arc: 150, dur: .85, tid: T.id };
+  S.st = 'pounce'; S.t = 0; S.bit = false;
+  text(feet(E).x, bossTop(E) - 10, 'POUNCE!', SPI.eye, 18, 1); sfx('whoosh');
+}
+function spiderHit(E, ar, sdt) {
+  if ((ar.hit && ar.hit.has(E)) || (ar.htGo && ar.htGo !== E.id)) return false;
+  const S = E.sp, f = feet(E), s = sizeOf(E), ax = ar.x - ar.vx * sdt, ay = ar.y - ar.vy * sdt;
+  if (onThread(S) && S.st !== 'bite' && hasPk(ar, 'fire') && !ar.via.has('th' + E.id) && ((ax - f.x) * (ar.x - f.x) <= 0 || Math.abs(ar.x - f.x) < 9) && ar.y < f.y - 92 * s && ar.y > topY() - 40) {
+    ar.via.add('th' + E.id);   // fire burns through her silk thread
+    for (let q = 0; q < 10; q++) P_(ar.x, ar.y + rand(-20, 20), rand(-30, 30), rand(-60, 10), .5, 2.4, '#ff9a45', 'flame');
+    spiderFall(E, 'THREAD BURNT!');
+  }
+  let mult = 0, label = null;
+  if (S.st === 'down' || (S.st === 'fall' && E.h < 50)) {
+    if (segDist(f.x, f.y - 48 * s, ax, ay, ar.x, ar.y) < 44 * s) { mult = 1.5; if ((S.dnT || 0) < st.t) { S.dnT = st.t + 1.2; label = 'x1.5 WHILE SHE IS DOWN'; } }
+  } else if (ar.vy > 60 && segDist(f.x, f.y - 78 * s, ax, ay, ar.x, ar.y) < 13 * s) { mult = 2.4; label = 'HOURGLASS!'; }
+  else {
+    const ex = (ar.x - f.x) / (30 * s), ey = (ar.y - (f.y - 53 * s)) / (36 * s), hx = (ar.x - f.x) / (19 * s), hy = (ar.y - (f.y - 15 * s)) / (16 * s);
+    if (ex * ex + ey * ey < 1 || hx * hx + hy * hy < 1) mult = 1;
+  }
+  if (!mult) return false;
+  if (S.st === 'pounce') { spiderFall(E, 'KNOCKED DOWN! +15 GP'); beastGP(ar.owner, 15); }
+  if (hasPk(ar, 'fire')) burnCocoons(ar.owner);
+  beastDamage(E, ar, mult, label, mult >= 2 ? SPI.eye : null);
+  return true;
+}
+// ----- worm -----
+function wormInit(e) {
+  e.worm = true; e.beast = 'worm'; e.walker = true; e.h = 0; e.pw = 0; beastPlace(e);
+  e.wm = { st: 'under', t: 0, u: 0, mo: 0, rear: 0, spitT: rand(2.5, 3.5), spitP: 0, closeT: 0, tailT: rand(6, 8), sandT: rand(9, 12), digT: rand(10, 13),
+    tail: null, bomb: 0, stun: 0, lock: e.hp, tx: e.x, next: null };
+  e.bossT = rand(10, 13);
+}
+function wormGeo(E) {
+  const M = E.wm, f = feet(E), s = sizeOf(E), m = E.f || -1, t = st.t, e = M.u * (1 + .12 * M.rear);
+  const hd = { x: f.x + m * (46 - 26 * M.rear) * s + Math.sin(t * .9) * 10 * M.u, y: 30 - 232 * e * s + Math.sin(t * 1.7) * 6 * M.u };
+  const q = { x: f.x - m * 70 * s, y: -110 * e * s }, b0 = { x: f.x, y: 40 };
+  const pts = [];
+  for (let k = 0; k <= 16; k++) { const u = k / 16, a = (1 - u) * (1 - u), b = 2 * u * (1 - u), c = u * u; pts.push({ x: a * b0.x + b * q.x + c * hd.x, y: a * b0.y + b * q.y + c * hd.y, r: (30 - u * 6) * s }); }
+  return { pts, hx: hd.x, hy: hd.y, mx: hd.x + m * 12 * s, my: hd.y + 6 * s, s, m };
+}
+function wormStep(E, dt, charging) {
+  const M = E.wm, T = bossTarget(E);
+  M.t += dt;
+  if (M.st === 'under') E.hp = Math.max(E.hp, M.lock); else M.lock = E.hp;   // can't be hurt underground
+  const N0 = beastNear(E); if (N0 && M.st !== 'under') { const d = Math.sign(N0.x - E.x); if (d) E.f = d; }
+  M.rear += ((charging ? 1 : 0) - M.rear) * Math.min(1, dt * 4);
+  if (M.closeT > 0) M.closeT -= dt;
+  const open = charging || M.spitP > 0 || M.closeT > 0 || M.bomb > 0 || M.st === 'gloat' ? 1 : 0;   // the mouth (its weak spot) is open while it spits, roars or chokes
+  M.mo += (open - M.mo) * Math.min(1, dt * (open ? 6 : 3));
+  if (charging && Math.random() < .25) shake(2);
+  if (M.tail) wormTailStep(E, M.tail, dt);
+  if (M.bomb > 0 && (M.bomb -= dt) <= 0) { M.bomb = 0; wormBoom(E); if (E.dead) return; }
+  if (M.u > .5 && Math.random() < .25) P_(E.x + rand(-50, 50), -2, rand(-40, 40), rand(-60, -20), .8, rand(2, 3.5), 'rgba(210,180,120,.7)', 'smoke');
+  const go = s2 => { M.st = s2; M.t = 0; };
+  switch (M.st) {
+    case 'rise': M.u = Math.min(1, M.t / .5); if (M.t >= .5) go(M.next === 'gloat' ? 'gloat' : 'up'); return;
+    case 'dive': M.u = Math.max(0, 1 - M.t / .45); if (M.t >= .45) { M.u = 0; go('under'); } return;
+    case 'under': {
+      const sp = M.next === 'smash' ? 640 : 380, d = M.tx - E.x;
+      E.x += Math.sign(d) * Math.min(Math.abs(d), sp * dt);
+      if (Math.random() < .8) P_(E.x + rand(-18, 18), -2, rand(-60, 60), rand(-130, -30), .7, rand(2.5, 4.5), 'rgba(205,175,120,.85)', 'smoke');
+      if (M.next === 'smash' && Math.random() < .25) shake(2.5);
+      if (Math.abs(d) < 2) { if (M.next === 'smash') wormBurst(E); else wormRise(E); }
+      return;
+    }
+    case 'gloat': if (M.t >= 1.3) { M.next = null; M.tx = beastSpot(E, ...beastRange(E), 300); go('dive'); } return;
+  }
+  // 'up': out of the ground
+  if (M.stun > 0) { M.stun -= dt; return; }
+  if (charging) return;
+  const r = E.rage ? .7 : 1;
+  if (M.spitP > 0) { M.spitP -= dt; if (M.spitP <= 0) { M.spitP = 0; wormSpit(E, T); M.closeT = .45; } return; }
+  if ((M.spitT -= dt) <= 0) { M.spitT = rand(3.4, 5) * r; if (T) M.spitP = .85; }
+  else if (!M.tail && (M.tailT -= dt) <= 0) { M.tailT = rand(8, 11) * r; if (T) wormTail(E, T); }
+  else if ((M.sandT -= dt) <= 0) { M.sandT = rand(13, 17) * r; if (T) wormSand(E, T); }
+  else if (!M.tail && (M.digT -= dt) <= 0) { M.digT = rand(9, 12); M.next = null; M.tx = beastSpot(E, ...beastRange(E), 300); go('dive'); text(feet(E).x, -150, 'BURROW!', WRM.skin, 14, 1); }
+}
+function wormRise(E) {
+  const M = E.wm; M.st = 'rise'; M.t = 0;
+  for (let q = 0; q < 26; q++) P_(E.x + rand(-30, 30), -4, rand(-160, 160), rand(-300, -120), rand(.6, 1.1), rand(2.5, 5), q % 2 ? WRM.skin : 'rgba(150,120,80,.9)', 'smoke');
+  shake(7); sfx('boom'); text(E.x, -170, 'RUMBLE!', WRM.skin, 15, .9);
+}
+// TOWER SMASH (its charged move): dives, races under your tower, bursts up and knocks the top off
+function wormSmash(E, T) {
+  if (!T || T.dead) return;
+  const M = E.wm, side = Math.sign(E.x - T.x) || 1;
+  M.next = 'smash'; M.tid = T.id; M.tx = T.x + side * 40; M.st = 'dive'; M.t = 0;
+  text(feet(T).x, feet(T).y - 150, "IT'S COMING FOR YOUR TOWER!", WRM.skin, 15, 1.6);
+}
+function wormBurst(E) {
+  const M = E.wm, T = bossFoes().find(a => a.id === M.tid);
+  wormRise(E); M.next = 'gloat'; shake(14);
+  if (!T || T.dead) return;
+  T.home = T.home || { x: T.x, h: T.h };
+  const drop = Math.min(45, T.h - 40);
+  for (let q = 0; q < 22; q++) P_(T.x + rand(-22, 22), -T.h + rand(0, T.h), rand(-140, 140), rand(-220, -40), rand(.5, .9), rand(2.5, 5), q % 2 ? '#8a7f74' : '#b0a596');
+  if (drop > 0) {
+    st.pinned = st.pinned.filter(p => !(Math.abs(p.x - T.x) < (T.pw || 40) / 2 + 10 && p.y < -T.h + drop + 4));
+    T.h -= drop; text(T.x, -T.h - 175, 'YOUR TOWER DROPPED!', '#ffd27a', 14, 1.5);
+  }
+  bossHurt(T, E.rage ? 30 : 22, E.x, 'TOWER SMASH!');
+}
+function wormSpit(E, T) {
+  if (!T || T.dead) return;
+  const g = wormGeo(E), tf = feet(T), mx = g.mx, my = g.my;
+  const fake = { x: mx, h: -my - 64, dx: 0, dy: 0 }, sol = solve(fake, tf.x, tf.y - 58);
+  const er = Math.max(1.4, 4.4 - st.level * .12), dir = tf.x < mx ? -1 : 1;
+  const e = (sol.e + gauss() * er) * Math.PI / 180, v = (sol.v + gauss() * 25) * (1 - (E.shrink || 0)), ang = dir < 0 ? Math.PI + e : -e;
+  const ar = { x: mx, y: my, sx: mx, sy: my, vx: Math.cos(ang) * v, vy: Math.sin(ang) * v, owner: E, done: false, via: new Set(),
+    pk: null, pk2: null, dmgMul: .55, col: '#8cff5a', magic: true, el: 'acid', acid: true, bz: 1.7 };
+  if (E.slowT > 0) ar.tm = E.slowM;
+  st.arrows.push(ar);
+  for (let q = 0; q < 12; q++) P_(mx, my, Math.cos(ang) * 110 + rand(-60, 60), Math.sin(ang) * 110 + rand(-60, 60), .4, 2.6, q % 2 ? '#8cff5a' : '#d6ff9a', 'spark');
+  E.fireT = st.t; sfx('spit');
+}
+// TAIL WHIP: dust next to your tower, then the tail bursts up and whips you. Shoot it first (+15 GP)
+function wormTail(E, T) {
+  const side = Math.sign(E.x - T.x) || 1;
+  E.wm.tail = { x: T.x + side * 80, side, t: 0, u: 0, tid: T.id, h: T.h + 75, whip: false, cut: false };
+  text(T.x + side * 80, -60, 'RUMBLE...', WRM.skin, 12, .9);
+}
+function wormTailGeo(L) {
+  const k = L.whip ? Math.min(1, (L.t - 1.25) / .15) : 0, bend = L.side * (22 - 90 * k), top = -L.h * L.u;
+  const pts = [];
+  for (let i = 0; i <= 10; i++) { const u = i / 10; pts.push({ x: L.x + bend * u * u, y: 24 + (top - 24) * u, r: 15 - u * 10 }); }
+  return pts;
+}
+function wormTailStep(E, L, dt) {
+  const t0 = L.t; L.t += dt;
+  if (L.t < .9) { if (Math.random() < .6) P_(L.x + rand(-14, 14), -2, rand(-50, 50), rand(-110, -30), .6, rand(2, 3.5), 'rgba(205,175,120,.85)', 'smoke'); if (Math.random() < .3) shake(1.5); }
+  else if (!L.cut && L.t < 1.25) {
+    if (t0 < .9) { for (let q = 0; q < 14; q++) P_(L.x + rand(-16, 16), -4, rand(-120, 120), rand(-240, -80), .8, rand(2.5, 4.5), WRM.skin, 'smoke'); sfx('boom'); }
+    L.u = Math.min(1, (L.t - .9) / .3);
+  }
+  if (!L.cut && !L.whip && L.t >= 1.25) {
+    L.whip = true; shake(8); sfx('thud');
+    const V = bossFoes().find(a => a.id === L.tid);
+    if (V && !V.dead && Math.abs(V.x - L.x) < 150) bossHurt(V, E.rage ? 24 : 18, L.x, 'TAIL WHIP!');
+  }
+  if (L.t >= 1.9 || L.cut) { L.u = Math.max(0, L.u - dt / .35); if (L.u <= 0) E.wm.tail = null; }
+}
+// SAND SPRAY: sand in your eyes, your aim dots are hidden for a few seconds
+function wormSand(E, T) {
+  const g = wormGeo(E), tf = feet(T), tx = tf.x, ty = tf.y - 60;
+  for (let q = 0; q < 46; q++) { const k = rand(.8, 1.15); P_(g.mx, g.my, (tx - g.mx) * k + rand(-60, 60), (ty - g.my) * k + rand(-60, 60), rand(.9, 1.2), rand(2.5, 5), q % 3 ? 'rgba(214,184,128,.85)' : 'rgba(170,140,90,.9)', 'smoke'); }
+  T.sandT = 4.5;
+  text(tf.x, tf.y - 150, 'SAND SPRAY! AIM HIDDEN', '#e8c27a', 15, 1.5); sfx('whoosh');
+}
+function wormBoom(E) {
+  const M = E.wm, g = wormGeo(E), by = [...PEOPLE(), ...st.helpers].find(a => a.id === M.bombBy) || null;
+  const dmg = Math.round(90 * beastBoost(by));
+  E.hp -= dmg; E.hitT = .3; M.stun = 2; M.lock = E.hp; M.mo = 1;
+  text(g.hx, g.hy - 64, 'KABOOM INSIDE!', '#ff9a45', 24, 1.5, 1); text(g.hx + rand(-10, 10), g.hy - 38, '-' + dmg, '#f6eedf', 18, 1);
+  for (let q = 0; q < 26; q++) P_(g.mx, g.my, rand(-200, 200) + g.m * 120, rand(-240, 40), rand(.5, 1), rand(3, 6), q % 3 ? 'rgba(90,80,70,.85)' : '#ff9a45', q % 3 ? 'smoke' : 'flame');
+  ring(g.hx, g.hy, 90, '#ff9a45', .5, 5); glow(g.hx, g.hy, 110, 'rgba(255,170,90,', .35); shake(14); sfx('boom');
+  beastGP(by, Math.round(dmg * .5));
+  if (E.hp <= 0) kill(E, { vx: -1, vy: 0, owner: by }, 'head');
+}
+function wormHit(E, ar, sdt) {
+  if ((ar.hit && ar.hit.has(E)) || (ar.htGo && ar.htGo !== E.id)) return false;
+  const M = E.wm, L = M.tail, ax = ar.x - ar.vx * sdt, ay = ar.y - ar.vy * sdt;
+  if (L && L.u > .25) {
+    const tp = wormTailGeo(L);
+    for (let i = 3; i < tp.length; i++) {
+      if (segDist(tp[i].x, tp[i].y, ax, ay, ar.x, ar.y) > tp[i].r + 4) continue;
+      ar.done = true; impactFX(ar, ar.x, ar.y, false);
+      if (!L.whip && !L.cut) { L.cut = true; text(L.x, -L.h - 30, 'TAIL HIT! +15 GP', '#7dff9a', 15, 1.2); beastGP(ar.owner, 15); sfx('glass'); }
+      else { text(ar.x, ar.y - 18, 'TAIL', WRM.skin, 11, .7); sfx('thud'); }
+      for (let q = 0; q < 8; q++) P_(ar.x, ar.y, rand(-90, 90), rand(-120, 10), .35, 2.2, WRM.skin, 'spark');
+      return true;
+    }
+  }
+  if (M.u < .2 || M.st === 'under') return false;
+  const g = wormGeo(E), s = g.s;
+  if (M.mo > .45 && segDist(g.mx, g.my, ax, ay, ar.x, ar.y) < 27 * s * (.6 + .4 * M.mo)) {
+    if (hasPk(ar, 'boom') && !(M.bomb > 0) && !E.dead) {   // swallowed: blows up inside
+      ar.done = true; M.bomb = .7; M.bombBy = ar.owner ? ar.owner.id : 0; M.spitP = 0;
+      text(g.mx, g.my - 44, 'SWALLOWED!', '#ff9a45', 20, 1.2); sfx('crack');
+      if (E.bc) stopCharge(E, ar.owner);
+      return true;
+    }
+    beastDamage(E, ar, 3, 'IN THE MOUTH!', '#ff5a4e');
+    return true;
+  }
+  let hit = Math.hypot(ar.x - g.hx + g.m * 10 * s, ar.y - g.hy) < 30 * s;
+  for (let i = 1; i < g.pts.length && !hit; i++) { const p = g.pts[i - 1], q = g.pts[i]; if (q.y > 4 && p.y > 4) continue; if (segDist(ar.x, ar.y, p.x, p.y, q.x, q.y) < q.r) hit = true; }
+  if (!hit) return false;
+  let label = null;
+  if ((M.tsT || 0) < st.t) { M.tsT = st.t + 4; label = 'TOUGH SKIN · AIM FOR THE MOUTH'; }
+  beastDamage(E, ar, .6, label, WRM.skin);
+  return true;
+}
+// ----- both: timers on the people they hit, nets, silk, the dead worm sinking -----
+function beastStatus(dt) {
+  for (const a of [...PEOPLE(), ...st.helpers]) {
+    if (a.stickT > 0) a.stickT -= dt;
+    if (a.sandT > 0) { a.sandT -= dt; if (Math.random() < .35) { const f = feet(a); P_(f.x + rand(-26, 26), f.y - rand(60, 110), rand(-40, 40), rand(-10, 30), .6, rand(1.6, 2.6), 'rgba(214,184,128,.9)', 'smoke'); } }
+  }
+  for (const E of st.enemies) {
+    if (E.spider) {
+      const S = E.sp;
+      for (const L of S.silk) L.life -= dt;
+      S.silk = S.silk.filter(L => L.life > 0);
+      for (const N of E.nets) {
+        if (N.grow < 1) N.grow = Math.min(1, N.grow + dt / .4);
+        if (E.dead && !N.burn) { N.burn = .01; N.torn = 1; }
+        if (N.burn) { N.burn += dt / .8; if (!N.torn && Math.random() < .6) P_(N.x + rand(-N.rx, N.rx), N.y + rand(-N.ry, N.ry), rand(-30, 30), rand(-80, -20), .5, rand(2, 3.2), Math.random() < .5 ? '#ff9a45' : '#ffd27a', 'flame'); }
+      }
+      E.nets = E.nets.filter(N => N.burn < 1);
+    }
+    if (E.worm && E.dead) { const M = E.wm; M.u = Math.max(0, M.u - dt * .45); M.mo = Math.max(0, M.mo - dt * 2); M.tail = null; }
+  }
+}
+// ----- drawing -----
+function bLine(pts, col, w) { ctx.strokeStyle = col; ctx.lineWidth = w; ctx.beginPath(); pts.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); ctx.stroke(); }
+function bOval(x, y, rx, ry, fill, w) { ctx.beginPath(); ctx.ellipse(x, y, rx, ry, 0, 0, 6.283); ctx.fillStyle = fill; ctx.fill(); if (w) { ctx.strokeStyle = '#0c0910'; ctx.lineWidth = w; ctx.stroke(); } }
+function drawSpider(E) {
+  const S = E.sp, f = feet(E), s = sizeOf(E), x = SX(f.x), y = SY(f.y), k = s * sc, t = st.t, dead = E.dead;
+  if (x < -220 || x > W + 220) return;
+  const down = dead || S.st === 'down' || (S.st === 'fall' && E.h < 60), hit = E.hitT > 0;
+  ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  if (!dead && onThread(S)) { ctx.strokeStyle = 'rgba(255,255,255,.8)'; ctx.lineWidth = Math.max(1, 1.4 * sc); ctx.beginPath(); ctx.moveTo(x, SY(topY() - 20)); ctx.lineTo(x, y - 89 * k); ctx.stroke(); }
+  ctx.translate(x, y);
+  if (down) { ctx.translate(0, -48 * k); ctx.rotate(Math.PI); ctx.translate(0, 48 * k); }   // on her back, legs in the air
+  else if (S.st === 'pounce' || S.st === 'leap') { const d = Math.sign(S.j.x1 - S.j.x0) || -1; ctx.translate(0, -50 * k); ctx.rotate(-d * 1.1); ctx.translate(0, 50 * k); }
+  ctx.scale(k, k);
+  const body = hit ? '#5a1a22' : SPI.body, legOut = '#0c0910', legIn = hit ? '#7a2a32' : '#2a2030', wig = down ? 3 : 1;
+  for (const sd of [-1, 1]) for (let q = 0; q < 4; q++) {   // eight jointed hairy legs
+    const wv = Math.sin(t * 3.2 * wig + q * 1.4 + (sd > 0 ? .7 : 0)) * (dead ? 0 : 5 * wig);
+    const r = [sd * 9, -25 + q * 4], kn = [sd * (36 + q * 7), -53 + q * 11 + wv], ft = [sd * (50 + q * 12), -7 + q * 12 + wv * .6];
+    bLine([r, kn, ft], legOut, 8); bLine([r, kn, ft], legIn, 5);
+    for (let h = 1; h < 4; h++) { const u = h / 4, px = kn[0] + (ft[0] - kn[0]) * u, py = kn[1] + (ft[1] - kn[1]) * u; bLine([[px, py], [px + sd * 4, py - 3]], legOut, 1.2); }
+  }
+  // abdomen with a purple shine and hairs, the red hourglass on top
+  bOval(0, -53, 30, 36, body, 2.5);
+  ctx.strokeStyle = 'rgba(74,45,102,.95)'; ctx.lineWidth = 5; ctx.beginPath(); ctx.ellipse(0, -53, 21, 27, 0, 3.5, 4.8); ctx.stroke();
+  for (let q = 0; q < 18; q++) { const a = q / 18 * 6.283, x1 = Math.cos(a) * 30, y1 = -53 + Math.sin(a) * 36; bLine([[x1, y1], [x1 + Math.cos(a) * 5, y1 + Math.sin(a) * 5]], legOut, 1.6); }
+  const hp = .75 + .25 * Math.sin(t * 4);
+  ctx.save(); ctx.globalAlpha = .45 * hp; ctx.fillStyle = SPI.eye; ctx.beginPath(); ctx.arc(0, -78, 16, 0, 6.283); ctx.fill(); ctx.restore();
+  ctx.fillStyle = SPI.eye; ctx.beginPath(); ctx.moveTo(-7, -88); ctx.lineTo(7, -88); ctx.lineTo(0, -79); ctx.lineTo(7, -70); ctx.lineTo(-7, -70); ctx.lineTo(0, -79); ctx.closePath(); ctx.fill();
+  // head, eight red eyes (they glow when she charges or spits) and fangs
+  bOval(0, -15, 18, 15, body, 2.5);
+  const hot = 1 + (S.eye || 0) * .9 + (E.bc ? .6 : 0);
+  for (const [ex, ey, er] of [[-9, -21, 2], [9, -21, 2], [-5, -17, 3], [5, -17, 3], [-12, -16, 1.6], [12, -16, 1.6], [-3, -11, 1.8], [3, -11, 1.8]]) {
+    if (dead) { bLine([[ex - er, ey - er], [ex + er, ey + er]], '#5a4a5a', 1.2); continue; }
+    ctx.save(); ctx.globalAlpha = .35 * hot; ctx.fillStyle = SPI.eye; ctx.beginPath(); ctx.arc(ex, ey, er * 2.6 * hot, 0, 6.283); ctx.fill(); ctx.restore();
+    ctx.fillStyle = SPI.eye; ctx.beginPath(); ctx.arc(ex, ey, er, 0, 6.283); ctx.fill();
+  }
+  const fb = S.st === 'bite' && S.t < .5 ? 3 : 0;
+  bLine([[-4, -3], [-6 - fb, 4], [-3, 6]], '#d8d0c0', 2.4); bLine([[4, -3], [6 + fb, 4], [3, 6]], '#d8d0c0', 2.4);
+  ctx.restore();
+}
+function drawWorm(E) {
+  const M = E.wm, f = feet(E), gx = SX(f.x), gy = SY(0);
+  if (gx < -340 || gx > W + 340) return;
+  const hit = E.hitT > 0, skin = hit ? '#d88a6a' : WRM.skin, band = hit ? '#8a3a32' : WRM.band;
+  ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  // the hole / the mound it pushes up while it moves underground
+  const u = M.u;
+  ctx.fillStyle = 'rgba(70,50,30,.75)'; ctx.beginPath(); ctx.ellipse(gx, gy + 2 * sc, (26 + 34 * u) * sc, (6 + 6 * u) * sc, 0, 0, 6.283); ctx.fill();
+  ctx.fillStyle = 'rgba(214,184,128,.9)'; ctx.beginPath(); ctx.ellipse(gx, gy - 2 * sc, (20 + 26 * u) * sc, (4 + 4 * u) * sc, 0, Math.PI, 6.283); ctx.fill();
+  if (u <= .01 || E.dead && u <= .01) { ctx.restore(); return; }
+  const g = wormGeo(E);
+  ctx.beginPath(); ctx.rect(-20, -20, W + 40, gy + 21); ctx.clip();
+  for (let q = 0; q < g.pts.length - 1; q++) {
+    const p = g.pts[q], X = SX(p.x), Y = SY(p.y), r = p.r * sc;
+    ctx.beginPath(); ctx.ellipse(X, Y, r, r * .92, 0, 0, 6.283); ctx.fillStyle = q % 2 ? skin : band; ctx.fill(); ctx.strokeStyle = WRM.throat; ctx.lineWidth = 2.5 * sc; ctx.stroke();
+    ctx.strokeStyle = 'rgba(0,0,0,.25)'; ctx.lineWidth = 2 * sc; ctx.beginPath(); ctx.arc(X, Y, r * .75, Math.PI * .2, Math.PI * .8); ctx.stroke();
+  }
+  const hx = SX(g.hx), hy = SY(g.hy), s = g.s * sc;
+  ctx.beginPath(); ctx.ellipse(hx, hy, 36 * s, 34 * s, 0, 0, 6.283); ctx.fillStyle = skin; ctx.fill(); ctx.strokeStyle = WRM.throat; ctx.lineWidth = 2.5 * sc; ctx.stroke();
+  ctx.save(); ctx.translate(SX(g.mx), SY(g.my)); ctx.rotate(g.m < 0 ? -.35 : .35); ctx.scale(s, s);
+  const op = .2 + .95 * M.mo + (M.bomb > 0 ? .1 * Math.sin(st.t * 30) : 0);
+  ctx.fillStyle = '#8a6a3a'; ctx.beginPath(); ctx.ellipse(0, 0, 16 * op + 6, 28 * op + 2, 0, 0, 6.283); ctx.fill();
+  if (M.mo > .12) {
+    const gr = ctx.createRadialGradient(0, 0, 2, 0, 0, 24 * op);
+    gr.addColorStop(0, M.bomb > 0 ? '#ffd27a' : '#000000'); gr.addColorStop(1, M.bomb > 0 ? '#ff5a1e' : WRM.throat);
+    ctx.fillStyle = gr; ctx.beginPath(); ctx.ellipse(0, 0, 13 * op + 4, 24 * op, 0, 0, 6.283); ctx.fill();
+    for (let rg = 0; rg < 2; rg++) {
+      const rx = (13 * op + 4) * (1 - rg * .4), ry = 24 * op * (1 - rg * .4);
+      ctx.fillStyle = rg ? '#d8c494' : WRM.tooth;
+      for (let q = 0; q < 12; q++) { const a = q / 12 * 6.283; ctx.beginPath(); ctx.moveTo(Math.cos(a - .12) * rx, Math.sin(a - .12) * ry); ctx.lineTo(Math.cos(a) * rx * .62, Math.sin(a) * ry * .62); ctx.lineTo(Math.cos(a + .12) * rx, Math.sin(a + .12) * ry); ctx.fill(); }
+    }
+  } else { ctx.strokeStyle = WRM.throat; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(0, -12); ctx.lineTo(0, 12); ctx.stroke(); }
+  ctx.restore();
+  ctx.restore();
+}
+// nets, silk lines, the worm's tail, and webbed bows / sand on the people they hit
+function drawBeastFX() {
+  for (const E of st.enemies) {
+    if (E.spider) {
+      for (const N of E.nets) {
+        const al = clamp(1 - N.burn, 0, 1) * Math.min(1, N.grow * 1.4), X = SX(N.x), Y = SY(N.y), rx = N.rx * sc * (.4 + .6 * N.grow), ry = N.ry * sc * (.4 + .6 * N.grow);
+        if (X < -100 || X > W + 100 || al <= 0) continue;
+        ctx.save(); ctx.globalAlpha = al;
+        const col = N.burn && !N.torn ? 'rgba(255,170,90,.85)' : 'rgba(238,243,250,.75)';
+        bLine([[X - rx * .5, SY(topY() - 20)], [X - rx * .5, Y - ry * .86]], 'rgba(255,255,255,.55)', 1);
+        bLine([[X + rx * .5, SY(topY() - 20)], [X + rx * .5, Y - ry * .86]], 'rgba(255,255,255,.55)', 1);
+        const sp = 10, sw = Math.sin(st.t * 1.3 + N.seed) * 2 * sc;
+        for (let q = 0; q < sp; q++) { const a = q / sp * 6.283; bLine([[X, Y], [X + Math.cos(a) * rx + sw, Y + Math.sin(a) * ry]], col, Math.max(1, 1.1 * sc)); }
+        ctx.strokeStyle = col; ctx.lineWidth = Math.max(.8, .9 * sc);
+        for (let rr = 1; rr <= 5; rr++) {
+          const v = rr / 5.3; ctx.beginPath();
+          for (let q = 0; q <= sp; q++) { const a = q / sp * 6.283, px = X + Math.cos(a) * rx * v + sw * v, py = Y + Math.sin(a) * ry * v + (q % 2 ? 2 * sc : 0) * v; q ? ctx.lineTo(px, py) : ctx.moveTo(px, py); }
+          ctx.stroke();
+        }
+        for (const c of N.caught) { ctx.save(); ctx.translate(X + c[0] * sc, Y + c[1] * sc); ctx.scale(sc, sc); ctx.rotate(c[2]); drawArrowShape(26); ctx.restore(); }
+        ctx.restore();
+      }
+      for (const L of E.sp.silk) {
+        ctx.save(); ctx.globalAlpha = clamp(L.life / .3, 0, 1);
+        bLine([[SX(L.x1), SY(L.y1)], [SX((L.x1 + L.x2) / 2), SY((L.y1 + L.y2) / 2) + 14 * sc], [SX(L.x2), SY(L.y2)]], 'rgba(255,255,255,.9)', Math.max(1, 1.5 * sc));
+        ctx.restore();
+      }
+    }
+    const L = E.worm && E.wm.tail;
+    if (L) {
+      const gy = SY(0), X = SX(L.x);
+      if (L.t < .9 || L.u > 0) { ctx.fillStyle = 'rgba(70,50,30,.7)'; ctx.beginPath(); ctx.ellipse(X, gy + 2 * sc, (10 + 16 * Math.min(1, L.t)) * sc, 5 * sc, 0, 0, 6.283); ctx.fill(); }
+      if (L.u > 0) {
+        const tp = wormTailGeo(L);
+        ctx.save(); ctx.beginPath(); ctx.rect(-20, -20, W + 40, gy + 21); ctx.clip();
+        for (let q = 0; q < tp.length; q++) { const p = tp[q]; ctx.beginPath(); ctx.ellipse(SX(p.x), SY(p.y), p.r * sc, p.r * .9 * sc, 0, 0, 6.283); ctx.fillStyle = q % 2 ? WRM.skin : WRM.band; ctx.fill(); ctx.strokeStyle = WRM.throat; ctx.lineWidth = 2 * sc; ctx.stroke(); }
+        const a = tp[tp.length - 1], b = tp[tp.length - 2], an = Math.atan2(a.y - b.y, a.x - b.x);
+        ctx.fillStyle = WRM.tooth; ctx.beginPath(); ctx.moveTo(SX(a.x + Math.cos(an) * 20), SY(a.y + Math.sin(an) * 20));
+        ctx.lineTo(SX(a.x + Math.cos(an + 1.6) * 7), SY(a.y + Math.sin(an + 1.6) * 7)); ctx.lineTo(SX(a.x + Math.cos(an - 1.6) * 7), SY(a.y + Math.sin(an - 1.6) * 7)); ctx.fill();
+        ctx.restore();
+      }
+    }
+  }
+  for (const a of [...PEOPLE(), ...st.helpers]) {
+    if (a.dead) continue;
+    const f = feet(a), k = sizeOf(a);
+    if (a.stickT > 0) {   // a web over the archer while the bow is stuck
+      const cx = SX(f.x + 4 * k), cy = SY(f.y - 52 * k), al = clamp(a.stickT / .5, 0, 1);
+      ctx.save(); ctx.globalAlpha = al;
+      for (let q = 0; q < 8; q++) { const an = q / 8 * 6.283; bLine([[cx, cy], [cx + Math.cos(an) * 34 * k * sc, cy + Math.sin(an) * 42 * k * sc]], 'rgba(255,255,255,.8)', Math.max(1, 1.2 * sc)); }
+      ctx.strokeStyle = 'rgba(255,255,255,.65)'; ctx.lineWidth = Math.max(.8, 1 * sc);
+      for (let rr = 1; rr < 4; rr++) { ctx.beginPath(); for (let q = 0; q <= 8; q++) { const an = q / 8 * 6.283, px = cx + Math.cos(an) * rr * 11 * k * sc, py = cy + Math.sin(an) * rr * 13.5 * k * sc; q ? ctx.lineTo(px, py) : ctx.moveTo(px, py); } ctx.stroke(); }
+      ctx.restore();
+    }
+    if (a.sandT > 0) {   // sand swirling round the head
+      ctx.save(); ctx.globalAlpha = clamp(a.sandT / .6, 0, 1) * .85; ctx.fillStyle = '#d6b880';
+      for (let q = 0; q < 14; q++) { const an = st.t * 3 + q * .45, r = (16 + (q % 4) * 6) * k; ctx.beginPath(); ctx.arc(SX(f.x + Math.cos(an) * r), SY(f.y - 84 * k + Math.sin(an) * r * .5), Math.max(1.2, 2 * sc), 0, 6.283); ctx.fill(); }
+      ctx.restore();
+    }
+  }
+}
+// solo hooks for the two beasts (co-op has its own)
+const beastQ = P => P !== st.P ? null : st.practice ? (st.power ? [st.power] : []) : st.quiver;
+function beastUnload(P, q) { if (P === st.P && st.power === q) st.power = null; }
+function beastStick(a, t) {
+  a.stickT = Math.max(a.stickT || 0, t);
+  if (a === st.P) st.reload = Math.max(st.reload, t); else if (a.helper) a.aiT = Math.max(a.aiT || 0, t);
+  const f = feet(a); text(f.x, f.y - 150, 'BOW WEBBED!', WEB_COL, 16, 1.2);
+}
+const beastGP = (by, n) => { st.gp += n; };
+const beastBoost = by => by && by.isP ? st.dmgBoost : 1;
+function beastPlace(e) { e.x = clamp(e.x, e.worm ? 1000 : 900, 1700); e.x0 = e.x; }
+const beastRange = E => [800, 1700];
 /* ---------- HYDRA: heads on swaying necks; shoot a head off and two grow back; only a heart shot hurts it ---------- */
 const HYDRA_MAX = 9, HYDRA_EL = { fire: '#ff9a45', zap: '#ffe14a', ice: '#9fe6ff' };
 const hydraAng = (i, n) => -1.3 + (Math.max(-2.95, -2 - .1 * n) + 1.3) * (i + .5) / n;   // necks fan from up-and-back to the front; more heads reach further out in front of the heart
@@ -5205,6 +5782,7 @@ function update(rdt) {
   updateVortices(dt);
   updateMeteors(dt);
   updateBoulders(dt);
+  beastStatus(dt);
   acidStep(dt);
   confStep(dt);
   growStep(dt);
@@ -5272,6 +5850,7 @@ function update(rdt) {
       if (ar.owner.isP) {
         if (!ar.htGo && coverHit(ar)) break;
         if (boulderHit(ar)) break;
+        if (beastNetHit(ar)) break;
         for (const E of st.enemies) {
           if (E.ship && !E.ship.down && !E.dead && !ar.done && (!ar.htGo || ar.htGo === E.id)) {
             const f = feet(E), bx = (ar.x - f.x) / 70, by = (ar.y - (f.y - 140)) / (38 * balloonSquash(E));
@@ -5286,6 +5865,8 @@ function update(rdt) {
         }
         if (ar.done) break;
         for (const E of st.enemies) if (E.hydra && !E.dead && (!ar.htGo || ar.htGo === E.id) && hydraHit(E, ar)) break;
+        if (ar.done) break;
+        for (const E of st.enemies) if (E.beast && !E.dead && (E.spider ? spiderHit(E, ar, sdt) : wormHit(E, ar, sdt))) break;
         if (ar.done) break;
         for (const E of st.enemies) if (E.flyer && !E.dead && (!ar.htGo || ar.htGo === E.id) && flyerHit(E, ar, sdt)) break;
         if (ar.done) break;
@@ -5376,7 +5957,7 @@ function update(rdt) {
     if (a.topple) continue;
     if (a.swallow) { swallowStep(a, dt); continue; }
     a.vy += G * dt; a.dy += a.vy * dt; a.dx += a.vx * dt;
-    if (a.walker && a.dy > 0) { a.dy = 0; a.vy = 0; a.vx *= .85; }   // the giant falls flat on the ground
+    if (a.walker && a.dy > (a.h || 0)) { a.dy = a.h || 0; a.vy = 0; a.vx *= .85; }   // the giant falls flat on the ground (the spider falls from her thread)
     if (a.flyer && a.dy - a.h > 42) { a.dy = a.h + 42; a.vy = 0; a.vx *= .8; a.vr = 0; }   // a dead bat lands on the ground
     a.rot = clamp(a.rot + a.vr * dt, -1.7, 1.7);
   }
@@ -5904,7 +6485,7 @@ function glowAt(x, y, r, col, al) {
   if (!(al > 0) || x < -r || x > W + r || y < -r || y > H + r) return;
   ctx.globalAlpha = Math.min(1, al); ctx.drawImage(glowSprite(col), x - r, y - r, r * 2, r * 2);
 }
-const EL_GLOW = { acid: '#8cff5a', zap: '#ffe14a', ice: '#9fe6ff' };
+const EL_GLOW = { web: '#eef3fa', acid: '#8cff5a', zap: '#ffe14a', ice: '#9fe6ff' };
 function drawGlowPass() {
   const dark = st.weather === 'night' ? 1.5 : st.weather === 'storm' ? 1.25 : 1;
   ctx.globalCompositeOperation = 'lighter';
@@ -5927,6 +6508,8 @@ function drawGlowPass() {
 }
 function drawArcher(a) {
   if (a.hydra) return drawHydra(a);
+  if (a.spider) return drawSpider(a);
+  if (a.worm) return drawWorm(a);
   if (a.swallowed) return;
   if (a.flyer) return drawFlyer(a);
   const f = feet(a);
@@ -6052,7 +6635,7 @@ function drawDummyBody(a) {
   if (a.headRed > 0) { ctx.fillStyle = 'rgba(196,20,28,.7)'; ctx.beginPath(); ctx.arc(-a.f * 3, -86, 6, 0, 6.283); ctx.fill(); }
 }
 function drawHPBar(a) {
-  if (a.dead || a.hydra || a.flyer) return;
+  if (a.dead || a.hydra || a.flyer || a.beast) return;
   const f = feet(a), x = SX(f.x), y = SY(f.y - 112 * sizeOf(a)) - 6;
   if (x < -60 || x > W + 60) return;
   const w = 62, h = 6, fr = clamp(a.hp / a.max, 0, 1);
@@ -6275,7 +6858,7 @@ function drawGadget(g) {
 }
 function drawPreview() {
   const P = st.P;
-  if (!drag || P.pow < .05 || P.dead) return;
+  if (!drag || P.pow < .05 || P.dead || P.sandT > 0) return;   // sand in your eyes hides the aim dots
   const s = shoulder(P), v = 300 + P.pow * 1100;
   const cp = catArmed() ? catPt() : null;
   let x = cp ? cp.x : s.x + Math.cos(P.aim) * 24, y = cp ? cp.y : s.y + Math.sin(P.aim) * 24, vx = Math.cos(P.aim) * v, vy = Math.sin(P.aim) * v;
@@ -6442,7 +7025,7 @@ function draw() {
   for (const h of st.helpers) { if (h.clone && !h.dead) cloneAura(h); drawArcher(h); }
   drawArcher(st.P);
   for (const e of st.enemies) drawArcher(e);
-  drawBossFX();
+  drawBossFX(); drawBeastFX();
   for (const m of st.horde ? [...st.marchers].sort((a, b) => (b.y || 0) - (a.y || 0)) : st.marchers) drawMarcher(m);
   if (st.horde) for (const R of st.horde.rams) drawRam(R);
   for (const a of st.allies) drawMarcher(a);
@@ -6457,9 +7040,10 @@ function draw() {
     ctx.strokeStyle = tg; ctx.lineWidth = 2; ctx.globalAlpha = .6; ctx.beginPath(); ctx.moveTo(-36, 0); ctx.lineTo(-110, 0); ctx.stroke(); ctx.globalAlpha = 1;
     if (hasPk(ar, 'fire') && Math.random() < .6) st.parts.push({ x: ar.x, y: ar.y, vx: rand(-30, 30), vy: rand(-60, 0), life: .3, max: .3, r: 2.2, col: '#ff9a45' });
     if (ar.magic) {
-      const el = ar.el === 'acid' ? ['rgba(140,255,90,.4)', '#e6ffc0', '#8cff5a', '#5fd13a', 'spark'] : ar.el === 'zap' ? ['rgba(255,240,90,.4)', '#fff8b0', '#ffe14a', '#ffffff', 'spark'] : ar.el === 'ice' ? ['rgba(150,220,255,.4)', '#e8f8ff', '#9fe6ff', '#ffffff', 'spark'] : ['rgba(255,140,60,.35)', '#ffd27a', '#ff9a45', '#ff5a2e', 'flame'];
-      ctx.fillStyle = el[0]; ctx.beginPath(); ctx.arc(0, 0, 14, 0, 6.283); ctx.fill();
-      ctx.fillStyle = el[1]; ctx.beginPath(); ctx.arc(0, 0, 7, 0, 6.283); ctx.fill();
+      const el = ar.el === 'web' ? ['rgba(238,243,250,.45)', '#ffffff', '#eef3fa', '#c9c1d6', 'spark'] : ar.el === 'acid' ? ['rgba(140,255,90,.4)', '#e6ffc0', '#8cff5a', '#5fd13a', 'spark'] : ar.el === 'zap' ? ['rgba(255,240,90,.4)', '#fff8b0', '#ffe14a', '#ffffff', 'spark'] : ar.el === 'ice' ? ['rgba(150,220,255,.4)', '#e8f8ff', '#9fe6ff', '#ffffff', 'spark'] : ['rgba(255,140,60,.35)', '#ffd27a', '#ff9a45', '#ff5a2e', 'flame'];
+      const bz = ar.bz || 1;
+      ctx.fillStyle = el[0]; ctx.beginPath(); ctx.arc(0, 0, 14 * bz, 0, 6.283); ctx.fill();
+      ctx.fillStyle = el[1]; ctx.beginPath(); ctx.arc(0, 0, 7 * bz, 0, 6.283); ctx.fill();
       if (Math.random() < .7) P_(ar.x, ar.y, rand(-30, 30), rand(-60, 0), .35, 3, Math.random() < .5 ? el[2] : el[3], el[4]);
       ctx.restore(); continue;
     }
@@ -6874,7 +7458,8 @@ function qButtons(Q, sel, L, LA) {
   for (const i of qOrder(Q)) {
     if (i < 0) { const t = -i; h += `<button type="button" class="empty t${t}" disabled><i class="qi">·</i><span>EMPTY</span><small>—</small><em class="tier">${TIER_NAME[t]}</em></button>`; continue; }
     const o = Q[i], cls = L ? (LA === i ? 'on' : o.k2 ? 'empty' : 'pickme') : sel === i ? 'on' : '';
-    h += `<button type="button" data-i="${i}" class="${cls} t${tierOf(o)}${o.newT > st.t ? ' isnew' : ''}"${L && o.k2 ? ' disabled' : ''}><i class="qi">${qIcon(o)}</i><span style="color:${qCol(o)}">${powShort(o)}</span><small>${o.newT > st.t ? '<b class="qnew">NEW</b>' : megaTag(o)}</small><em class="tier">${o.saved ? '✓ SAVED' : TIER_NAME[tierOf(o)]}</em></button>`;
+    const wb = o.webT > st.t;
+    h += `<button type="button" data-i="${i}" class="${cls} t${tierOf(o)}${o.newT > st.t ? ' isnew' : ''}${wb ? ' webbed' : ''}"${L && o.k2 ? ' disabled' : ''}><i class="qi">${qIcon(o)}</i><span style="color:${qCol(o)}">${powShort(o)}</span><small>${wb ? '🕸 ' + Math.ceil(o.webT - st.t) + 's' : o.newT > st.t ? '<b class="qnew">NEW</b>' : megaTag(o)}</small><em class="tier">${o.saved ? '✓ SAVED' : TIER_NAME[tierOf(o)]}</em></button>`;
   }
   return h;
 }
@@ -7157,6 +7742,7 @@ function pickSlot(i) {   // -1 = plain arrows
   if (st.linking) { if (i >= 0) linkTap(i); return; }
   const q = i >= 0 ? st.quiver[i] : null;
   if (i >= 0 && !q) return;
+  if (q && q.webT > st.t) { text(feet(st.P).x, feet(st.P).y - 150, 'WEBBED FOR ' + Math.ceil(q.webT - st.t) + ' s · HIT HER WITH FIRE', WEB_COL, 13, 1.3); sfx('click'); return; }
   st.power = q; sfx('click');
 }
 /* ---------- the forge: spend horde points on a linked arrow you keep for the whole run (lost at game over) ---------- */
@@ -7224,7 +7810,7 @@ function drawQuiver() {
     return;
   }
   const FG = st.forged || [];
-  const sig = st.quiver.map(o => o.k + (o.k2 || '') + (o.gc || '') + (o.saved ? 's' : '') + (o.newT > st.t ? 'n' : '') + o.shots).join() + '|' + st.quiver.indexOf(st.power) + '|' + st.links + st.linking + st.linkA + '|' + FG.map(o => o.k + o.k2 + o.shots).join() + FG.indexOf(st.power);
+  const sig = st.quiver.map(o => o.k + (o.k2 || '') + (o.gc || '') + (o.saved ? 's' : '') + (o.newT > st.t ? 'n' : '') + (o.webT > st.t ? 'w' + Math.ceil(o.webT - st.t) : '') + o.shots).join() + '|' + st.quiver.indexOf(st.power) + '|' + st.links + st.linking + st.linkA + '|' + FG.map(o => o.k + o.k2 + o.shots).join() + FG.indexOf(st.power);
   if (sig === quiverSig) return;
   quiverSig = sig;
   const sel = st.quiver.indexOf(st.power);
@@ -7478,14 +8064,18 @@ function setupPractice() {
   camX = homeCam();
 }
 // fight any boss in the practice range (you can't die here)
-const PRAC_BOSS = ['ship', 'giant', 'wizard', 'hydra'], PRAC_BOSS_ICO = { ship: '🎈', giant: '👹', wizard: '🧙', hydra: '🐉' };
+const PRAC_BOSS = ['ship', 'spider', 'giant', 'worm', 'wizard', 'hydra'], PRAC_BOSS_ICO = { ship: '🎈', giant: '👹', wizard: '🧙', hydra: '🐉', spider: '🕷️', worm: '🪱' };
 const PRAC_BOSS_DESC = { ship: 'Flies about. Pop the balloon 6 times to crash it', giant: 'Walks at you, throws boulders, swings a club. Shoot the boulders!',
+  spider: 'Hangs on silk, spits web, pounces, webs your quiver and spins nets. Lob onto her red hourglass. Fire burns webs',
+  worm: 'Burrows, smashes your tower, spits acid, whips its tail, sprays sand. Shoot inside its open mouth (explosive = boom inside)',
   wizard: 'Jumps from tower to tower, throws fireballs', hydra: 'Shoot a head off and two grow back. Only the heart hurts it. Hit the tail tip to make it rear up' };
 function practiceBoss(bt) {
   st.pracBoss = bt;
   st.enemies = []; st.boulders = []; st.P.tpTag = null; st.shotDmg = 0;
   for (const ar of st.arrows) if (ar.owner !== st.P) ar.done = true;
-  const e = mkArcher({ ship: 1300, giant: 1650, wizard: 1300, hydra: 1450 }[bt], rand(90, 160), -1, Math.round((50 + st.level * 8) * BOSS_INFO[bt].hp), false, 54);
+  if (st.P.home) { st.P.x = st.P.home.x; st.P.h = st.P.home.h; st.P.home = null; }
+  st.P.stickT = 0; st.P.sandT = 0;
+  const e = mkArcher({ ship: 1300, giant: 1650, wizard: 1300, hydra: 1450, spider: 1250, worm: 1350 }[bt], rand(90, 160), -1, Math.round((50 + st.level * 8) * BOSS_INFO[bt].hp), false, 54);
   e.name = 'BOSS'; e.boss = true; e.chops = []; e.kind = 'archer'; e.aiT = 2.5;
   makeBoss(e, bt, (PRAC_BOSS.indexOf(bt) + 1) * 5);
   st.enemies.push(e);
