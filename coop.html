@@ -156,7 +156,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 
   <div class="overlay" id="startScreen">
     <div class="panel" style="gap:12px">
-      <h1 class="title" style="font-size:clamp(34px,8vw,52px)">STICK DUEL<br><em>CO-OP</em></h1>
+      <h1 class="title" id="lobbyTitle" style="font-size:clamp(34px,8vw,52px)">STICK DUEL<br><em>CO-OP</em></h1>
       <p class="small" id="lobbyStatus">Team up against the enemy archers. Watch out: your arrows can hit your team.</p>
       <div id="lobbyMain" class="panel" style="gap:10px">
         <label class="small" for="nameIn">Your name</label>
@@ -175,6 +175,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
           <p class="code" id="codeOut">····</p>
           <button class="btn alt sm" id="inviteBtn" type="button">INVITE FRIENDS</button>
           <ul class="roster" id="roster"></ul>
+          <button class="btn alt sm" id="botsBtn" type="button" hidden>BOTS: OFF</button>
           <button class="btn" id="startBtn" type="button" hidden>START</button>
         </div>
         <div class="panel" id="qrWrap" style="gap:6px;width:auto" hidden>
@@ -187,7 +188,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
         <button class="btn alt" id="shareBtn" type="button" style="font-size:12px;padding:9px 14px">SHARE GAME</button>
         <button class="btn alt" id="installBtn" type="button" data-install style="font-size:12px;padding:9px 14px">ADD TO HOME SCREEN</button>
       </div>
-      <p class="small"><a href="index.html" style="color:var(--ember)">Versus</a> · <a href="solo.html" style="color:var(--ember)">Single player</a></p>
+      <p class="small" id="modeLinks"><a href="coop.html?vs" style="color:var(--ember)">Versus</a> · <a href="coop.html" style="color:var(--ember)">Co-op</a> · <a href="solo.html" style="color:var(--ember)">Single player</a> · <a href="./" style="color:var(--ember)">Menu</a></p>
     </div>
   </div>
 
@@ -232,7 +233,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
         <button class="btn alt" id="forgeDone" type="button" style="font-size:16px;padding:10px 22px">TO THE SHOP ▶</button>
       </div>
       <p class="small" id="forgeWait"></p>
-      <p class="small" style="opacity:.7">Every forge visit: 2 forges, using only today's powers (new picks every horde). Forge 2 POWERFUL arrows, or 1 POWERFUL arrow then a GAME CHANGER from it (or from a Powerful arrow in your quiver, which gets used up). Arrows in your quiver can be used too: they are free and get used up. Forged arrows turn up in the field as crates for anyone on the team for the rest of the run. Game over and they are gone.</p>
+      <p class="small" style="opacity:.7">Every forge visit: 2 forges, using only today's powers (new picks every visit). Forge 2 POWERFUL arrows, or 1 POWERFUL arrow then a GAME CHANGER from it (or from a Powerful arrow in your quiver, which gets used up). Arrows in your quiver can be used too: they are free and get used up. Forged arrows turn up in the field as crates for anyone on the team for the rest of the run. Game over and they are gone.</p>
     </div>
   </div>
 
@@ -266,7 +267,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
     <div class="panel">
       <h2 class="title" id="overTitle" style="font-size:clamp(34px,9vw,48px)">TEAM <em>FELL</em></h2>
       <p class="newbest" id="newBest">REACHED LEVEL 1</p>
-      <table class="team"><thead><tr><th style="text-align:left">ARCHER</th><th>KILLS</th><th>HEADS</th><th>GP EARNED</th></tr></thead><tbody id="teamRows"></tbody></table>
+      <table class="team"><thead><tr><th style="text-align:left">ARCHER</th><th>KILLS</th><th id="overHeads">HEADS</th><th>GP EARNED</th></tr></thead><tbody id="teamRows"></tbody></table>
       <button class="btn" id="againBtn" type="button">PLAY AGAIN</button>
       <p class="small" id="overWait" hidden>Waiting for the host to start again</p>
       <button class="btn alt sm" id="overLeave" type="button">LEAVE</button>
@@ -430,9 +431,22 @@ const ownerOf = a => !a ? null : a.helper ? (a.owner || null) : (a.isP ? a : nul
 const inPlay = p => p && p.inLevel && !p.dead;
 const livePlayers = () => st.players.filter(inPlay);
 const spectating = () => !inPlay(st.P);
-function nearestEnemy(p) { let b = null; for (const e of st.enemies) if (!e.dead && (!b || Math.abs(e.x - p.x) < Math.abs(b.x - p.x))) b = e; return b; }
+function nearestEnemy(p) { let b = null; for (const e of FOES(p)) if (!e.dead && (!b || Math.abs(e.x - p.x) < Math.abs(b.x - p.x))) b = e; return b; }
 const sideToward = p => { const e = nearestEnemy(p); return e && e.x < p.x ? -1 : 1; };
 const fieldL = () => Math.min(...st.players.map(p => p.x), ...st.enemies.map(e => e.x));
+/* ---------- VERSUS (Craig 2026-11-15): 2-4 players, everyone against everyone. It is this co-op game with st.vs on, so every arrow,
+   object and Game Changer works here too. All arrow effects hit the other players (never the one who shot it). ---------- */
+const VS_WIN = 3, VS_SUDDEN = 90, VS_FORGE = 2, VS_MAXP = 4, VS_LV = 6;
+let VS_MODE = /[?&]vs\b/.test(location.search), VS_BOTS = false;
+// is archer a someone that an effect from `by` can hurt in versus? (another player, or their helper)
+const vsFoe = (a, by) => !!(st && st.vs) && !!a && !!a.isP && ownerOf(a) !== (ownerOf(by) || null);
+// who an effect from `by` can hurt: co-op = the enemies; versus = the bots + every other player and their helpers
+function FOES(by) {
+  if (!st.vs) return st.enemies;
+  const o = ownerOf(by);
+  return st.enemies.concat(st.players.filter(p => inPlay(p) && p !== o), st.helpers.filter(h => !h.dead && !h.swallowed && h.owner !== o));
+}
+let GC_BY = null;   // whose Game Changer is being worked out right now (gcLive)
 
 const GROUND = 30;
 const SX = x => (x - camX) * sc, SY = y => H - GROUND + camY + y * sc;
@@ -470,6 +484,8 @@ function newGame() {
   for (const r of NET.roster) st.players.push(mkPlayer(r));
   st.P = st.players.find(p => p.pid === NET.myId) || SPEC_P;
   try { const q = new URLSearchParams(location.search), lv = +q.get('lv'); if (lv > 1) st.level = Math.min(99, Math.floor(lv)); } catch (e) {}
+  st.vs = VS_MODE; st.vsWins = {}; st.round = 0;
+  st.vsBots = VS_MODE ? (VS_BOTS ? Math.max(0, VS_MAXP - st.players.length) : st.players.length < 2 ? 1 : 0) : 0;   // alone: at least one bot
   hintOn = true; CAM.hold = 0; CAM.focus = null;
   spawnLevel(true);
   camX = homeCam();
@@ -483,6 +499,7 @@ function spawnLevel(first) {
   if (isHost()) st.cy = ceilNow();   // this level's ceiling = the host's screen top
   for (const p of st.players) for (const q of p.forged || []) q.shots = q.max;   // forged arrows refill every level
   if (GC_TEST && !st.gcGiven) gcGive();
+  if (st.vs) { spawnVS(first); return; }
   const lv = st.level, np = Math.max(1, st.players.length), n = Math.min(lv, 20) + Math.min(4, np - 1);   // one more enemy every level (up to 20 + team bonus)
   st.enemies = [];
   // everyone, including anyone who joined mid-game, stands somewhere random on the field
@@ -575,11 +592,122 @@ function spawnLevel(first) {
   st.banner = { t: bossLv ? 'BOSS LEVEL ' + lv : 'LEVEL ' + lv, sub: (bossLv ? st.enemies[n - 1].name + ' · ' : '') + (n === 1 ? '1 ARCHER' : n + ' ARCHERS') + (nb ? ' · ' + nb + (nb === 1 ? ' ACID BAT' : ' ACID BATS') : '') + wx, life: 2.4 };
 }
 
+// a new versus round: everyone on their own tower at a random spot on a big field, random heights, spread apart
+function spawnVS(first) {
+  st.level = VS_LV; st.round = (st.round || 0) + 1; st.vsT = 0; st.vsOver = false; st.vsSudden = false; st.vsChamp = null;
+  for (const c of st.clones || []) if (c.type === 'a') removeClone(c);
+  st.clones = [];
+  const np = st.players.length, nb = st.vsBots || 0, tot = np + nb;
+  const span = 2600 + 700 * (tot - 1), xs = [];
+  const ok = x => xs.every(o => Math.abs(o - x) > 520) && (!xs.length || xs.some(o => Math.abs(o - x) < 2100));   // apart, but someone in range
+  for (let i = 0; i < tot; i++) {
+    let x = rand(0, span), t = 0;
+    while (t++ < 300 && !ok(x)) x = rand(0, span);
+    if (t >= 300) x = Math.max(...xs) + rand(600, 1000);
+    xs.push(x);
+  }
+  st.enemies = [];
+  st.players.forEach((p, i) => {
+    Object.assign(p, { x: xs[i], h: rand(80, 230), f: 1, dead: false, inLevel: true, hp: p.max, rot: 0, vr: 0, dx: 0, dy: 0, vx: 0, vy: 0, stuck: [], headRed: 0, pow: 0, reload: 0, ready: false,
+      frozen: 0, stun: 0, blind: 0, webT: 0, webZap: 0, burn: 0, slowT: 0, slowM: 1, acidT: 0, confT: 0, shrink: 0, grow: 0, miniT: 0, wobT: 0, swallow: null, swallowed: false, hitT: 0, lastBy: null });
+    delete p.home;
+  });
+  const KINDS = ['archer', 'crossbow', 'mage'];
+  for (let i = 0; i < nb; i++) {
+    const e = mkArcher(xs[np + i], rand(80, 230), -1, 100, false, 54);
+    Object.assign(e, { name: 'BOT ' + (i + 1), boss: false, chops: [], kind: KINDS[i % 3], bot: true, dy: 0, rise: 0, aiT: 3 + i * rand(.7, 1.3) });
+    st.enemies.push(e);
+  }
+  for (const e of st.enemies) { const T = st.players.reduce((b, p) => !b || Math.abs(p.x - e.x) < Math.abs(b.x - e.x) ? p : b, null); e.f = T && T.x < e.x ? -1 : 1; e.aim = e.f > 0 ? -.35 : Math.PI + .35; }
+  st.pinned = []; st.arrows = [];
+  for (const p of st.players) { p.bside = sideToward(p); p.f = p.bside; p.aim = p.f > 0 ? -.35 : Math.PI + .35; }
+  st.helpers = st.helpers.filter(h => !h.dead && !h.clone && st.players.includes(h.owner));
+  const hn = new Map();
+  for (const h of st.helpers) {
+    const o = h.owner, k = hn.get(o) || 0; hn.set(o, k + 1);
+    Object.assign(h, { x: o.x - o.bside * (72 + k * 52), h: Math.max(40, o.h - 22 - k * 16), f: o.bside, dx: 0, dy: 0, rot: 0, vr: 0, vx: 0, vy: 0, hp: h.max, stuck: [], aiAim: null, aiT: 2, swallow: null, swallowed: false, shrink: 0 });
+  }
+  st.marchers = []; st.marchQ = []; st.allies = []; st.allyQ = 0;
+  st.tornados = []; st.mags = []; st.planets = []; st.gcfx = []; st.storms = []; st.holes = []; st.showers = []; st.rocks = []; st.boulders = []; st.fires = []; st.steams = []; st.timeScale = 1;
+  st.wind = Math.random() < .5 ? 0 : Math.round(rand(-70, 70));
+  const wr = Math.random();
+  st.weather = st.round === 1 ? 'clear' : wr < .5 ? 'clear' : wr < .67 ? 'night' : wr < .84 ? 'storm' : 'fog';
+  if (st.weather === 'storm') { st.wind = Math.round(rand(-120, 120)); st.windT = st.wind; st.stormT = rand(2.5, 4); }
+  st.fogT = 0;
+  spawnGadgets();
+  const wx = { clear: '', night: ' · NIGHT', storm: ' · STORM', fog: ' · FOG' }[st.weather];
+  st.banner = { t: 'ROUND ' + st.round, sub: 'FIRST TO ' + VS_WIN + ' WINS · ' + tot + ' ARCHERS' + wx, life: 2.4 };
+}
+const vsScore = () => st.players.map(p => p.name + ' ' + (st.vsWins[p.pid] || 0)).concat(st.vsBots ? ['BOTS ' + (st.vsWins.bots || 0)] : []).join(' · ');
+// every frame in versus: the sudden-death clock, and is the round over?
+function vsStep(dt) {
+  if (st.vsOver || st.nextT > 0 || st.overT > 0) return;
+  st.vsT = (st.vsT || 0) + dt;
+  if (st.vsT > VS_SUDDEN) {   // nobody can hide for ever: everyone (bots too) slowly loses health, faster and faster
+    if (!st.vsSudden) { st.vsSudden = true; st.banner = { t: 'SUDDEN DEATH', sub: 'EVERYONE IS LOSING HEALTH', life: 2.2 }; sfx('void'); shake(6); }
+    const d = (2 + (st.vsT - VS_SUDDEN) * .1) * dt;
+    for (const a of [...livePlayers(), ...st.enemies.filter(e => !e.dead)]) { a.hp -= d; if (a.hp <= 0) kill(a, { vx: 1 }, 'body'); }
+  }
+  const live = livePlayers(), bots = st.enemies.some(e => !e.dead);
+  if (live.length + (bots ? 1 : 0) > 1) return;
+  st.vsOver = true;
+  const Wn = live[0] || null;
+  if (Wn) { st.vsWins[Wn.pid] = (st.vsWins[Wn.pid] || 0) + 1; Wn.gp += 40; Wn.earned = (Wn.earned || 0) + 40; const f = feet(Wn); text(f.x, f.y - 170, 'ROUND WON · +40 GP', Wn.col, 18, 2); }
+  else if (bots) st.vsWins.bots = (st.vsWins.bots || 0) + 1;
+  const champ = Wn ? (st.vsWins[Wn.pid] >= VS_WIN ? Wn.name : null) : bots && st.vsWins.bots >= VS_WIN ? 'THE BOTS' : null;
+  st.banner = { t: Wn ? Wn.name + ' WINS ROUND ' + st.round : bots ? 'THE BOTS WIN ROUND ' + st.round : 'DRAW', sub: champ ? champ + ' WIN' + (champ === 'THE BOTS' ? '' : 'S') + ' THE MATCH!' : vsScore(), life: 2.8 };
+  for (const ar of st.arrows) ar.done = true;
+  for (const B of st.enemies) B.aiAim = null;
+  sfx('heal'); st.slow = Math.max(st.slow, .6);
+  if (champ) { st.vsChamp = champ; st.overT = 3.2; } else st.nextT = 3;
+}
+// between rounds: the shop, and a forge visit every VS_FORGE rounds (everyone gets 60 forge points for it)
+function vsBreak() {
+  if (st.round % VS_FORGE === 0) { for (const p of st.players) p.bank = (p.bank || 0) + 60; startForge(); }
+  else startShop();
+}
+// versus: status effects on players (in co-op they only ever land on enemies)
+function vsStatus(dt) {
+  for (const p of [...st.players, ...st.helpers]) {
+    if (p.dead) { p.burn = 0; continue; }
+    if (p.burn > 0) {
+      p.burn -= dt; p.hp -= 7 * dt;
+      if (Math.random() < .4) { const f = feet(p); P_(f.x + rand(-8, 8), f.y - rand(30, 90), rand(-20, 20), rand(-90, -30), .45, rand(2.4, 4), Math.random() < .5 ? '#ff9a45' : '#ffd27a', 'flame'); }
+      if (p.hp <= 0) { kill(p, { vx: -1, owner: p.lastBy }, 'body'); continue; }
+    }
+    if (p.frozen > 0) p.frozen -= dt;
+    if (p.stun > 0) p.stun -= dt;
+    if (p.blind > 0) p.blind -= dt;
+    if (p.slowT > 0 && (p.slowT -= dt) <= 0) { p.slowM = 1; text(feet(p).x, feet(p).y - 130, 'SPEED BACK', '#7ad7ff', 12, .8); }
+    webStep(p, dt);
+    if (p.helper && (p.frozen > 0 || p.stun > 0 || p.webT > 0)) { p.aiAim = null; p.aiT = Math.max(p.aiT || 0, .3); }
+  }
+}
+const vsHeld = P => st.vs && (P.frozen > 0 ? 'FROZEN' : P.webT > 0 ? 'WEBBED' : P.stun > 0 ? 'STUNNED' : null);
+// versus: another player's barrier, magnet or Iron Dome stops your arrow
+function vsBlock(ar, sdt) {
+  const me = ownerOf(ar.owner);
+  for (const p of st.players) {
+    const B = p.barrier;
+    if (!B || p === me || !inPlay(p)) continue;
+    const bx = barrierX(p);
+    if (Math.abs(ar.x - bx) < 7 && ar.y > barrierTop(p) && ar.y < barrierBot(p)) {
+      const dmg = hasPk(ar, 'boom') ? 40 : 20;
+      B.hp -= dmg; B.hitT = .15; ar.done = true;
+      text(bx, ar.y - 14, '-' + dmg, '#8fc8ff', 14, .7); sfx('glass');
+      for (let q = 0; q < 12; q++) st.parts.push({ x: ar.x, y: ar.y, vx: rand(20, 200) * -p.bside, vy: rand(-160, 60), life: .4, max: .4, r: 2.2, col: '#8fc8ff' });
+      if (B.hp <= 0) { p.barrier = null; text(bx, barrierTop(p) - 10, 'BARRIER DOWN', '#ff5a4e', 16, 1.2); shake(6); }
+      return true;
+    }
+  }
+  return domeCatch(ar) || magPull(ar, sdt);
+}
+
 /* ---------- gadgets: fans, windows, health ---------- */
-const gadgetCap = () => Math.min(7, 3 + Math.floor(st.level / 4) + Math.floor((st.players.length - 1) / 2));   // most things in the level at once (portals not counted)
+const gadgetCap = () => st.vs ? Math.min(12, 6 + st.players.length + (st.vsBots || 0)) : Math.min(7, 3 + Math.floor(st.level / 4) + Math.floor((st.players.length - 1) / 2));   // most things in the level at once (portals not counted)
 const gLeft = () => fieldL() + 160;
 const FIRST_WIN = () => null;
-const EXTRA_PICKUPS = () => Math.floor((st.players.length - 1) / 2);
+const EXTRA_PICKUPS = () => st.vs ? Math.ceil((st.players.length + (st.vsBots || 0)) / 2) : Math.floor((st.players.length - 1) / 2);   // versus: plenty of crates to fight over
 /* ---------- gadgets: only a few at once; during the level they move, vanish, or get swapped for something new ---------- */
 // a free spot away from every other gadget
 function gadgetSpot(type, near) {
@@ -852,7 +980,7 @@ const HT_COL = '#ff8ad8';
 const isGad = o => !!o && !('max' in o);
 function htObj(id) {
   if (!id) return null;
-  return st.enemies.find(e => e.id === id && !e.dead) || st.gadgets.find(g => g.id === id && !g.gone && !g.falling) || null;
+  return st.enemies.find(e => e.id === id && !e.dead) || (st.vs && st.players.find(p => p.id === id && inPlay(p))) || st.gadgets.find(g => g.id === id && !g.gone && !g.falling) || null;
 }
 function htPt(o) {
   if (isGad(o)) return { x: o.x, y: o.y + (o.bob !== undefined ? Math.sin(st.t * 2 + o.bob) * 6 : 0) };
@@ -868,7 +996,7 @@ function htPick(w) {   // the archer or object nearest the tap (bosses have a bi
   return best;
 }
 function htNext(P, cur) {   // 🎯 button: nearest first, then further out, round and round
-  const f = feet(P).x, L = [...st.enemies.filter(E => !E.dead), ...st.gadgets.filter(g => !g.gone && !g.falling && g.type !== 'cloud')].sort((a, b) => Math.abs(htPt(a).x - f) - Math.abs(htPt(b).x - f));
+  const f = feet(P).x, L = [...FOES(P).filter(E => !E.dead), ...st.gadgets.filter(g => !g.gone && !g.falling && g.type !== 'cloud')].sort((a, b) => Math.abs(htPt(a).x - f) - Math.abs(htPt(b).x - f));
   return L.length ? L[(L.findIndex(o => o.id === cur) + 1) % L.length] : null;
 }
 function htDraw(id) {
@@ -1284,17 +1412,17 @@ function blast(x, y, owner, rider) {
   shake(9); sfx('boom');
   if (RB) {
     glow(x, y, 110 * bz, 'rgba(' + RB[0] + ',', .4); ring(x, y, 90 * bz, RB[1], .45, 4);
-    if (owner && owner.isP) for (const a of st.enemies) { if (a.dead) continue; const f = feet(a); if (Math.hypot(f.x - x, f.y - 55 - y) < 85 * bz) infuse(a, rider, ownerOf(owner)); }
+    if (owner && owner.isP) for (const a of FOES(owner)) { if (a.dead) continue; const f = feet(a); if (Math.hypot(f.x - x, f.y - 55 - y) < 85 * bz) infuse(a, rider, ownerOf(owner)); }
   }
   const by = ownerOf(owner);
-  const targets = owner.isP ? st.enemies : [...st.players.filter(inPlay), ...st.helpers];   // your blasts only hit enemies
+  const targets = owner.isP ? FOES(owner) : [...st.players.filter(inPlay), ...st.helpers];   // your blasts only hit enemies
   for (const a of targets) {
     if (a.dead) continue;
     const f = feet(a), d = Math.hypot(f.x - x, f.y - 55 - y);
     if (d < 85 * bz) {
       const dmg = Math.round(28 * (1 - d / (110 * bz)));
       a.hp -= dmg; a.hitT = .12;
-      if (!a.isP && by) a.lastBy = by;
+      if (by && (!a.isP || st.vs)) a.lastBy = by;
       text(f.x, f.y - 104, '-' + dmg, '#ffd27a', 18, .9);
       if (a.hp <= 0) kill(a, { vx: f.x - x || 1, owner }, 'body');
     }
@@ -1423,8 +1551,8 @@ function headshotFX(ar, a) {
 }
 function onHit(ar, a, z) {
   const base = z === 'head' ? 48 : z === 'body' ? 26 : 15;
-  const sp = ownerOf(ar.owner);
-  if (hasPk(ar, 'clone') && sp && a.isP && !a.helper && a !== sp && shotOnce(ar, 'clone')) { ar.done = true; cloneMate(a); return; }   // no friendly fire: it clones them
+  const sp = ownerOf(ar.owner), vsP = !!sp && vsFoe(a, sp);   // versus: an enemy player takes every effect
+  if (hasPk(ar, 'clone') && sp && a.isP && !a.helper && a !== sp && !vsP && shotOnce(ar, 'clone')) { ar.done = true; cloneMate(a); return; }   // no friendly fire: it clones them
   const dmg = Math.round(base * rand(.9, 1.15) * (ar.dmgMul || 1) * (sp ? sp.up.dmgBoost : 1) * (a.up && a.up.armour ? 1 - a.up.armour : 1));
   a.hp -= dmg; a.hitT = .12; a.flinchT = st.t; reactHit(ar, a);
   if (a.bc) stopCharge(a, ar.owner);
@@ -1433,26 +1561,26 @@ function onHit(ar, a, z) {
   const p = toLocal(a, ar.x, ar.y);
   if (a.isP || a.helper || !canBounce(ar)) a.stuck.push({ x: p.x, y: p.y, ang: Math.atan2(ar.vy, ar.vx) - a.rot });
   if (a.stuck.length > 14) a.stuck.shift();
-  if (hasPk(ar, 'pierce') && !a.isP) { (ar.hit = ar.hit || new Set()).add(a); } else if (!a.isP && !a.helper && bounceOff(ar, a, 'hit')) { /* bounced off, keeps going */ } else ar.done = true;
+  if (hasPk(ar, 'pierce') && (!a.isP || vsP)) { (ar.hit = ar.hit || new Set()).add(a); } else if ((!a.isP && !a.helper || vsP) && bounceOff(ar, a, 'hit')) { /* bounced off, keeps going */ } else ar.done = true;
   blood(ar.x, ar.y, ar.vx, ar.vy, z === 'head' ? 22 : 12);
   const f = feet(a);
-  if (z === 'head') { a.headRed = 1; if (a.isP || !ar.owner || !ar.owner.isP) text(f.x, f.y - 120, 'HEADSHOT', '#ff5a4e', 22, 1.2); if (!a.isP && sp) sp.heads++; }
+  if (z === 'head') { a.headRed = 1; if (a.isP || !ar.owner || !ar.owner.isP) text(f.x, f.y - 120, 'HEADSHOT', '#ff5a4e', 22, 1.2); if ((!a.isP || vsP) && sp) sp.heads++; }
   text(f.x + rand(-14, 14), f.y - 100, '-' + dmg, a.isP ? '#ff5a4e' : '#f6eedf', 18, .9);
-  if (a.isP && !a.helper && sp && sp !== a) text(f.x, f.y - 140, 'FRIENDLY FIRE!', sp.col, 15, 1.2);
-  if (z === 'head' && !a.isP && ar.owner && ar.owner.isP) headshotFX(ar, a); else shake(z === 'head' ? 8 : 4);
+  if (a.isP && !a.helper && sp && sp !== a && !st.vs) text(f.x, f.y - 140, 'FRIENDLY FIRE!', sp.col, 15, 1.2);
+  if (z === 'head' && (!a.isP || vsP) && ar.owner && ar.owner.isP) headshotFX(ar, a); else shake(z === 'head' ? 8 : 4);
   sfx(z === 'head' ? 'head' : 'hit');
-  if (!a.isP && sp) { const g = Math.round(dmg * .5); sp.gp += g; sp.earned += g; a.lastBy = sp; }
-  if (!a.isP && ar.vol) ar.vol.hits++;
-  if (!a.isP && sp && ar.owner === sp && sp.up.leech) sp.hp = Math.min(sp.max, sp.hp + sp.up.leech);
+  if ((!a.isP || vsP) && sp) { const g = Math.round(dmg * .5); sp.gp += g; sp.earned += g; a.lastBy = sp; }
+  if ((!a.isP || vsP) && ar.vol) ar.vol.hits++;
+  if ((!a.isP || vsP) && sp && ar.owner === sp && sp.up.leech) sp.hp = Math.min(sp.max, sp.hp + sp.up.leech);
   impactFX(ar, ar.x, ar.y, true);
-  if (hasPk(ar, 'clone') && sp && !a.isP && !a.helper && shotOnce(ar, 'clone')) cloneArcher(a, sp);
-  if (hasPk(ar, 'fire') && !a.isP) { a.burn = 3.5; text(f.x, f.y - 132, 'BURNING', '#ff9a45', 14, .9); }
-  if (hasPk(ar, 'slowmo') && !a.isP) {
+  if (hasPk(ar, 'clone') && sp && (!a.isP && !a.helper || vsP) && shotOnce(ar, 'clone')) cloneArcher(a, sp);
+  if (hasPk(ar, 'fire') && (!a.isP || vsP)) { a.burn = 3.5; text(f.x, f.y - 132, 'BURNING', '#ff9a45', 14, .9); }
+  if (hasPk(ar, 'slowmo') && (!a.isP || vsP)) {
     a.slowM = a.slowT > 0 ? Math.max(.04, a.slowM * .5) : .4; a.slowT = 4.5;
     text(f.x, f.y - 132, 'SLOWED ×' + (1 / a.slowM).toFixed(a.slowM < .1 ? 0 : 1), '#7ad7ff', 14, 1.1);
     for (let k = 0; k < 2; k++) ring(f.x, f.y - 60, 60 + k * 30, '#7ad7ff', .6 + k * .2, 2.5);
   }
-  const mate = a.isP && !!ar.owner && !!ar.owner.isP;   // effects never change a teammate
+  const mate = a.isP && !!ar.owner && !!ar.owner.isP && !vsP;   // effects never change a teammate
   if (mate) {}
   else if (comboOf(ar) === 'grow+shrink' && a !== ar.owner) { a.wobT = 4; if (!a.isP) { a.stun = Math.max(a.stun || 0, 4); a.aiAim = null; a.pow = 0; } text(f.x, f.y - 150, 'SIZE WOBBLE!', GROW_COL, 16, 1.2); }
   else if (hasPk(ar, 'grow') && a !== ar.owner) growA(a);
@@ -1470,13 +1598,13 @@ function onHit(ar, a, z) {
     text(f.x, f.y - 150, 'TAGGED: NEXT ARROW SENDS THEM THERE', '#d58cff', 13, 1.6);
     ring(f.x, f.y - 50, 60, '#d58cff', .6, 3);
   }
-  if (hasPk(ar, 'web') && !a.isP) webA(a, ar, ar.owner && ar.owner.isP ? ar.owner : null);
-  if (hasPk(ar, 'scope') && hasPk(ar, 'shrink') && !a.isP && ar.owner && ar.owner.isP) miniA(a);   // MINIATURIZE
-  if (hasPk(ar, 'ice') && !a.isP) { a.frozen = 3.5; a.aiAim = null; a.pow = 0; text(f.x, f.y - 132, 'FROZEN', '#bfe9ff', 14, .9); }
+  if (hasPk(ar, 'web') && (!a.isP || vsP)) webA(a, ar, ar.owner && ar.owner.isP ? ar.owner : null);
+  if (hasPk(ar, 'scope') && hasPk(ar, 'shrink') && (!a.isP || vsP) && ar.owner && ar.owner.isP) miniA(a);   // MINIATURIZE
+  if (hasPk(ar, 'ice') && (!a.isP || vsP)) { a.frozen = 3.5; a.aiAim = null; a.pow = 0; text(f.x, f.y - 132, 'FROZEN', '#bfe9ff', 14, .9); }
   if (hasPk(ar, 'fire')) for (let i = 0; i < 8; i++) st.parts.push({ x: ar.x, y: ar.y, vx: rand(-80, 80), vy: rand(-160, 0), life: .5, max: .5, r: 2.4, col: '#ff9a45' });
-  if (hasPk(ar, 'storm') && !a.isP && shotOnce(ar, 'storm')) {
+  if (hasPk(ar, 'storm') && (!a.isP || vsP) && shotOnce(ar, 'storm')) {
     const zr = riderOf(ar, 'storm'), zc = zr ? rideOf(zr)[1] : undefined;
-    for (const o of st.enemies) {
+    for (const o of FOES(sp || ar.owner)) {
       if (o === a || o.dead) continue;
       const of = feet(o); o.hp -= 18; o.hitT = .15;
       st.bolts.push({ x1: f.x, y1: f.y - 60, x2: of.x, y2: of.y - 60, life: .35, col: zc });
@@ -1511,7 +1639,11 @@ function kill(a, ar, z) {
     text(f.x, f.y - 150, a.name + (by && by !== a ? ' HIT BY ' + by.name : ' IS DOWN'), a.col || '#ff5a4e', 16, 2.2);
     ev({ k: 'down', id: a.id });
     st.slow = Math.max(st.slow, .4);
-    if (!st.players.some(inPlay) && !st.horde) { st.slow = .8; st.overT = 1.8; }
+    if (st.vs && by && by !== a && by.isP) {   // versus: a knock-out pays the one who did it
+      const b = 30 + (z === 'head' ? 15 : 0); by.gp += b; by.earned = (by.earned || 0) + b; by.kills++;
+      text(f.x, f.y - 175, '+' + b + ' GP ' + by.name, by.col, 16, 1.6);
+    }
+    if (!st.players.some(inPlay) && !st.horde && !st.vs) { st.slow = .8; st.overT = 1.8; }
     return;
   }
   st.kills++;
@@ -1576,22 +1708,22 @@ function meteorHit(R) {
   if (!RK) for (let i = 0; i < 14; i++) P_(x, y, rand(-200, 200), rand(-260, -20), rand(.4, .9), rand(2.5, 5), ['#ff9a45', '#ffd27a', '#ff5a2e'][i % 3], 'flame');
   for (let i = 0; i < 6; i++) P_(x, y, rand(-120, 120), rand(-160, -30), rand(.6, 1.1), rand(4, 7), 'rgba(70,55,60,.8)', 'smoke');
   shake(R.sm ? 2 : 6); sfx(R.sm ? 'thud' : 'boom');
-  for (const a of st.enemies) {   // arrow effects only hit enemies
+  for (const a of FOES(by)) {   // arrow effects only hit enemies (versus: the other players too)
     if (a.dead) continue;
     const f = feet(a), d = Math.hypot(f.x - x, f.y - 55 - y);
     if (d < 95 * rad) {
       const dmg = Math.round(34 * hv * (1 - d / (125 * rad)) * (a.isP && a.up ? 1 - (a.up.armour || 0) : 1));
       a.hp -= dmg; a.hitT = .12;
-      if (!a.isP && by) a.lastBy = by;
+      if (by && (!a.isP || st.vs)) a.lastBy = by;
       text(f.x, f.y - 104, '-' + dmg, a.isP ? '#ff5a4e' : '#ffd27a', 18, .9);
       if (a.hp <= 0) kill(a, { vx: f.x - x || 1, owner: by }, 'body');
     }
   }
-  if (R.k) for (const a of st.enemies) { if (a.dead) continue; const f = feet(a); if (Math.hypot(f.x - x, f.y - 55 - y) < 95 * rad) infuse(a, R.k, R.by, R.seen); }
+  if (R.k) for (const a of FOES(by)) { if (a.dead) continue; const f = feet(a); if (Math.hypot(f.x - x, f.y - 55 - y) < 95 * rad) infuse(a, R.k, R.by, R.seen); }
   if (R.k === 'storm') {   // THUNDER METEORS: each bolt strikes down from the sky and zaps the nearest enemy
     st.bolts.push({ x1: x + rand(-40, 40), y1: topY() - 80, x2: x, y2: y, life: .3, col: '#fff36b' }); st.flashA = Math.max(st.flashA || 0, .18); st.flashC = '255,250,190';
     let best = null, bd = 520;
-    for (const a of st.enemies) { if (a.dead) continue; const f = feet(a), d = Math.hypot(f.x - x, f.y - 55 - y); if (d < bd) { bd = d; best = a; } }
+    for (const a of FOES(by)) { if (a.dead) continue; const f = feet(a), d = Math.hypot(f.x - x, f.y - 55 - y); if (d < bd) { bd = d; best = a; } }
     if (best) { const f = feet(best); st.bolts.push({ x1: x, y1: y, x2: f.x, y2: f.y - 60, life: .35, col: '#fff36b' }); best.hp -= 12; best.hitT = .12; text(f.x, f.y - 104, '-12', '#fff36b', 15, .8); if (best.hp <= 0) kill(best, { vx: 1, owner: R.by }, 'body'); }
   }
   for (const e of st.enemies) {
@@ -1637,7 +1769,7 @@ function planetHit(Q) {
   for (let i = 0; i < 110; i++) { const a = rand(-3.1, 0), v = rand(250, 950); P_(x + rand(-140, 140), y - rand(0, 40), Math.cos(a) * v, Math.sin(a) * v, rand(.6, 1.4), rand(4, 9), ['#ff9a45', '#ffd27a', '#ff5a2e', '#8a6a52'][i % 4], i % 4 === 3 ? 'shard' : 'flame'); }
   for (let i = 0; i < 45; i++) P_(x + rand(-R * .6, R * .6), -rand(0, 30), rand(-120, 120), rand(-220, -60), rand(1, 2), rand(8, 14), 'rgba(90,70,70,.75)', 'smoke');
   text(x, -220, 'IMPACT!', '#ffd27a', 34, 1.8, 1);
-  for (const a of st.enemies) {   // only enemies: a heavy hit that falls off with distance
+  for (const a of FOES(by)) {   // only enemies: a heavy hit that falls off with distance
     if (a.dead) continue;
     const f = feet(a), d = Math.hypot(f.x - x, (f.y - 55 - y) * .6);
     if (d > R) continue;
@@ -1857,7 +1989,7 @@ function megaBlast(x, y, owner, s) {
   st.flashA = .5; st.flashC = '255,220,150'; shake(15); sfx('boom');
   for (let i = 0; i < 40; i++) { const a = rand(0, 6.283), v = rand(150, 420) * s; P_(x, y, Math.cos(a) * v, Math.sin(a) * v - 80, rand(.4, .9), rand(3, 6), ['#ff9a45', '#ffd27a', '#ff5a2e'][i % 3], 'flame'); }
   for (let i = 0; i < 16; i++) P_(x + rand(-40, 40), y + rand(-40, 40), rand(-160, 160), rand(-220, -40), rand(.8, 1.4), rand(6, 10), 'rgba(70,55,60,.8)', 'smoke');
-  for (const a of st.enemies) {
+  for (const a of FOES(by)) {
     if (a.dead) continue;
     const f = feet(a), d = Math.hypot(f.x - x, f.y - 55 - y);
     if (d < r) {
@@ -1903,7 +2035,7 @@ function comboStep(dt) {
   if (st.steams) st.steams = st.steams.filter(S => S.life > 0);
   for (const F of st.fires) {
     if (!F.burnE) continue;
-    for (const E of st.enemies) { if (E.dead) continue; const f = feet(E); if (Math.abs(f.x - F.x) < 50 && Math.abs(f.y - 30 - F.y) < 70) infuse(E, 'fire', F.by); }
+    for (const E of FOES(F.by)) { if (E.dead) continue; const f = feet(E); if (Math.abs(f.x - F.x) < 50 && Math.abs(f.y - 30 - F.y) < 70) infuse(E, 'fire', F.by); }
   }
   for (const F of st.fires) {   // walking through fire on the ground hurts: soldiers catch light
     if (F.y < -40) continue;
@@ -1930,7 +2062,7 @@ function railZap(ar, x, y) {
   const by = ownerOf(ar.owner), P = (ar.rail || [{ x: ar.sx ?? x, y: ar.sy ?? y }]).concat([{ x, y }]);
   for (let i = 1; i < P.length; i++) st.bolts.push({ x1: P[i - 1].x, y1: P[i - 1].y, x2: P[i].x, y2: P[i].y, life: .5, col: '#fff36b' });
   st.flashA = .35; st.flashC = '255,250,190'; sfx('zap'); comboText(x, y - 100, 'pierce+storm');
-  for (const E of st.enemies) {
+  for (const E of FOES(by)) {
     if (E.dead) continue;
     const f = feet(E), cx = f.x, cy = f.y - 55;
     if (!P.some(p => Math.hypot(p.x - cx, p.y - cy) < 75)) continue;
@@ -1946,7 +2078,7 @@ function comboTwister(T, dt) {
   T.zapT = .7;
   const by = T.by;
   let best = null, bd = 380;
-  for (const E of st.enemies) { if (E.dead) continue; const d = Math.abs(feet(E).x - T.x); if (d < bd) { bd = d; best = E; } }
+  for (const E of FOES(by)) { if (E.dead) continue; const d = Math.abs(feet(E).x - T.x); if (d < bd) { bd = d; best = E; } }
   if (!best) return;
   const f = feet(best);
   st.bolts.push({ x1: T.x, y1: -230, x2: f.x, y2: f.y - 60, life: .35, col: '#fff36b' }); sfx('zap');
@@ -2018,7 +2150,7 @@ function stormStep(dt) {
     S.y = Math.max(S.y, topY() + 40 + 10 * n);
     if ((S.zapT -= dt) <= 0) {   // lightning strikes the enemies under it (bigger storm = faster, harder, more bolts)
       S.zapT = Math.max(.3, 1.3 - .22 * (n - 1));
-      const U = st.enemies.filter(under);
+      const U = FOES(S.by).filter(under);
       for (let s = 0; s < (n >= 4 ? 2 : 1); s++) {
         const E = U.length ? U[Math.floor(Math.random() * U.length)] : null;
         const x = E ? feet(E).x : S.x + rand(-.45, .45) * w, gy = E ? feet(E).y - 50 : 0, life = .35 + .05 * n;
@@ -2032,7 +2164,7 @@ function stormStep(dt) {
     }
     if (n >= 3 && (S.iceT -= dt) <= 0) {   // ice storm: a mini Ice Age freezes everyone under it now and then
       S.iceT = n >= 5 ? 2.2 : 3;
-      for (const E of st.enemies) if (under(E)) {
+      for (const E of FOES(S.by)) if (under(E)) {
         E.frozen = Math.max(E.frozen || 0, 1 + .4 * n); E.aiAim = null; E.pow = 0;
         if (n >= 4) gcHurt(E, 4 * n, S.by, S.x, '#bfe9ff');
         text(feet(E).x, feet(E).y - 132, 'FROZEN', '#bfe9ff', 13, .8);
@@ -2211,10 +2343,10 @@ function swallowStep(a, dt) {
 const holeK = ar => { if (!st.holes || !st.holes.length || (ar.owner && ar.owner.isP)) return 1; let k = 1; for (const B of st.holes) k = Math.min(k, clamp((Math.hypot(ar.x - B.x, ar.y - B.y) - 20) / 140, .15, 1)); return k; };
 // the second power of a linked arrow lands on everyone a big effect (rocks, twister, black hole, blast, lightning) touches
 function infuse(a, k, by, seen, weak) {
-  if (!k || !a || a.dead || a.isP || (seen && seen.has(a))) return;
+  if (!k || !a || a.dead || (a.isP && !vsFoe(a, by)) || (seen && seen.has(a))) return;
   if (seen) seen.add(a);
   const f = feet(a), m = weak ? .5 : 1;
-  if (by && !a.isP) a.lastBy = by;
+  if (by && (!a.isP || st.vs)) a.lastBy = by;
   if (k === 'ice') {
     if (!(a.frozen > 0)) text(f.x, f.y - 132, 'FROZEN', '#bfe9ff', 14, .9);
     a.frozen = Math.max(a.frozen || 0, 3 * m); a.aiAim = null; a.pow = 0;
@@ -2249,7 +2381,7 @@ function infuse(a, k, by, seen, weak) {
 function twisterSteer(T) {
   if (T.k !== 'homing') return;
   let best = null, bd = 1e9;
-  for (const E of st.enemies) { if (E.dead) continue; const d = Math.abs(feet(E).x - T.x); if (d < bd && d < 900) { bd = d; best = E; } }
+  for (const E of FOES(T.by)) { if (E.dead) continue; const d = Math.abs(feet(E).x - T.x); if (d < bd && d < 900) { bd = d; best = E; } }
   if (best && bd > 20) T.dir = Math.sign(feet(best).x - T.x) || T.dir;
 }
 function homingSpot(x) {
@@ -2315,7 +2447,7 @@ function magPull(ar, sdt) {
   if (!st.mags || !st.mags.length || ar.magic || ar.acid || ar.el || ar.rock || ar.ret) return false;
   if (ar.sx !== undefined && Math.hypot(ar.x - ar.sx, ar.y - ar.sy) < 200) return false;   // it can't plug a bow at the source
   for (const M of st.mags) {
-    if (M.done) continue;
+    if (M.done || (ar.owner && ar.owner.isP && ownerOf(M.owner) === ownerOf(ar.owner))) continue;   // versus: never your own magnet
     const dx = M.x - ar.x, dy = M.y - ar.y, d = Math.hypot(dx, dy);
     if (d > M.r) continue;
     if (d < 22) { magCatch(M, ar); return true; }
@@ -2348,7 +2480,7 @@ function magCatch(M, ar) {
 // LIGHTNING ROD: every catch zaps the nearest enemy
 function magZap(M) {
   let best = null, bd = 750;
-  for (const E of st.enemies) { if (E.dead) continue; const f = feet(E), d = Math.hypot(f.x - M.x, f.y - 60 - M.y); if (d < bd) { bd = d; best = E; } }
+  for (const E of FOES(M.owner)) { if (E.dead) continue; const f = feet(E), d = Math.hypot(f.x - M.x, f.y - 60 - M.y); if (d < bd) { bd = d; best = E; } }
   if (!best) return;
   const p = htPt(best), dmg = 14;
   st.bolts.push({ x1: M.x, y1: M.y - 10, x2: p.x, y2: p.y, life: .35, col: '#fff36b' });
@@ -2365,7 +2497,7 @@ function magShot(M, ang, sp, E) {
   return ar;
 }
 function payStep(ar, sdt) {
-  const E = st.enemies.find(e => e.id === ar.pay && !e.dead);
+  const E = FOES(ar.owner).find(e => e.id === ar.pay && !e.dead);
   if (!E) { ar.pay = 0; ar.htGo = 0; return; }
   const p = htPt(E), cur = Math.atan2(ar.vy, ar.vx), want = Math.atan2(p.y - ar.y, p.x - ar.x), sp = Math.hypot(ar.vx, ar.vy);
   const dA = ((want - cur + Math.PI * 3) % (Math.PI * 2)) - Math.PI, na = cur + clamp(dA, -8 * sdt, 8 * sdt);
@@ -2375,7 +2507,7 @@ function payStep(ar, sdt) {
 function magEnd(M) {
   if (M.done) return;
   M.done = true;
-  const live = st.enemies.filter(E => !E.dead && !E.dummyDown);
+  const live = FOES(M.owner).filter(E => !E.dead && !E.dummyDown);
   if (M.k === 'homing' && M.caught.length && live.length) {   // PAYBACK: back at whoever shot them
     comboText(M.x, M.y - 70, 'homing+magnet');
     M.caught.forEach((c, i) => {
@@ -2477,7 +2609,7 @@ function bounceHit(ar, a, sdt, wallX) {
 }
 function bounceZap(ar, x, y, first) {
   let best = null, bd = 650;
-  for (const E of st.enemies) { if (E.dead) continue; const f = feet(E), d = Math.hypot(f.x - x, f.y - 60 - y); if (d < bd) { bd = d; best = E; } }
+  for (const E of FOES(ar.owner)) { if (E.dead) continue; const f = feet(E), d = Math.hypot(f.x - x, f.y - 60 - y); if (d < bd) { bd = d; best = E; } }
   if (first) comboText(x, y - 60, 'bounce+storm');
   if (!best) return;
   const p = htPt(best), dmg = 12;
@@ -2491,7 +2623,7 @@ function bounceZap(ar, x, y, first) {
 // Linked: BURNING WEB (fire), FROZEN WEB (ice, twice as long), STICKY BOMB (boom webs everyone in the blast), ELECTRIC WEB (storm zaps)
 const WEB_COL = '#eef3fa', WEB_T = 5, WEB_BOSS = 2.5, WEB_GAD = 20;
 function webA(a, ar, by, t) {
-  if (!a || a.dead || a.isP) return;
+  if (!a || a.dead || (a.isP && !vsFoe(a, by))) return;
   const f = feet(a), ice = ar && hasPk(ar, 'ice');
   t = t || (a.boss ? WEB_BOSS : WEB_T) * (ice ? 2 : 1);
   if (!(a.webT > 0)) text(f.x, f.y - 140, ice ? 'FROZEN WEB' : 'WEBBED', WEB_COL, 14, 1);
@@ -2714,7 +2846,7 @@ function drawWebTie(x, top, bot, hw, gy, left, seed) {
   ctx.restore();
 }
 function drawWebs() {
-  for (const E of st.enemies) {
+  for (const E of st.vs ? [...st.enemies, ...st.players, ...st.helpers] : st.enemies) {
     if (!(E.webT > 0) || E.dead) continue;
     const f = feet(E), k = sizeOf(E) * (E.boss ? 1.4 : 1);
     if (E.flyer) drawCocoon(SX(E.x), SY(f.y - BAT_Y - 26 * k), SY(f.y - BAT_Y + 34 * k), 26 * k * sc, E.webT, E.id || 1);
@@ -2764,7 +2896,7 @@ function gcHint(pick, list) {
   return { ok: false, t: "These won't forge together" };
 }
 const gcAdd = o => { (st.gcfx = st.gcfx || []).push(o); return o; };
-const gcLive = () => st.enemies.filter(e => !e.dead && !e.swallowed);
+const gcLive = () => FOES(GC_BY).filter(e => !e.dead && !e.swallowed);
 const gcMarch = fn => { for (const m of st.marchers || []) if (!m.dead) fn(m); };
 function gcBanner(id) {
   const G = GC[id];
@@ -2792,11 +2924,12 @@ function gcFired(P, id, n0) {
   if (id === 'dome') {
     gcBanner(id);
     const f = feet(P);
-    gcAdd({ ty: 'dome', x: f.x, y: 0, t: 0, life: 12, r: Math.max(760, -f.y + 520), n: 0 });
+    gcAdd({ ty: 'dome', by: P, x: f.x, y: 0, t: 0, life: 12, r: Math.max(760, -f.y + 520), n: 0 });
   } else text(feet(P).x, feet(P).y - 150, GC[id].icon + ' ' + GC[id].name, GC_GOLD, 16, 1.2);
 }
 function gcImpact(ar, x, y) {
   const id = ar.gc, by = gcBy(ar), dir = Math.sign(ar.vx) || 1;
+  GC_BY = by;
   if (!GC[id]) return;
   gcBanner(id);
   if (id === 'planet') spawnPlanet(x, dir, by);
@@ -2927,7 +3060,7 @@ function gcNovaBoom(F) {
 function domeCatch(ar) {
   const fx = st.gcfx; if (!fx || !fx.length) return false;
   for (const D of fx) {
-    if (D.ty !== 'dome' || D.t >= D.life || ar.y > 2 || Math.hypot(ar.x - D.x, ar.y) > D.r) continue;
+    if (D.ty !== 'dome' || (ar.owner && ar.owner.isP && D.by === ownerOf(ar.owner)) || D.t >= D.life || ar.y > 2 || Math.hypot(ar.x - D.x, ar.y) > D.r) continue;
     ar.done = true; D.n++;
     for (let i = 0; i < 6; i++) P_(ar.x, ar.y, rand(-90, 90), rand(-90, 30), .35, 2, i % 2 ? '#ff3b5c' : '#ffd27a', 'spark');
     if (D.n % 3 === 1) sfx('glass');
@@ -2939,7 +3072,7 @@ function gcStep(dt) {
   if (!st.gcfx || !st.gcfx.length) return;
   const sky = topY() + 20;
   for (const F of st.gcfx) {
-    F.t += dt;
+    F.t += dt; GC_BY = F.by;
     if (F.ty === 'nova') {
       if (F.t < 3) {
         for (const E of gcLive()) if (E.flyer) E.x += Math.sign(F.x - E.x) * 220 * dt;
@@ -3378,7 +3511,7 @@ function updateVortices(dt) {
   for (const T of st.tornados) {
     T.t += dt; T.life -= dt; twisterSteer(T); T.x += T.dir * (T.k === 'rapid' ? 200 : 120) * dt;
     comboTwister(T, dt);
-    for (const E of st.enemies) {
+    for (const E of FOES(T.by)) {
       if (E.dead) continue;
       const f = feet(E);
       if (Math.abs(f.x - T.x) < 42 * (T.w || 1)) {
@@ -3413,19 +3546,19 @@ function updateVortices(dt) {
     comboHole(B, dt);
     B.life -= dt; B.r = Math.min(B.k === 'heavy' ? 48 : B.k === 'grow' ? 62 : 34, B.r + 80 * dt);
     if (B.life < .4) B.r *= .9;
-    for (const E of st.enemies) {
+    for (const E of FOES(B.by)) {
       if (E.dead) continue;
       const f = feet(E), d = Math.hypot(f.x - B.x, f.y - 50 - B.y);
       if (d < (B.k === 'heavy' ? 150 : B.k === 'grow' ? 190 : 110) && slayable(E, B)) { E.hp = 0; kill(E, { vx: (B.x - f.x) * 2, owner: B.by }, 'body'); swallow(E, B); text(f.x, f.y - 120, 'SWALLOWED', '#b07cff', 16, 1.2); continue; }
       if (d < (B.k === 'grow' ? 430 : 300)) { infuse(E, B.k, B.by, B.hitE); if (E.dead) continue; const k = 1 - d / 300; E.hp -= 40 * k * dt; E.hitT = .05; if (E.hp <= 0) kill(E, { vx: (B.x - f.x) * 2, owner: B.by }, 'body'); }
     }
     for (const ar of st.arrows) {
-      if (ar.owner.isP) continue;
+      if (ar.owner.isP && !(st.vs && ownerOf(ar.owner) !== ownerOf(B.by))) continue;   // versus: it eats the other players' arrows too
       const dx = B.x - ar.x, dy = B.y - ar.y, d = Math.hypot(dx, dy);
       if (d < 26) { ar.done = true; for (let q = 0; q < 5; q++) P_(ar.x, ar.y, rand(-40, 40), rand(-40, 40), .3, 1.8, '#ffffff', 'spark'); }
       else if (d < 360) { const f = 3000 * (1 - d / 360); ar.vx += dx / d * f * dt; ar.vy += dy / d * f * dt; }
     }
-    for (const E of st.enemies) {   // bodies lying near it get pulled in too
+    for (const E of st.vs ? [...st.enemies, ...st.players.filter(p => p !== ownerOf(B.by))] : st.enemies) {   // bodies lying near it get pulled in too
       if (!E.dead || E.swallow || E.topple || E.boss) continue;
       const f = feet(E); if (Math.hypot(f.x - B.x, f.y - 50 - B.y) < 170) swallow(E, B);
     }
@@ -4361,6 +4494,7 @@ function pickTarget(E) {
 }
 function playerFire(P, aim, pow) {
   if (!running || !st || st.shop || !inPlay(P) || P.reload > 0 || !(pow > .1) || (st.horde && st.horde.over)) return;
+  const held = vsHeld(P); if (held) { if (!(P.heldT > st.t)) { P.heldT = st.t + .8; text(feet(P).x, feet(P).y - 150, held + ': CAN\'T SHOOT', '#bfe9ff', 14, .9); } return; }
   aim = clamp(aim, -Math.PI, Math.PI); pow = clamp(pow, 0, 1);
   P.aim = aim; P.f = Math.cos(aim) < 0 ? -1 : 1;
   const gc = P.power && P.power.gc || null, pk = P.power && !gc ? P.power.k : null, pk2 = P.power && !gc ? P.power.k2 || null : null, n0 = st.arrows.length;
@@ -5214,7 +5348,7 @@ function update(rdt) {
   const dt = rdt * (st.slow > 0 ? .3 : 1) * (st.timeScale || 1);
   st.slow -= rdt; st.t += dt;
   st.shake *= Math.pow(.02, rdt);
-  for (const p of st.players) p.reload -= dt * growSlow(p);
+  for (const p of st.players) p.reload -= dt * growSlow(p) * (p.slowT > 0 ? p.slowM || 1 : 1);
   const n = st.enemies.length, anyAlive = st.players.some(inPlay);
 
   for (const E of st.enemies) {
@@ -5313,7 +5447,7 @@ function update(rdt) {
         Hh.f = 1; Hh.aiAim = { ang: -e, v: sol.v + gauss() * 18, t: 0, dur: .45, from: Hh.aim };
         continue;
       }
-      const tgts = st.enemies.filter(e => !e.dead && e.rise <= 0);
+      const tgts = FOES(Hh).filter(e => !e.dead && !(e.rise > 0));
       if (!tgts.length) { Hh.aiT = 1; continue; }
       const T = tgts[Math.floor(Math.random() * tgts.length)], tf = feet(T);
       const sol = solve(Hh, tf.x, tf.y - 60, Hh.kind === 'crossbow');
@@ -5332,7 +5466,8 @@ function update(rdt) {
   growStep(dt);
   magStep(dt);
   updateWeather(dt);
-  if (!st.horde && st.nextT <= 0 && st.overT <= 0 && anyAlive && st.enemies.every(e => e.dead)) clearLevel();
+  if (st.vs) { vsStatus(dt); vsStep(dt); }
+  else if (!st.horde && st.nextT <= 0 && st.overT <= 0 && anyAlive && st.enemies.every(e => e.dead)) clearLevel();
   if (st.horde) { updateMarchers(dt); hordeStep(dt, rdt); }
   // gadgets ease towards their targets
   for (const g of st.gadgets) {
@@ -5372,7 +5507,7 @@ function update(rdt) {
       if (hasPk(ar, 'homing') && ar.owner.isP && !ar.owner.helper) {
         let tg = htSteer(ar, sdt), bd = 520;
         const hd = Math.sign(ar.vx) || 1, turn = tg ? 6 : 3;
-        if (!tg) for (const E of st.enemies) { if (E.dead) continue; const f = feet(E), d = Math.hypot(f.x - ar.x, f.y - 60 - ar.y); if (d < bd && (f.x - ar.x) * hd > -40) { bd = d; tg = f; } }
+        if (!tg) for (const E of FOES(ar.owner)) { if (E.dead) continue; const f = feet(E), d = Math.hypot(f.x - ar.x, f.y - 60 - ar.y); if (d < bd && (f.x - ar.x) * hd > -40) { bd = d; tg = f; } }
         if (tg) {
           const cur = Math.atan2(ar.vy, ar.vx), want = Math.atan2(tg.y - 60 - ar.y, tg.x - ar.x), sp = Math.hypot(ar.vx, ar.vy);
           let dA = ((want - cur + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
@@ -5387,6 +5522,7 @@ function update(rdt) {
       gadgetStep(ar, sdt);
       if (ar.done) break;
       if (ar.owner.isP) {
+        if (st.vs && vsBlock(ar, sdt)) break;
         if (!ar.htGo && coverHit(ar)) break;
         if (boulderHit(ar)) break;
         for (const E of st.enemies) {
@@ -5407,9 +5543,9 @@ function update(rdt) {
         for (const E of st.enemies) if (E.flyer && !E.dead && (!ar.htGo || ar.htGo === E.id) && flyerHit(E, ar, sdt)) break;
         if (ar.done) break;
         for (const E of st.enemies) { if ((ar.hit && ar.hit.has(E)) || (ar.htGo && ar.htGo !== E.id)) continue; const z = zone(E, ar.x, ar.y); if (z) { onHit(ar, E, z); break; } }
-        // friendly fire: a player's arrow hurts teammates (never the one who shot it)
-        if (!ar.done && !ar.owner.helper && !st.horde && !ar.htGo) for (const p of st.players) {
-          if (p === ar.owner || !inPlay(p) || (ar.hit && ar.hit.has(p))) continue;
+        // friendly fire: a player's arrow hurts teammates (never the one who shot it). Versus: helpers' arrows too, and other players' helpers get hit
+        if (!ar.done && (!ar.owner.helper || st.vs) && !st.horde && (!ar.htGo || st.vs)) for (const p of st.vs ? FOES(ar.owner).filter(o => o.isP) : st.players) {
+          if (p === ar.owner || p === ownerOf(ar.owner) || !inPlay(p) && !p.helper || p.dead || (ar.hit && ar.hit.has(p)) || (ar.htGo && ar.htGo !== p.id)) continue;
           const z = zone(p, ar.x, ar.y); if (z) { onHit(ar, p, z); break; }
         }
         if (!ar.done && SOLDIERS) {
@@ -5502,7 +5638,7 @@ function update(rdt) {
 
   if (st.nextT > 0) {
     st.nextT -= rdt;
-    if (st.nextT <= 0) startShop();
+    if (st.nextT <= 0) { if (st.vs) vsBreak(); else startShop(); }
   }
   if (st.overT > 0) { st.overT -= rdt; if (st.overT <= 0) endGame(); }
   if (st.clockPending) {
@@ -6517,19 +6653,20 @@ function drawHUD() {
   ctx.font = '700 10px Silkscreen, monospace'; ctx.textBaseline = 'top';
   st.players.forEach((p, i) => {
     const y = H - 64 - (st.players.length - 1 - i) * 14;
-    ctx.fillStyle = 'rgba(20,10,30,.55)'; ctx.fillRect(12, y - 2, 170, 13);
+    ctx.fillStyle = 'rgba(20,10,30,.55)'; ctx.fillRect(12, y - 2, st.vs ? 206 : 170, 13);
     ctx.fillStyle = p.col; ctx.fillRect(14, y, 6, 9);
     ctx.fillStyle = p.dead ? 'rgba(246,238,223,.45)' : '#f6eedf';
     ctx.fillText((p === P ? '▸' : '') + p.name.slice(0, 10), 24, y);
     ctx.textAlign = 'right';
     ctx.fillText(p.dead ? 'DOWN' : Math.max(0, Math.round(p.hp)) + 'HP', 140, y);
     ctx.fillStyle = '#ffd27a'; ctx.fillText(p.gp + '', 178, y);
+    if (st.vs) { ctx.fillStyle = '#ffd27a'; ctx.fillText('★' + ((st.vsWins || {})[p.pid] || 0), 214, y); }   // rounds won
     ctx.textAlign = 'left';
   });
   if (spectating() && running) {
     const a = .6 + Math.sin(st.t * 3) * .3;
     ctx.globalAlpha = a; ctx.textAlign = 'center'; ctx.font = '700 12px Silkscreen, monospace'; ctx.fillStyle = '#f6eedf';
-    ctx.fillText(P.pid ? 'YOU ARE DOWN · BACK NEXT LEVEL' : 'WATCHING', W / 2, H - 46);
+    ctx.fillText(P.pid ? (st.vs ? 'YOU ARE OUT · BACK NEXT ROUND' : 'YOU ARE DOWN · BACK NEXT LEVEL') : 'WATCHING', W / 2, H - 46);
     ctx.fillText('DRAG TO LOOK AROUND · TAP TO MARK A TARGET', W / 2, H - 30);
     ctx.globalAlpha = 1; ctx.textAlign = 'left';
   }
@@ -6537,9 +6674,15 @@ function drawHUD() {
   // enemy list
   const rx = W - 18 - 52;
   ctx.textAlign = 'right'; ctx.font = '700 12px Silkscreen, monospace'; ctx.fillStyle = '#f6eedf';
-  ctx.fillText(st.horde ? 'BONUS · HORDE' : 'LEVEL ' + st.level + '  ·  ' + alive().length + '/' + st.enemies.length + ' LEFT', rx, 12);
+  ctx.fillText(st.horde ? 'BONUS · HORDE' : st.vs ? 'ROUND ' + (st.round || 1) + '  ·  FIRST TO ' + VS_WIN : 'LEVEL ' + st.level + '  ·  ' + alive().length + '/' + st.enemies.length + ' LEFT', rx, 12);
+  if (st.vs && !st.vsOver) {   // the sudden-death clock
+    const left = Math.ceil(VS_SUDDEN - (st.vsT || 0));
+    ctx.font = '700 11px Silkscreen, monospace'; ctx.fillStyle = left > 15 ? 'rgba(246,238,223,.75)' : (Math.sin(st.t * 10) > 0 ? '#ff5a4e' : '#ffd27a');
+    ctx.fillText(left > 0 ? 'SUDDEN DEATH IN ' + left : 'SUDDEN DEATH!', rx, 24);
+    ctx.font = '700 12px Silkscreen, monospace';
+  }
   st.enemies.forEach((E, i) => {
-    const y = 32 + i * 13, ef = clamp(E.hp / E.max, 0, 1);
+    const y = (st.vs ? 40 : 32) + i * 13, ef = clamp(E.hp / E.max, 0, 1);
     ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(rx - 90, y, 90, 6);
     if (!E.dead) { ctx.fillStyle = '#ff5a4e'; ctx.fillRect(rx - 90 * ef, y, 90 * ef, 6); }
     ctx.font = '700 9px Silkscreen, monospace'; ctx.fillStyle = E.dead ? 'rgba(246,238,223,.4)' : (E.boss ? '#ff5a4e' : '#f6eedf');
@@ -6601,7 +6744,7 @@ function drawHUD() {
     const f = feet(P), a = .6 + Math.sin(st.t * 4) * .35, d = sideToward(P);
     ctx.globalAlpha = a; ctx.textAlign = 'center'; ctx.font = '700 13px Silkscreen, monospace'; ctx.fillStyle = '#f6eedf';
     ctx.fillText('PULL BACK & RELEASE', clamp(SX(f.x) + 140 * d, 120, W - 120), H * .3);
-    ctx.fillText(d > 0 ? 'NEAREST ENEMY IS TO THE RIGHT →' : '← NEAREST ENEMY IS TO THE LEFT', clamp(SX(f.x) + 140 * d, 120, W - 120), H * .3 + 20);
+    { const who = st.vs ? 'ARCHER' : 'ENEMY'; ctx.fillText(d > 0 ? 'NEAREST ' + who + ' IS TO THE RIGHT →' : '← NEAREST ' + who + ' IS TO THE LEFT', clamp(SX(f.x) + 140 * d, 120, W - 120), H * .3 + 20); }
     ctx.globalAlpha = 1;
   }
 }
@@ -6966,7 +7109,7 @@ function setReady(P) {
 }
 function nextLevel() {
   st.shop = false; show('shopScreen', false);
-  if (st.level % 5 === 0 && st.hordeLv !== st.level) { startHorde(); return; }
+  if (!st.vs && st.level % 5 === 0 && st.hordeLv !== st.level) { startHorde(); return; }
   st.helpers = st.helpers.filter(h => !h.dead && !h.clone);
   st.level++; spawnLevel(false);
   CAM.hold = 0; CAM.focus = null; camX = homeCam();
@@ -7266,7 +7409,7 @@ function forgeRender(v) {
   if (forgeGCSel && !gcState(v, forgeGCSel).ok) forgeGCSel = null;
   const [a, b] = forgePick, G = forgeGCSel;
   $('forgeBank').textContent = v.bank + ' POINTS  ·  FORGES LEFT: ' + v.uses + ' / 2';
-  $('forgeToday').textContent = "TODAY'S FORGE: just these " + v.today.filter(k => FORGE_COST[k]).length + ' powers · new picks every horde' + (v.team ? ' · each player gets different ones' : '');
+  $('forgeToday').textContent = "TODAY'S FORGE: just these " + v.today.filter(k => FORGE_COST[k]).length + ' powers · new picks every ' + (st && st.vs ? VS_FORGE + ' rounds' : 'horde') + (v.team ? ' · each player gets different ones' : '');
   let hint;
   if (v.done) hint = 'Done. Waiting for the team…';
   else if (v.msg && !a && !G) hint = v.msg + (v.uses <= 0 ? '  ·  No forges left. On to the shop!' : '');
@@ -7761,6 +7904,14 @@ function uniqueName(n) {
   while (NET.roster.some(r => r.name === out)) out = n.slice(0, 8) + ' ' + k++;
   return out;
 }
+const VS_INFO = 'Everyone against everyone, 2 to 4 players. Every arrow and power hits the other players. Last one standing wins the round; first to ' + VS_WIN + ' wins.';
+const COOP_INFO = 'Team up against the enemy archers. Watch out: your arrows can hit your team.';
+// the lobby says which game this is (versus or co-op); guests learn it from the host
+function vsLobby() {
+  $('lobbyTitle').innerHTML = VS_MODE ? 'STICK DUEL<br><em>VERSUS</em>' : 'STICK DUEL<br><em>CO-OP</em>';
+  document.title = VS_MODE ? 'Stick Duel Versus' : 'Stick Duel Co-op';
+  $('botsBtn').textContent = VS_BOTS ? 'BOTS: ON · FILL TO 4' : 'BOTS: OFF';
+}
 function renderRoster() {
   const ul = $('roster'); ul.innerHTML = '';
   for (const r of NET.roster) {
@@ -7769,10 +7920,11 @@ function renderRoster() {
     li.textContent = r.name + (r.id === NET.myId ? ' (YOU)' : '') + (r.id === 'host' ? ' · HOST' : '');
     ul.appendChild(li);
   }
-  show('startBtn', NET.role === 'host');
-  $('startBtn').textContent = NET.roster.length > 1 ? 'START (' + NET.roster.length + ' PLAYERS)' : 'START ALONE';
+  show('startBtn', NET.role === 'host'); show('botsBtn', NET.role === 'host' && VS_MODE); vsLobby();
+  $('startBtn').textContent = VS_MODE ? (NET.roster.length > 1 ? 'START (' + NET.roster.length + ' PLAYERS' + (VS_BOTS && NET.roster.length < VS_MAXP ? ' + BOTS' : '') + ')' : 'PRACTISE VS BOTS')
+    : NET.roster.length > 1 ? 'START (' + NET.roster.length + ' PLAYERS)' : 'START ALONE';
 }
-function broadcastLobby() { sendAll({ t: 'lobby', roster: NET.roster, code: NET.code }); renderRoster(); }
+function broadcastLobby() { sendAll({ t: 'lobby', roster: NET.roster, code: NET.code, vs: VS_MODE, bots: VS_BOTS }); renderRoster(); }
 function netClose() {
   try { if (NET.conn) NET.conn.close(); } catch (e) {}
   for (const c of NET.conns.values()) try { c.close(); } catch (e) {}
@@ -7786,7 +7938,7 @@ function backToLobby(msg) {
   Music.fade();
   for (const id of ['overScreen', 'pauseScreen', 'shopScreen', 'clockScreen', 'forgeScreen']) show(id, false);
   show('startScreen', true); lobbyView('main');
-  lobbyStatus(msg || 'Team up against the enemy archers. Watch out: your arrows can hit your team.');
+  lobbyStatus(msg || (VS_MODE ? VS_INFO : COOP_INFO));
 }
 
 // host
@@ -7804,7 +7956,7 @@ async function hostGame() {
   peer.on('open', () => {
     $('codeOut').textContent = NET.code; $('codeLbl').textContent = 'Tell your team this code:';
     lobbyView('room'); renderRoster();
-    lobbyStatus('Friends join with the code. Start when everyone is in. People can also join after you start.');
+    lobbyStatus(VS_MODE ? 'Friends join with the code (up to ' + VS_MAXP + ' players). Tap BOTS to fill empty seats with computer archers.' : 'Friends join with the code. Start when everyone is in. People can also join after you start.');
   });
   peer.on('connection', c => {
     c.on('data', d => onGuestMsg(c, d));
@@ -7824,6 +7976,7 @@ function onGuestMsg(c, raw) {
   if (m.t === 'hb') return;
   if (m.t === 'hello') {
     if (c.pid) return;
+    if (VS_MODE && NET.roster.length >= VS_MAXP) { try { c.send(JSON.stringify({ t: 'full' })); } catch (e) {} setTimeout(() => { try { c.close(); } catch (e) {} }, 500); return; }
     const id = 'g' + (++NET.seq), used = new Set(NET.roster.map(r => r.col));
     const r = { id, name: uniqueName(m.name), col: COLS.find(x => !used.has(x)) || COLS[NET.roster.length % COLS.length] };
     NET.roster.push(r); c.pid = id; NET.conns.set(id, c);
@@ -7873,7 +8026,7 @@ function dropGuest(c) {
       if (st.clockOpen && st.clockBy === P.id) setTime(1);
       if (st.shop) { if (st.players.every(p => p.ready)) nextLevel(); else pushShop(); }
       if (st.forge) { if (st.players.every(p => p.forgeDone)) { st.forge = false; startShop(); } else pushForge(); }
-      else if (running && st.overT <= 0 && st.nextT <= 0 && !livePlayers().length) st.overT = 1.8;
+      else if (running && !st.vs && st.overT <= 0 && st.nextT <= 0 && !livePlayers().length) st.overT = 1.8;
     }
   }
   if (r) broadcastLobby();
@@ -7888,17 +8041,20 @@ function startGame() {
 }
 function endGame() {
   running = false; Music.fade();
-  const rows = st.players.map(p => ({ n: p.name, c: p.col, k: p.kills, h: p.heads, g: p.earned }));
-  const msg = { t: 'over', lv: st.level, rows };
+  const rows = st.players.map(p => ({ n: p.name, c: p.col, k: p.kills, h: st.vs ? (st.vsWins[p.pid] || 0) : p.heads, g: p.earned }));
+  if (st.vs && st.vsBots) rows.push({ n: 'BOTS', c: '#ff5a4e', k: 0, h: st.vsWins.bots || 0, g: 0 });
+  const msg = { t: 'over', lv: st.level, rows, vs: st.vs ? (st.vsChamp || '') : null };
   sendAll(msg);
   showOver(msg);
 }
 function showOver(m) {
   running = false; drag = null; Music.fade();
   for (const id of ['pauseScreen', 'shopScreen', 'clockScreen', 'forgeScreen']) show(id, false);
-  $('newBest').textContent = 'REACHED LEVEL ' + m.lv;
+  $('newBest').textContent = m.vs != null ? 'FIRST TO ' + VS_WIN + ' ROUND WINS' : 'REACHED LEVEL ' + m.lv;
+  $('overTitle').innerHTML = m.vs != null ? (m.vs || 'NOBODY') + ' <em>WIN' + (m.vs === 'THE BOTS' ? '' : 'S') + '!</em>' : 'TEAM <em>FELL</em>';
+  $('overHeads').textContent = m.vs != null ? 'ROUNDS' : 'HEADS';
   const tb = $('teamRows'); tb.innerHTML = '';
-  for (const r of m.rows.slice().sort((a, b) => b.g - a.g)) {
+  for (const r of m.rows.slice().sort((a, b) => m.vs != null ? b.h - a.h || b.g - a.g : b.g - a.g)) {
     const tr = document.createElement('tr');
     tr.innerHTML = `<td style="text-align:left;color:${r.c}">${r.n}</td><td>${r.k}</td><td>${r.h}</td><td>${r.g}</td>`;
     tb.appendChild(tr);
@@ -7939,8 +8095,9 @@ function onHostMsg(raw) {
     NET.myId = m.id;
     $('codeOut').textContent = m.code; $('codeLbl').textContent = 'In game:';
     lobbyView('room');
-    lobbyStatus(m.running ? 'The game is already going. You can watch now and you play from the next level.' : 'You are in. Waiting for the host to start.');
-  } else if (m.t === 'lobby') { NET.roster = m.roster || []; renderRoster(); }
+    lobbyStatus(m.running ? 'The game is already going. You can watch now and you play from the next ' + (VS_MODE ? 'round.' : 'level.') : 'You are in. Waiting for the host to start.');
+  } else if (m.t === 'lobby') { NET.roster = m.roster || []; VS_MODE = !!m.vs; VS_BOTS = !!m.bots; renderRoster(); if (VS_MODE) lobbyStatus('You are in a VERSUS game. ' + VS_INFO); }
+  else if (m.t === 'full') backToLobby('That game is full (' + VS_MAXP + ' players in versus).');
   else if (m.t === 'start') { NET.objs = new Map(); NET.gads = new Map(); st = null; show('overScreen', false); lobbyStatus('Starting…'); }
   else if (m.t === 's') applySnap(m);
   else if (m.t === 'shop') { if (st) showShop(m.v); }
@@ -7952,7 +8109,7 @@ function guestState() {
     marchers: [], allies: [], marchQ: [], level: 1, t: 0, wind: 0, weather: 'clear', timeScale: 1, slow: 0, shake: 0, flashA: 0, flashC: '255,255,255', banner: null,
     nextT: 0, overT: 0, shop: false, clockOpen: false, clockBy: null, P: SPEC_P };
 }
-const SCAL = ['wind', 'weather', 'timeScale', 'slow', 'shake', 'flashA', 'flashC', 'banner', 'nextT', 'overT', 'shop', 'forge', 'clockOpen', 'clockBy', 'extraCrates', 'extraHp', 'winBonus'];
+const SCAL = ['vs', 'round', 'vsWins', 'vsT', 'vsOver', 'vsBots', 'wind', 'weather', 'timeScale', 'slow', 'shake', 'flashA', 'flashC', 'banner', 'nextT', 'overT', 'shop', 'forge', 'clockOpen', 'clockBy', 'extraCrates', 'extraHp', 'winBonus'];
 function applySnap(m) {
   const first = !st;
   if (first) st = guestState();
@@ -8114,6 +8271,8 @@ $('codeIn').addEventListener('keydown', e => { if (e.key === 'Enter') joinGame()
 $('startBtn').onclick = startGame;
 $('cancelBtn').onclick = () => backToLobby();
 $('againBtn').onclick = startGame;
+$('botsBtn').onclick = () => { VS_BOTS = !VS_BOTS; broadcastLobby(); };
+vsLobby(); if (VS_MODE) lobbyStatus(VS_INFO);
 $('overLeave').onclick = () => backToLobby();
 $('restartBtn').onclick = () => backToLobby();
 $('resumeBtn').onclick = () => setMenu(false);
