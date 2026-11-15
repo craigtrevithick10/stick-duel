@@ -406,7 +406,8 @@ try { best = +localStorage.getItem('stickDuelBest') || 0; } catch (e) {}
 
 const GROUND = 30;
 const SX = x => (x - camX) * sc, SY = y => H - GROUND + camY + y * sc;
-const homeCam = () => st.P.x - (W / sc) * .2 - (st.helpers ? st.helpers.length * 45 : 0);
+var AIM_S = 0;   // while pulling: the side you aim at (1 right, -1 left), 0 = not aiming
+const homeCam = () => AIM_S < 0 ? st.P.x - (W / sc) * .88 : AIM_S > 0 ? st.P.x - (W / sc) * .12 : st.P.x - (W / sc) * .2 - (st.helpers ? st.helpers.length * 45 : 0);
 const show = (id, on) => { $(id).hidden = !on; };
 
 function resize() {
@@ -5344,16 +5345,18 @@ function update(rdt) {
 
   // camera: follow your lead arrow out, hold where it lands, then return home
   const viewW = W / sc, home = homeCam();
+  // follow YOUR arrow wherever it goes (either side, up high, at nothing at all): the one furthest from you
   let lead = null;
-  for (const a of st.arrows) if (a.owner === P && (!lead || a.x > lead.x)) lead = a;
+  for (const a of st.arrows) if (a.owner === P && !a.done && (!lead || Math.abs(a.x - P.x) > Math.abs(lead.x - P.x))) lead = a;
   let target = home, speed = 3;
+  st.camUp = null;
   const gx0 = gcFocus(P); if (gx0 == null) st.gcSkip = false;
   const gx = st.gcSkip ? null : gx0;
-  if (gx != null) { target = Math.max(home, gx - viewW * .5); speed = 4; st.camLast = target; st.camHold = 1.3; st.camHome = false; st.camFocus = null; }   // stay on your Game Changer till it is over
-  else if (st.lookT > 0 && !st.camHome) { st.lookT -= rdt; target = Math.max(home, st.lookX - viewW * .5); speed = 6; }
-  else if (st.camHome) { target = home; speed = 14; /* camera stays still while you pull: aimLook pan taken out 2026-11-14 */ st.camHold = 0; st.camFocus = null; }
-  else if (lead) { target = Math.max(home, lead.x - viewW * .5); st.camLast = target; st.camHold = 1.1; speed = 10; }
-  else if (st.camFocus && st.camHold > 0) { st.camHold -= rdt; target = Math.max(home, feet(st.camFocus).x - viewW * .55); speed = 4; }
+  if (gx != null) { target = gx - viewW * .5; speed = 4; st.camLast = target; st.camHold = 1.3; st.camHome = false; st.camFocus = null; }   // stay on your Game Changer till it is over
+  else if (st.lookT > 0 && !st.camHome) { st.lookT -= rdt; target = st.lookX - viewW * .5; speed = 6; }
+  else if (st.camHome) { target = home; speed = 14; st.camHold = 0; st.camFocus = null; }   // pulling: frames the side you aim at (homeCam/AIM_S)
+  else if (lead) { target = lead.x - viewW * .5; st.camLast = target; st.camHold = 1.1; speed = 10; st.camUp = lead.y; }
+  else if (st.camFocus && st.camHold > 0) { st.camHold -= rdt; target = feet(st.camFocus).x - viewW * .55; speed = 4; }
   else if (st.camHold > 0 && !drag) { st.camHold -= rdt; target = st.camLast; speed = 6; }
   else st.camFocus = null;
   camX += (target - camX) * Math.min(1, rdt * speed);
@@ -7024,7 +7027,8 @@ function camYTarget() {
   if (!st) return 0;
   if (st.horde) return -Math.min(80, H * .2);   // horde: lift the ground above the arrow buttons so the soldiers show
   const P = st.P, yF = P && !P.dead && P.inLevel !== false ? -(P.h + 95) : -230;
-  return Math.max(0, H * .3 - (H - GROUND + yF * sc));
+  const base = Math.max(0, H * .3 - (H - GROUND + yF * sc));
+  return st.camUp != null ? Math.max(base, H * .22 - (H - GROUND) - st.camUp * sc) : base;   // an arrow up high: the view rises with it
 }
 function drawZoomNote() {
   const k = 1 - (performance.now() - zoomShowT) / 900;
@@ -7039,7 +7043,7 @@ function aimLook(P, viewW, home) {
   if (!drag || drag.place || !(P.pow > .05) || P.dead) return home;
   return home + Math.max(0, farX() + 150 - (home + viewW)) * Math.pow(P.pow, 1.6);
 }
-function cancelAim() { drag = null; if (st) st.P.pow = 0; }
+function cancelAim() { AIM_S = 0; drag = null; if (st) st.P.pow = 0; }
 
 let drag = null;
 cv.addEventListener('pointerdown', e => {
@@ -7059,6 +7063,7 @@ cv.addEventListener('pointermove', e => {
   if (len > 6) {
     let a = Math.atan2(-D.dy, -D.dx);
     if (a > .7 && a < Math.PI - .7) a = a < Math.PI / 2 ? .7 : Math.PI - .7;
+    if (len > 12) AIM_S = Math.cos(a) < 0 ? -1 : 1;   // the camera frames the side you aim at
     st.P.aim = a; st.P.f = Math.cos(a) < 0 ? -1 : 1;
   }
 });
@@ -7095,7 +7100,7 @@ function release(e) {
     }
     P.pow = 0;
   }
-  drag = null;
+  drag = null; AIM_S = 0;
 }
 cv.addEventListener('pointerup', e => { if (drag && e.pointerId === drag.id) release(e); });
 cv.addEventListener('pointercancel', () => { drag = null; if (st) st.P.pow = 0; });
