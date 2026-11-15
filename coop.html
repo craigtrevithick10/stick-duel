@@ -47,6 +47,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 #quiver{position:absolute;left:50%;transform:translateX(-50%);bottom:12px;display:flex;gap:6px}
 #quiver button{min-width:62px;padding:6px 8px 5px;border:2px solid rgba(246,238,223,.25);background:rgba(20,14,30,.62);color:var(--bone);font:700 11px var(--pixel);letter-spacing:.04em;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;line-height:1}
 #quiver button small{font:700 11px var(--pixel);color:var(--bone)}
+#quiver button.isnew{animation:qnew .45s ease-in-out infinite alternate}@keyframes qnew{from{box-shadow:0 0 0 0 rgba(255,210,122,0)}to{box-shadow:0 0 12px 3px rgba(255,210,122,.95)}}#quiver .qnew{color:#ffd27a}
 #quiver button.on{border-color:var(--ember);background:rgba(242,166,90,.28);box-shadow:0 0 0 2px rgba(242,166,90,.35)}
 #quiver button.empty{opacity:.3;cursor:default}
 #quiver{flex-wrap:wrap;justify-content:center}
@@ -921,12 +922,11 @@ function refillGive(P, k, k2, n) {
   P.quiver = P.quiver || [];
   let q = P.quiver.find(same) || (P.forged || []).find(same);
   if (q) q.shots += n;
-  else if (!k2) { const was = P.power; givePower(P, k, n); q = P.power; if (was && (P.quiver.includes(was) || was.forged)) P.power = was; }
+  else if (!k2) { givePower(P, k, n); q = P.quiver.find(same) || null; }
   else {
     if (slotFull(P.quiver, 3)) { qOffer(P, P, { k, k2, shots: n, saved: true }); return null; }
-    q = { k, k2, shots: n, saved: true }; P.quiver.push(q);
+    q = markNew({ k, k2, shots: n, saved: true }); P.quiver.push(q);
   }
-  if (!P.power) P.power = q;
   return q;
 }
 function gadgetStep(ar, sdt) {
@@ -6894,12 +6894,14 @@ function qButtons(Q, sel, L, LA) {
   for (const i of qOrder(Q)) {
     if (i < 0) { const t = -i; h += `<button type="button" class="empty t${t}" disabled><i class="qi">·</i><span>EMPTY</span><small>—</small><em class="tier">${TIER_NAME[t]}</em></button>`; continue; }
     const o = Q[i], cls = L ? (LA === i ? 'on' : o.k2 ? 'empty' : 'pickme') : sel === i ? 'on' : '';
-    h += `<button type="button" data-i="${i}" class="${cls} t${tierOf(o)}"${L && o.k2 ? ' disabled' : ''}><i class="qi">${qIcon(o)}</i><span style="color:${qCol(o)}">${powShort(o)}</span><small>${megaTag(o)}</small><em class="tier">${o.saved ? '✓ SAVED' : TIER_NAME[tierOf(o)]}</em></button>`;
+    h += `<button type="button" data-i="${i}" class="${cls} t${tierOf(o)}${o.newT > st.t ? ' isnew' : ''}"${L && o.k2 ? ' disabled' : ''}><i class="qi">${qIcon(o)}</i><span style="color:${qCol(o)}">${powShort(o)}</span><small>${o.newT > st.t ? '<b class="qnew">NEW</b>' : megaTag(o)}</small><em class="tier">${o.saved ? '✓ SAVED' : TIER_NAME[tierOf(o)]}</em></button>`;
   }
   return h;
 }
 /* ---------- quiver full: YOU choose what to keep (Craig 2026-11-15). A new arrow for a full tier waits in H.keepQ until you tap
    the arrow to throw away (an old one, or the new one; a shop buy thrown away gives its GP back) ---------- */
+const NEW_T = 4;   // seconds a new arrow's button pulses NEW
+const markNew = q => { if (q) q.newT = st.t + NEW_T; return q; };
 function qOffer(H, A, item) {
   const t = tierOf(item);
   (H.keepQ = H.keepQ || []).push({ item, t, src: H.keepSrc || null });
@@ -6913,7 +6915,7 @@ function keepFix(H) {
   while (H && H.keepQ && H.keepQ.length) {
     const e = H.keepQ[0], same = (H.quiver || []).find(o => keepSame(o, e.item));
     if (same) same.shots += e.item.shots;
-    else if (!slotFull(H.quiver || [], e.t)) { (H.quiver = H.quiver || []).push(e.item); H.power = e.item; }
+    else if (!slotFull(H.quiver || [], e.t)) { (H.quiver = H.quiver || []).push(markNew(e.item)); }
     else break;
     H.keepQ.shift();
   }
@@ -6934,7 +6936,7 @@ function keepPick(H, A, i) {
   } else {
     const old = olds[Math.max(0, Math.round(i))];
     H.quiver = H.quiver.filter(o => o !== old); if (H.power === old) H.power = null;
-    H.quiver.push(e.item); H.power = e.item;
+    H.quiver.push(markNew(e.item));
     text(f.x, f.y - 150, 'THREW AWAY ' + powShort(old) + ' · GOT ' + powShort(e.item), TIER_COL[e.t], 13, 1.5);
   }
   keepFix(H);
@@ -6969,7 +6971,7 @@ function qGivePower(H, A, k, n) {
     q = { k, shots: n }; H.quiver.push(q);
   }
   if (isMega(k)) q.shots = 1;
-  H.power = q;   // a new pickup is loaded straight away
+  markNew(q);   // not loaded: tap its button to use it
   return true;
 }
 // a POWERFUL arrow (forged crate): never pushes anything out; a new one is SAVED until it is fired
@@ -6981,7 +6983,7 @@ function qGiveLinked(H, A, k, k2, n) {
     if (slotFull(H.quiver, 3)) return qOffer(H, A, { k, k2, shots: n, saved: true });
     q = { k, k2, shots: n, saved: true }; H.quiver.push(q);
   }
-  H.power = q;
+  markNew(q);
   return true;
 }
 function qGiveGC(H, A, id) {
@@ -6992,7 +6994,7 @@ function qGiveGC(H, A, id) {
     if (slotFull(H.quiver, 4)) return qOffer(H, A, Object.assign(gcUnlock(id), { shots: 1 }));
     q = Object.assign(gcUnlock(id), { shots: 1 }); H.quiver.push(q);
   }
-  H.power = q;
+  markNew(q);
   return true;
 }
 /* ---------- forge visits: today's random powers, 2 forges per visit ---------- */
@@ -7127,7 +7129,7 @@ function linkSlots(P, i, j) {
   // a linked arrow gets the SMALLER count of the two: weak pairs keep lots, strong ones get few (black hole / meteor stay one-offs)
   const q = { k: a.k, k2: b.k, shots: Math.max(1, Math.min(a.shots, b.shots, pwShots(a.k, b.k))), saved: true };
   P.quiver = P.quiver.filter(o => o !== a && o !== b); P.quiver.splice(Math.min(i, j), 0, q);
-  P.power = q; P.links--; P.linking = false; P.linkA = -1;
+  if (P.power === a || P.power === b) P.power = null; markNew(q); P.links--; P.linking = false; P.linkA = -1;
   const f = feet(P);
   if (!comboAnnounce(P, q.k, q.k2)) text(f.x, f.y - 150, 'LINKED: ' + powShort(q), '#7dffe8', 18, 1.8);
   ring(f.x, f.y - 60, 70, '#7dffe8', .6, 3); sfx('heal');
@@ -7255,7 +7257,7 @@ function drawQuiver() {
   const Q = st.P.quiver || [], sel = loadedSlot(st.P), L = !!st.P.linking, LA = st.P.linkA == null ? -1 : st.P.linkA, LN = st.P.links || 0;
   box.classList.toggle('linking', L);
   const FG = st.P.forged || [], fsel = loadedF(st.P);
-  const sig = Q.map(o => o.k + (o.k2 || '') + (o.gc || '') + (o.saved ? 's' : '') + o.shots).join() + '|' + sel + '|' + LN + L + LA + '|' + FG.map(o => o.k + o.k2 + o.shots).join() + fsel;
+  const sig = Q.map(o => o.k + (o.k2 || '') + (o.gc || '') + (o.saved ? 's' : '') + (o.newT > st.t ? 'n' : '') + o.shots).join() + '|' + sel + '|' + LN + L + LA + '|' + FG.map(o => o.k + o.k2 + o.shots).join() + fsel;
   if (sig === quiverSig) return;
   quiverSig = sig;
   let h = L ? `<div class="qhint">LINKING: TAP 2 ARROW TYPES TO JOIN THEM</div>` : '';
