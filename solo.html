@@ -98,6 +98,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 .shopgrid .item.now{border-color:var(--ember)}
 #rackHint{color:#7dffe8;min-height:1.2em}
 #forgeScreen .shopgrid{max-height:calc(100vh - 262px);max-height:calc(100dvh - 262px);overflow-y:auto}
+#keepScreen .knew{outline:2px dashed #ffd27a;outline-offset:2px}#keepScreen .shopgrid{max-height:calc(100dvh - 150px);overflow-y:auto}
 #forgeScreen .item{padding:6px 10px}#forgeScreen .item .ico{font-size:24px;width:30px}
 #quiver button.mega{border-color:#ffb347!important;box-shadow:0 0 10px rgba(255,179,71,.55),inset 0 0 0 1px rgba(255,210,122,.6)}
 #quiver button.mega small{color:#ffd27a}
@@ -239,6 +240,13 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
         <button class="btn alt" id="forgeDone" type="button" style="font-size:16px;padding:10px 22px">TO THE SHOP ▶</button>
       </div>
       <p class="small" style="opacity:.7">Every forge visit: 2 forges, using only today's powers (new picks every horde). Forge 2 POWERFUL arrows, or 1 POWERFUL arrow then a GAME CHANGER from it (or from a Powerful arrow in your quiver, which gets used up). Arrows in your quiver can be used too: they are free and get used up. Forged arrows turn up in the field as crates for the rest of the run. Game over and they are gone.</p>
+    </div>
+  </div>
+  <div class="overlay" id="keepScreen" hidden style="z-index:40">
+    <div class="panel" style="width:min(640px,100%);gap:8px">
+      <h2 class="title" id="keepTitle" style="font-size:clamp(22px,5vw,32px)">SLOTS FULL</h2>
+      <p class="small" id="keepHint">Tap the arrow you want to throw away</p>
+      <div class="shopgrid" id="keepGrid"></div>
     </div>
   </div>
   <div class="overlay" id="overScreen" hidden>
@@ -849,7 +857,7 @@ function refillGive(P, k, k2, n) {
   if (q) q.shots += n;
   else if (!k2) { const was = st.power; givePower(k, n); q = st.power; if (was && (st.quiver.includes(was) || was.forged)) st.power = was; }
   else {
-    if (slotFull(st.quiver, 3)) { slotFullMsg(st.P, 3); return null; }
+    if (slotFull(st.quiver, 3)) { qOffer(st, st.P, { k, k2, shots: n, saved: true }); return null; }
     q = { k, k2, shots: n, saved: true }; st.quiver.push(q);
   }
   if (!st.power) st.power = q;
@@ -6505,7 +6513,7 @@ function renderShop() {
     const pr = priceOf(o), sold = (o.once && st.shopSold[o.id]) || (o.max && (st.shopBuys[o.id] || 0) >= o.max);
     b.disabled = sold || st.gp < pr;
     b.innerHTML = `<i class="ico">${ICON[o.id] || ''}</i><div class="txt"><b style="color:${o.col || 'var(--bone)'}">${o.name}</b><span>${o.desc}</span><span class="cost">${sold ? 'BOUGHT' : pr + ' GP'}</span></div>`;
-    b.onclick = () => { if (st.gp < pr || sold) return; st.gp -= pr; st.shopBuys[o.id] = (st.shopBuys[o.id] || 0) + 1; st.shopSold[o.id] = true; o.buy(o); sfx('heal'); renderShop(); };
+    b.onclick = () => { if (st.gp < pr || sold) return; st.gp -= pr; st.shopBuys[o.id] = (st.shopBuys[o.id] || 0) + 1; st.shopSold[o.id] = true; st.keepSrc = { gp: pr, id: o.id }; o.buy(o); st.keepSrc = null; sfx('heal'); renderShop(); };
     g.appendChild(b);
   }
   const have = new Set(shopOffers.map(o => o.id));
@@ -6564,6 +6572,7 @@ $('shopNext').onclick = () => {
 };
 $('hordeNext').onclick = () => openForge();
 $('forgeGrid').addEventListener('click', e => { const b = e.target.closest('button[data-k]'); if (b && !b.disabled) forgeTap(b.dataset.k); });
+$('keepGrid').addEventListener('click', e => { const b = e.target.closest('button[data-i]'); if (b) keepTap(+b.dataset.i); });
 $('gcList').addEventListener('click', e => { const b = e.target.closest('button[data-gc]'); if (!b || b.disabled) return; const G = GC[b.dataset.gc]; forgeGCSel = forgeGCSel === b.dataset.gc ? null : b.dataset.gc; forgePick = []; sfx('click'); renderForge(); });
 $('forgeMake').onclick = () => forgeMake();
 $('forgeDone').onclick = () => closeForge();
@@ -6589,7 +6598,8 @@ function frame(ts) {
     const C = H && H.cat, cOn = !!(C && running && !paused && !H.over); if ($('catBtn').hidden === cOn) $('catBtn').hidden = !cOn;
     if (cOn) { const lb = C.armed ? '🪨 AIM & SHOOT' : C.reload > 0 ? '🪨 RELOAD ' + Math.ceil(C.reload) : '🪨 CATAPULT'; if ($('catBtn').textContent !== lb) $('catBtn').textContent = lb;
       $('catBtn').classList.toggle('on', C.armed); $('catBtn').classList.toggle('wait', C.reload > 0); $('catBtn').classList.toggle('ready', !C.armed && C.reload <= 0); } }
-  if (running && !paused && !portrait && !(st && (st.shop || st.clockOpen || st.linking || st.rack || st.placing || st.hordeShow || st.forging))) update(dt);
+  if (st) { keepFix(st); keepRender(st); }
+  if (running && !paused && !portrait && !(st && (st.shop || st.clockOpen || st.linking || st.rack || st.placing || st.hordeShow || st.forging || (st.keepQ && st.keepQ.length)))) update(dt);
   camY += (camYTarget() - camY) * Math.min(1, dt * 6);
   draw();
   requestAnimationFrame(frame);
@@ -6633,18 +6643,75 @@ function qButtons(Q, sel, L, LA) {
   }
   return h;
 }
+/* ---------- quiver full: YOU choose what to keep (Craig 2026-11-15). A new arrow for a full tier waits in H.keepQ until you tap
+   the arrow to throw away (an old one, or the new one; a shop buy thrown away gives its GP back) ---------- */
+function qOffer(H, A, item) {
+  const t = tierOf(item);
+  (H.keepQ = H.keepQ || []).push({ item, t, src: H.keepSrc || null });
+  text(feet(A).x, feet(A).y - 160, TIER_NAME[t] + ' SLOTS FULL: CHOOSE', TIER_COL[t], 14, 1.4); sfx('click');
+  return 'keep';
+}
+const keepOlds = (H, t) => (H.quiver || []).filter(o => tierOf(o) === t);
+const keepSame = (o, it) => it.gc ? o.gc === it.gc : !o.gc && o.k === it.k && (o.k2 || null) === (it.k2 || null);
+// a waiting arrow that now fits (a slot came free, or the same arrow is already there) goes straight in
+function keepFix(H) {
+  while (H && H.keepQ && H.keepQ.length) {
+    const e = H.keepQ[0], same = (H.quiver || []).find(o => keepSame(o, e.item));
+    if (same) same.shots += e.item.shots;
+    else if (!slotFull(H.quiver || [], e.t)) { (H.quiver = H.quiver || []).push(e.item); H.power = e.item; }
+    else break;
+    H.keepQ.shift();
+  }
+}
+function keepPick(H, A, i) {
+  const e = (H.keepQ || [])[0];
+  if (!e) return;
+  const olds = keepOlds(H, e.t), f = feet(A);
+  H.keepQ.shift();
+  if (i >= olds.length) {   // throw the new one away
+    if (e.src && e.src.gp) {
+      H.gp += e.src.gp;
+      if (H.shopBuys && H.shopBuys[e.src.id]) H.shopBuys[e.src.id]--;
+      if (H.shopSold) H.shopSold[e.src.id] = false;
+      text(f.x, f.y - 130, '+' + e.src.gp + ' GP BACK', '#ffd27a', 13, 1.3);
+    }
+    text(f.x, f.y - 150, 'THREW AWAY ' + powShort(e.item), '#f6eedf', 13, 1.3);
+  } else {
+    const old = olds[Math.max(0, Math.round(i))];
+    H.quiver = H.quiver.filter(o => o !== old); if (H.power === old) H.power = null;
+    H.quiver.push(e.item); H.power = e.item;
+    text(f.x, f.y - 150, 'THREW AWAY ' + powShort(old) + ' · GOT ' + powShort(e.item), TIER_COL[e.t], 13, 1.5);
+  }
+  keepFix(H);
+  sfx('click');
+}
+let keepSig = '';
+function keepTap(i) {
+  if (!st) return;
+  keepPick(st, st.P, i);
+  if (st.shop) renderShop();
+  if (st.forging) renderForge();
+}
+function keepRender(H) {
+  const e = H && H.keepQ && H.keepQ[0];
+  const sig = e ? JSON.stringify([e, keepOlds(H, e.t).map(o => [o.k, o.k2, o.gc, o.shots, o.saved]), H.keepQ.length]) : '';
+  if (sig === keepSig) return;
+  keepSig = sig;
+  show('keepScreen', !!e);
+  if (!e) return;
+  const olds = keepOlds(H, e.t);
+  const card = (o, i, isNew) => `<button type="button" class="item keepc t${tierOf(o)}${isNew ? ' knew' : ''}" data-i="${i}"><i class="ico">${qIcon(o)}</i><span class="txt"><b style="color:${qCol(o)}">${powShort(o)}</b><span>${o.shots} SHOT${o.shots === 1 ? '' : 'S'}${o.saved ? ' · ✓ SAVED' : ''}</span><span class="cost">${isNew ? 'NEW · THROW THIS ONE AWAY' : 'THROW AWAY'}</span></span></button>`;
+  $('keepTitle').textContent = TIER_NAME[e.t] + ' SLOTS FULL'; $('keepTitle').style.color = TIER_COL[e.t];
+  $('keepHint').textContent = 'You got ' + powShort(e.item) + '. Tap the arrow to THROW AWAY' + (e.src && e.src.gp ? ' (throw the new one away to get your ' + e.src.gp + ' GP back)' : '') + (H.keepQ.length > 1 ? ' · ' + (H.keepQ.length - 1) + ' more after this' : '');
+  $('keepGrid').innerHTML = olds.map((o, i) => card(o, i, false)).join('') + card(e.item, olds.length, true);
+}
 // H holds the quiver (solo: st, co-op: the player), A is the archer the words appear over
 function qGivePower(H, A, k, n) {
   H.quiver = H.quiver || [];
   let q = H.quiver.find(o => o.k === k && !o.k2 && !o.gc);
   if (q) q.shots += n;
   else {
-    if (slotFull(H.quiver, 2)) {   // green slots full: the one with the fewest arrows left is dropped
-      const drop = H.quiver.filter(o => tierOf(o) === 2).reduce((a, o) => o.shots < a.shots ? o : a);
-      H.quiver = H.quiver.filter(o => o !== drop);
-      if (H.power === drop) H.power = null;
-      text(feet(A).x, feet(A).y - 160, 'DROPPED ' + POWERS[drop.k].short, '#f6eedf', 13, 1.3);
-    }
+    if (slotFull(H.quiver, 2)) return qOffer(H, A, { k, shots: isMega(k) ? 1 : n });   // green slots full: you choose what goes
     q = { k, shots: n }; H.quiver.push(q);
   }
   if (isMega(k)) q.shots = 1;
@@ -6657,7 +6724,7 @@ function qGiveLinked(H, A, k, k2, n) {
   let q = H.quiver.find(o => o.k2 && !o.gc && comboKey(o.k, o.k2) === comboKey(k, k2));
   if (q) q.shots += n;
   else {
-    if (slotFull(H.quiver, 3)) { slotFullMsg(A, 3); return false; }
+    if (slotFull(H.quiver, 3)) return qOffer(H, A, { k, k2, shots: n, saved: true });
     q = { k, k2, shots: n, saved: true }; H.quiver.push(q);
   }
   H.power = q;
@@ -6668,7 +6735,7 @@ function qGiveGC(H, A, id) {
   let q = H.quiver.find(o => o.gc === id);
   if (q) q.shots += 1;
   else {
-    if (slotFull(H.quiver, 4)) { slotFullMsg(A, 4); return false; }
+    if (slotFull(H.quiver, 4)) return qOffer(H, A, Object.assign(gcUnlock(id), { shots: 1 }));
     q = Object.assign(gcUnlock(id), { shots: 1 }); H.quiver.push(q);
   }
   H.power = q;
@@ -6766,7 +6833,7 @@ function forgeDo(H, v, pick, gcId, bank, by) {
     (st.unlocks = st.unlocks || []).push(gcUnlock(gcId, by));
     fv.uses--; fv.gcDone = true;
     const inQ = qGiveGC(H, H.P || H, gcId);
-    fv.msg = inQ ? GC[gcId].icon + ' ' + GC[gcId].name + ' is in your quiver (gold slot), ready to fire!' : 'GAME CHANGER SLOT FULL: ' + GC[gcId].name + ' will turn up as a gold crate';
+    fv.msg = inQ === 'keep' ? 'GOLD SLOT FULL: choose which Game Changer to keep' : inQ ? GC[gcId].icon + ' ' + GC[gcId].name + ' is in your quiver (gold slot), ready to fire!' : 'GAME CHANGER SLOT FULL: ' + GC[gcId].name + ' will turn up as a gold crate';
     return { cost: s.cost, gc: gcId, inQ };
   }
   let [a, b] = pick;
