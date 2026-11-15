@@ -100,6 +100,9 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 #rackHint{color:#7dffe8;min-height:1.2em}
 #forgeScreen .shopgrid{max-height:calc(100vh - 262px);max-height:calc(100dvh - 262px);overflow-y:auto}
 #keepScreen .knew{outline:2px dashed #ffd27a;outline-offset:2px}#keepScreen .shopgrid{max-height:calc(100dvh - 150px);overflow-y:auto}
+#forgeScreen .gcbig .txt{display:flex;flex-direction:row;flex-wrap:wrap;gap:0 10px;align-items:baseline}#forgeScreen .gcbig .txt>*{display:inline}#forgeScreen .gcbig .txt span{margin:0}
+@media (max-height:520px){#forgeScreen{padding-top:6px;padding-bottom:6px}#forgeScreen .panel{gap:3px!important}#forgeScreen .title{font-size:22px!important}#forgeScreen .btn{padding:7px 18px!important;font-size:14px!important}#forgeScreen .shopgrid{max-height:calc(100vh - 218px);max-height:calc(100dvh - 218px)}#forgeScreen .item{padding:4px 8px}#forgeScreen .item .ico{font-size:20px}}
+#forgeScreen .gcbig{grid-column:1/-1;border:2px solid #ffc83a;background:rgba(255,200,58,.2);animation:qnew .45s ease-in-out infinite alternate}#forgeScreen .gcbig b{color:#ffc83a}#forgeScreen .gcbig.sel{background:#ffc83a;animation:none}#forgeScreen .gcbig.sel b,#forgeScreen .gcbig.sel span{color:#1a1020}
 #forgeScreen .item{padding:6px 10px}#forgeScreen .item .ico{font-size:24px;width:30px}
 #quiver button.mega{border-color:#ffb347!important;box-shadow:0 0 10px rgba(255,179,71,.55),inset 0 0 0 1px rgba(255,210,122,.6)}
 #quiver button.mega small{color:#ffd27a}
@@ -6793,7 +6796,10 @@ $('shopNext').onclick = () => {
   st.level++; spawnLevel(false); st.camHold = 0; st.camFocus = null; camX = homeCam();
 };
 $('hordeNext').onclick = () => openForge();
-$('forgeGrid').addEventListener('click', e => { const b = e.target.closest('button[data-k]'); if (b && !b.disabled) forgeTap(b.dataset.k); });
+$('forgeGrid').addEventListener('click', e => {
+  const g = e.target.closest('button[data-gcb]'); if (g) { forgeGCSel = forgeGCSel === g.dataset.gcb ? null : g.dataset.gcb; forgePick = []; sfx('click'); renderForge(); return; }
+  const b = e.target.closest('button[data-k]'); if (b && !b.disabled) forgeTap(b.dataset.k);
+});
 $('keepGrid').addEventListener('click', e => { const b = e.target.closest('button[data-i]'); if (b) keepTap(+b.dataset.i); });
 $('gcList').addEventListener('click', e => { const b = e.target.closest('button[data-gc]'); if (!b || b.disabled) return; const G = GC[b.dataset.gc]; forgeGCSel = forgeGCSel === b.dataset.gc ? null : b.dataset.gc; forgePick = []; sfx('click'); renderForge(); });
 $('forgeMake').onclick = () => forgeMake();
@@ -7000,11 +7006,17 @@ function gcState(v, id) {
   else ok = true;
   return { ok, why, known, fromMade, carry, cost: gcCost(id) - (!G.pair && fromQ(v, G.add) ? FORGE_COST[G.add] || 0 : 0) };
 }
+// the Game Changers you can forge right now (Craig 2026-11-15: they were hidden off the end of the strip)
+const gcReady = v => Object.keys(GC).filter(id => gcState(v, id).ok);
+// tapping a power in the grid: is there a ready Game Changer that adds exactly that power?
+const gcForAdd = (v, k) => v && gcReady(v).find(id => !GC[id].pair && GC[id].add === k) || null;
+const gcPrice = (v, cost) => v.bank >= cost ? cost + ' POINTS' : 'NEED ' + cost + ' POINTS (YOU HAVE ' + v.bank + ')';
 function gcListHTML(v, sel) {
   let h = '<div class="gch">GAME CHANGERS · ONE PER VISIT</div>';
-  for (const id in GC) {
+  const ids = Object.keys(GC), rank = id => { const s = gcState(v, id); return s.ok ? 0 : s.known ? 1 : 2; };
+  for (const id of ids.slice().sort((a, b) => rank(a) - rank(b))) {   // ready ones first, then known, then ???
     const G = GC[id], s = gcState(v, id), c = COMBOS[G.base], add = gcAddName(G), have = v.list.some(u => u.gc === id);
-    if (s.ok) h += `<button type="button" data-gc="${id}" class="ready${sel === id ? ' sel' : ''}">${G.icon} ${G.name}<small>★${c[0]}${s.fromMade ? '' : ' (QUIVER)'} + ${add}${G.pair || fromQ(v, G.add) ? ' (QUIVER)' : ''} · ${s.cost}</small></button>`;
+    if (s.ok) h += `<button type="button" data-gc="${id}" class="ready${sel === id ? ' sel' : ''}">${G.icon} ${G.name}<small>★${c[0]}${s.fromMade ? '' : ' (QUIVER)'} + ${add}${G.pair || fromQ(v, G.add) ? ' (QUIVER)' : ''} · ${gcPrice(v, s.cost)}</small></button>`;
     else if (s.known) h += `<button type="button" data-gc="${id}" disabled>${G.icon} ${G.name}${have ? ' ✓' : ''}<small>${s.why}</small></button>`;
     else h += `<button type="button" disabled>???<small>★${c[0]} + ${add}</small></button>`;
   }
@@ -7022,23 +7034,27 @@ function forgeRender(v) {
   else if (v.uses <= 0) hint = 'No forges left this visit. On to the shop!';
   else if (G) hint = GC[G].icon + ' ' + GC[G].name + ' (GAME CHANGER, 1 shot): ' + GC[G].desc + (gcState(v, G).fromMade && !GC[G].pair ? '' : '  ·  uses up your ★' + COMBOS[GC[G].base][0] + ' from your quiver') + (!GC[G].pair && fromQ(v, GC[G].add) ? '  ·  and your ' + POWERS[GC[G].add].short + ' arrows' : '');
   else if (v.msg && !a) hint = v.msg;
-  else if (!a) { const gcOk = Object.keys(GC).some(id => gcState(v, id).ok); hint = (v.uses === 2 ? 'Forge 1 of 2: tap two powers to make a POWERFUL arrow' : 'Forge 2 of 2: another POWERFUL arrow') + (gcOk ? ', or tap a lit GAME CHANGER below' : ''); }
+  else if (!a) { const gcOk = Object.keys(GC).some(id => gcState(v, id).ok); hint = (v.uses === 2 ? 'Forge 1 of 2: tap two powers to make a POWERFUL arrow' : 'Forge 2 of 2: another POWERFUL arrow') + (gcOk ? ', or forge the GAME CHANGER ' + gcReady(v).map(id => GC[id].icon + ' ' + GC[id].name).join(' / ') + ' (gold button)' : ''); }
   else if (!b) hint = POWERS[a].short + ' + … tap a second power';
   else { const c = COMBOS[comboKey(a, b)]; hint = POWERS[a].short + ' + ' + POWERS[b].short + (c ? '  =  ★' + c[0] : '') + '  ·  ' + forgedShots(a, b) + ' shots per FORGED crate  ·  ' + pickCost(v, a, b) + ' points' + (fromQ(v, a) || fromQ(v, b) ? ' (your quiver arrow is used up)' : ''); }
   $('forgeHint').textContent = hint;
   let h = '';
+  if (!v.done && v.uses > 0 && !a) for (const id of gcReady(v)) {
+    const Gc = GC[id], gs = gcState(v, id), c = COMBOS[Gc.base];
+    h += `<button type="button" class="item gcbig${G === id ? ' sel' : ''}" data-gcb="${id}"><i class="ico">${Gc.icon}</i><span class="txt"><b>${G === id ? '✓ ' : ''}FORGE ${Gc.name} · GAME CHANGER</b><span>★${c[0]} + ${gcAddName(Gc)}${G === id ? ' · now tap FORGE below' : ' · tap to choose'}</span><span class="cost">${gcPrice(v, gs.cost)}</span></span></button>`;
+  }
   for (const k of [...v.today, ...(v.have || []).filter(k => !v.today.includes(k))]) {
-    const P = POWERS[k], on = forgePick.includes(k), gcOnly = !FORGE_COST[k], mine = fromQ(v, k), cant = v.done || v.uses <= 0 || gcOnly || !!G || (!on && forgePick.length >= 2);
+    const P = POWERS[k], gAdd = !!G && !GC[G].pair && GC[G].add === k, on = forgePick.includes(k) || gAdd, gcOnly = !FORGE_COST[k], mine = fromQ(v, k), cant = v.done || v.uses <= 0 || (gcOnly && !gAdd) || (!!G && !gAdd) || (!on && forgePick.length >= 2);
     h += `<button type="button" class="item${on ? ' sel' : ''}" data-k="${k}"${cant ? ' disabled' : ''}><i class="ico">${ICON['pw_' + k] || ''}</i><span class="txt"><b style="color:${P.col}">${P.short}</b><span class="cost">${gcOnly ? 'GAME CHANGER ONLY' : mine ? 'YOUR QUIVER · FREE' : FORGE_COST[k]}</span></span></button>`;
   }
   $('forgeGrid').innerHTML = h;
   const cost = G ? gcState(v, G).cost : b ? pickCost(v, a, b) : 0, can = !v.done && v.uses > 0 && !!(G || b);
   $('forgeMake').disabled = !(can && v.bank >= cost);
-  $('forgeMake').textContent = !can ? (v.uses <= 0 ? 'NO FORGES LEFT' : 'FORGE') : v.bank >= cost ? 'FORGE · ' + cost : 'NEED ' + cost + ' POINTS';
+  $('forgeMake').textContent = !can ? (v.uses <= 0 ? 'NO FORGES LEFT' : 'FORGE') : v.bank >= cost ? 'FORGE' + (G ? ' ' + GC[G].name : '') + ' · ' + cost : 'NEED ' + cost + ' POINTS (YOU HAVE ' + v.bank + ')';
   const nm = c => forgedName({ k: c.split('+')[0], k2: c.split('+')[1] });
   $('forgeMine').innerHTML = (v.carried.length ? 'IN YOUR QUIVER: ' + v.carried.map(c => { const g = Object.keys(GC).filter(id => GC[id].base === c && !GC[id].pair); return '<b style="color:' + TIER_COL[3] + '">★' + nm(c) + '</b>' + (g.length ? ' → ' + g.map(id => GC[id].icon + GC[id].name + ' (+' + gcAddName(GC[id]) + ')').join(' or ') : ' (no Game Changer uses it)'); }).join(' · ') + '<br>' : '')
     + (v.list.length ? (v.team ? 'TEAM FORGED ARROWS' : 'FORGED THIS RUN') + ' (turn up as crates): ' + v.list.map(q => '<b style="color:' + (q.gc ? GC_GOLD : POWERS[q.k].col) + '">' + powShort(q) + '</b>').join(' · ') : '');
-  $('gcList').innerHTML = gcListHTML(v, G);
+  $('gcList').innerHTML = gcListHTML(v, G); $('gcList').scrollLeft = 0;   // ready ones are at the start
 }
 // make one forge for holder H (solo st, co-op player); returns { cost, gc | k, k2 } or null
 function forgeDo(H, v, pick, gcId, bank, by) {
@@ -7147,9 +7163,14 @@ function soloForgeView() {
 }
 function renderForge() { forgeRender(soloForgeView()); }
 function forgeTap(k) {
-  if (forgePick.includes(k)) forgePick = forgePick.filter(x => x !== k);
-  else if (forgePick.length < 2) forgePick.push(k);
-  forgeGCSel = null;
+  const v = soloForgeView(), gk = gcForAdd(v, k);
+  if (forgeGCSel && !GC[forgeGCSel].pair && GC[forgeGCSel].add === k) { forgeGCSel = null; forgePick = [k]; }   // tapped again: use it for a POWERFUL arrow instead
+  else if (!forgePick.length && !forgeGCSel && gk) forgeGCSel = gk;   // e.g. ENLARGE after forging ★GRAVITY WELL = DOOMSDAY
+  else {
+    if (forgePick.includes(k)) forgePick = forgePick.filter(x => x !== k);
+    else if (forgePick.length < 2) forgePick.push(k);
+    forgeGCSel = null;
+  }
   sfx('click'); renderForge();
 }
 function forgeMake() {
