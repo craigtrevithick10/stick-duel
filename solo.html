@@ -314,6 +314,13 @@ const POWERS = {
   portal: { name: 'PORTAL ARROWS', short: 'PORTAL', col: '#8f7bff', shots: 2 },
   thunder: { name: 'STORM ARROWS', short: 'STORM', col: '#8fa8ff', shots: 3 },
   raise: { name: 'RESURRECTION', short: 'RAISE', col: '#9dff8a', shots: 3, rare: true },
+  // undead arrows: only skeletons get these (never in crates, the shop or the forge)
+  bone: { name: 'BONE ARROWS', short: 'BONE', col: '#efe6d2', shots: 99, undead: true },
+  soul: { name: 'SOUL ARROWS', short: 'SOUL', col: '#9ffff0', shots: 2, undead: true },
+  grave: { name: 'GRAVE GRASP', short: 'GRASP', col: '#c9b48a', shots: 2, undead: true },
+  curse: { name: 'CURSE ARROWS', short: 'CURSE', col: '#c08bff', shots: 2, undead: true },
+  plague: { name: 'PLAGUE ARROWS', short: 'PLAGUE', col: '#8fe060', shots: 2, undead: true },
+  drain: { name: 'LIFE DRAIN', short: 'DRAIN', col: '#ff5a6e', shots: 2, undead: true },
   meteor: { name: 'METEOR SHOWER', short: 'METEOR', col: '#ff7b3a', shots: 1, mega: true },
   blackhole:{ name: 'BLACK HOLE', short: 'VOID',   col: '#b07cff', shots: 1, ultra: true }
 };
@@ -410,7 +417,7 @@ const ICON = {
   armour: '🛡️', leech: '🧛', revive: '💨', glass: '🪟', helper: '🤝',
   pw_triple: '🔱', pw_fire: '🔥', pw_ice: '❄️', pw_boom: '💥', pw_heavy: '🪨', pw_rapid: '⏩', pw_pierce: '📌',
   pw_homing: '🎯', pw_storm: '⚡', pw_cluster: '🎆', pw_scope: '🔭', pw_slowmo: '🐢', pw_tornado: '🌪️',
-  pw_shrink: '🤏', pw_grow: '🍄', pw_tele: '🌀', pw_blackhole: '🕳️', pw_meteor: '☄️', pw_clone: '👥', pw_confuse: '😵', pw_magnet: '🧲', pw_bounce: '🏀', pw_web: '🕸️', pw_portal: '🚪', pw_thunder: '⛈️', pw_raise: '🧟', pw_shield: '🧱'
+  pw_shrink: '🤏', pw_grow: '🍄', pw_tele: '🌀', pw_blackhole: '🕳️', pw_meteor: '☄️', pw_clone: '👥', pw_confuse: '😵', pw_magnet: '🧲', pw_bounce: '🏀', pw_web: '🕸️', pw_portal: '🚪', pw_thunder: '⛈️', pw_raise: '🧟', pw_bone: '🦴', pw_soul: '👻', pw_grave: '🪦', pw_curse: '🔮', pw_plague: '🦠', pw_drain: '🩸', pw_shield: '🧱'
 };
 
 let W = 0, H = 0, DPR = 1, sc = 1, camX = 0, camY = 0, scBase = 1, zoom = 1, forcePortrait = false;
@@ -467,6 +474,8 @@ function spawnLevel(first) {
   for (const q of st.quiver || []) q.webT = 0;
   for (const q of st.forged || []) q.shots = q.max;   // forged arrows refill every level
   if (GC_TEST && !st.gcGiven) gcGive();
+  if (UNDEAD_TEST && st.P) st.P.undead = true;   // test link ?undead: start every level as a skeleton
+  st.tombT = 2;
   const lv = st.level, n = Math.min(lv, 6);
   st.enemies = [];
   // each archer gets its own random spot: some close, some far
@@ -570,7 +579,7 @@ function pickGadgetType(exclude, fieldOnly) {
 function makeGadget(type, x, y) {
   const lv = st.level;
   if (type === 'crate') {
-    const keys = Object.keys(POWERS), wts = keys.map(k => POWERS[k].mega ? .02 : POWERS[k].ultra ? .07 : POWERS[k].rare ? .3 : 1);
+    const keys = Object.keys(POWERS).filter(k => !POWERS[k].undead), wts = keys.map(k => POWERS[k].mega ? .02 : POWERS[k].ultra ? .07 : POWERS[k].rare ? .3 : 1);
     let r = Math.random() * wts.reduce((a, b) => a + b, 0), pk = keys[0];
     for (let q = 0; q < keys.length; q++) { r -= wts[q]; if (r <= 0) { pk = keys[q]; break; } }
     const g = { id: ++uid, type, x, y, tx: x, ty: y, pk, bob: rand(0, 6) };
@@ -932,6 +941,7 @@ function gadgetStep(ar, sdt) {
           for (let i = 0; i < 24; i++) st.parts.push({ x: g.x, y: g.y, vx: rand(-200, 200), vy: rand(-240, 60), life: .7, max: .7, r: 2.8, col: i % 2 ? '#ffd27a' : col });
           sfx('heal'); return;
         }
+        if (g.tomb && !ar.owner.undead) { g.gone = false; text(g.x, g.y - 30, 'ONLY FOR THE UNDEAD', BONE_COL, 13, 1); return; }
         const pw = POWERS[g.pk];
         if (g.pk === 'shield') st.barrier = { hp: 120, max: 120, hitT: 0 };
         else givePower(g.pk, pw.shots + st.extraShots);
@@ -1108,6 +1118,10 @@ function solve(from, tx, ty, flat) {
   return { e: bestE, v: bestV };
 }
 function fire(a, ang, v, pk, pk2) {
+  if (a.undead && !a.dead && !pk2) {   // a skeleton: plain = BONE, specials turn undead; risen helpers fire a random undead special every 3rd shot
+    pk = undeadK(pk);
+    if (a.helper && pk === 'bone' && (a.uN = (a.uN || 0) + 1) % 3 === 0) pk = UNDEAD_SPECIAL[Math.floor(Math.random() * UNDEAD_SPECIAL.length)];
+  }
   const s = shoulder(a), has = k => pk === k || pk2 === k;
   const angs = has('triple') ? [ang - .06, ang, ang + .06] : [ang];
   if (has('heavy')) v *= 1.18;
@@ -1135,6 +1149,7 @@ function impactFX(ar, x, y, onBody) {
     for (let i = 0; i < 16; i++) P_(x, y, rand(-140, 140), rand(-220, -30), rand(.35, .7), rand(1.8, 3.4), i % 2 ? '#8cff5a' : '#5fd13a', 'spark');
   }
   if (ar.gc && !ar.rider && ar.owner && ar.owner.isP && shotOnce(ar, 'gc')) gcImpact(ar, x, y);
+  if (isUndeadK(ar.pk) && ar.owner && !ar.uDone) { ar.uDone = true; undeadLand(ar, x, y, onBody); }
   if (ar.owner && ar.owner.isP && !ar.owner.helper && hasPk(ar, 'raise') && !ar.raiseDone) { ar.raiseDone = true; const a = raiseFind(x, y, RAISE_R, ar.owner); if (a) raiseUp(a, ar.owner); else { text(x, y - 40, 'NOTHING TO RAISE HERE', RAISE_COL, 12, 1); ring(x, y, 30, RAISE_COL, .35, 2); } }
   if (!pk) return;
   if (pk === 'fire') {
@@ -1293,7 +1308,7 @@ function teleportSelf(P, x, y) {
 }
 // portal arrow: your first shot opens a blue IN portal where it lands (or where you tap), the next one opens the orange OUT portal.
 // Every arrow (theirs too) that flies into IN comes out of OUT. The pair lasts PORT_T s; a new IN closes your old pair.
-const PORT_T = 25, PORT_R = 30, PORT_COL = '#8f7bff', NOLINK = ['clone', 'portal', 'thunder', 'raise'];
+const PORT_T = 25, PORT_R = 30, PORT_COL = '#8f7bff', NOLINK = ['clone', 'portal', 'thunder', 'raise', 'bone', 'soul', 'grave', 'curse', 'plague', 'drain'];
 const portFlying = P => st.arrows.filter(a => !a.done && a.owner === P && hasPk(a, 'portal'));
 function plantPortal(ar) {
   if (ar.done) return;
@@ -1362,7 +1377,8 @@ function headshotFX(ar, a) {
 }
 function onHit(ar, a, z) {
   const base = z === 'head' ? 48 : z === 'body' ? 26 : 15;
-  const dmg = Math.round(base * rand(.9, 1.15) * (ar.dmgMul || 1) * (ar.owner.isP ? st.dmgBoost : 1) * (a === st.P ? 1 - st.armour : 1));
+  const dmg = Math.round(base * rand(.9, 1.15) * (ar.dmgMul || 1) * (a.curseT > 0 ? 2 : 1) * (ar.owner.isP ? st.dmgBoost : 1) * (a === st.P ? 1 - st.armour : 1));
+  undeadHit(ar, a, dmg);
   a.hp -= dmg; a.hitT = .12; a.flinchT = st.t; reactHit(ar, a);
   if (a.bc) stopCharge(a, ar.owner);
   if (ar.acid && (a.isP || a.helper)) { a.acidT = 3; text(feet(a).x, feet(a).y - 150, 'ACID!', '#8cff5a', 16, 1.1); }
@@ -1431,7 +1447,7 @@ function kill(a, ar, z) {
   if (a === st.P && st.horde) { hordeOver(); return; }
   if (a === st.P && st.revive > 0) {
     st.revive--; a.hp = 50; a.hitT = 0;
-    text(feet(a).x, feet(a).y - 140, 'SECOND WIND', '#7dff9a', 22, 1.6); ring(feet(a).x, feet(a).y - 50, 90, '#7dff9a', .6, 4); sfx('heal');
+    text(feet(a).x, feet(a).y - 140, 'SECOND WIND', '#7dff9a', 22, 1.6); makeUndead(a); ring(feet(a).x, feet(a).y - 50, 90, '#7dff9a', .6, 4); sfx('heal');
     return;
   }
   a.hp = 0; a.dead = true; a.aiAim = null;
@@ -1456,6 +1472,14 @@ function kill(a, ar, z) {
 function clearLevel() {
   for (const c of st.clones || []) if (c.type === 'a') removeClone(c);
   for (const h of st.helpers.filter(h => h.risen)) raiseGone(h);
+  for (const p of PEOPLE().concat(st.helpers)) {   // skeletons are flesh again; their undead arrows go
+    if (p.undead) { const f = feet(p); text(f.x, f.y - 184, 'ALIVE AGAIN', '#7dff9a', 14, 1.4); }
+    p.undead = false; p.graspT = 0; p.curseT = 0;
+    if (p.quiver) { p.quiver = p.quiver.filter(o => !isUndeadK(o.k)); if (p.power && isUndeadK(p.power.k)) p.power = null; }
+  }
+  if (!st.players) { st.quiver = st.quiver.filter(o => !isUndeadK(o.k)); if (st.power && isUndeadK(st.power.k)) st.power = null; }
+  for (const g of st.gadgets) if (g.tomb) g.gone = true;
+  st.plagues = [];
   st.clones = [];
   st.nextT = 2.6;
   st.P.hp = st.P.max; st.P.headRed = 0; st.P.acidT = 0;
@@ -1822,6 +1846,186 @@ function miniGadget(g) {
   g.miniT = MINI_T; g.size = (g.size0 || 1) * .4; g.flash = .3;
   text(g.x, g.y - 40, 'MINIATURIZED!', MINI_COL, 16, 1.2, 1); ring(g.x, g.y, 60, MINI_COL, .5, 3); sfx('heal');
 }
+/* ---------- the undead (Craig 2026-11-18): anyone who comes back from the dead (Resurrection arrow, Second Wind) is a skeleton
+   till the level ends and shoots undead arrows: BONE instead of plain, and the special arrows in the quiver turn undead ---------- */
+const BONE_COL = '#efe6d2', BONE_EDGE = '#5a5040', CURSE_COL = '#c08bff', GRASP_T = 4, CURSE_T = 6, PLAGUE_R = 100, PLAGUE_T = 5;
+const UNDEAD_SPECIAL = ['soul', 'grave', 'curse', 'plague', 'drain'];
+const UNDEAD_MAP = { fire: 'plague', ice: 'grave', homing: 'soul', pierce: 'soul', shrink: 'curse', confuse: 'curse', web: 'curse', heavy: 'drain', boom: 'drain' };
+const isUndeadK = k => !!k && !!POWERS[k] && !!POWERS[k].undead;
+const undeadK = k => k ? (UNDEAD_MAP[k] || k) : 'bone';   // plain arrows are BONE arrows
+// a quiver button shows the undead version of its arrow while you are a skeleton
+const undeadView = (o, A) => A && A.undead && o && !o.k2 && !o.gc && UNDEAD_MAP[o.k] ? Object.assign({}, o, { k: UNDEAD_MAP[o.k] }) : o;
+const uFoes = by => typeof FOES === 'function' ? FOES(by) : st.enemies;
+const uFoe = (ar, a) => !!a && a !== ar.owner && !a.dead && (!a.isP || !!(st.vs && vsFoe(a, ar.owner)));
+function makeUndead(a) {
+  if (!a || a.undead) return;
+  a.undead = true;
+  const f = feet(a); text(f.x, f.y - 184, 'UNDEAD!', BONE_COL, 15, 1.6);
+  for (let q = 0; q < 16; q++) P_(f.x + rand(-14, 14), f.y - rand(0, 90), rand(-50, 50), rand(-90, -10), .7, rand(2, 3), q % 2 ? BONE_COL : '#9dff8a', 'spark');
+}
+function skelBone(x1, y1, x2, y2, w) {
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = BONE_EDGE; ctx.lineWidth = w + 2.2; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  ctx.strokeStyle = BONE_COL; ctx.lineWidth = w; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  const an = Math.atan2(y2 - y1, x2 - x1), nx = -Math.sin(an) * w * .45, ny = Math.cos(an) * w * .45;
+  ctx.fillStyle = BONE_COL;
+  for (const [px, py] of [[x1, y1], [x2, y2]]) for (const s of [1, -1]) { ctx.beginPath(); ctx.arc(px + nx * s, py + ny * s, w * .6, 0, 6.283); ctx.fill(); }
+}
+// CLASSIC BONES skeleton, drawn in the archer's own frame (feet at 0,0, head centre 0,-84)
+function drawSkelBody(a, lg) {
+  const ff = a.f || 1;
+  skelBone(-2, -40, -5 + lg * .5, -20, 3.6); skelBone(-5 + lg * .5, -20, -9 + lg, 0, 3.6);
+  skelBone(2, -40, 6 - lg * .5, -20, 3.6); skelBone(6 - lg * .5, -20, 9 - lg, 0, 3.6);
+  ctx.fillStyle = BONE_COL; ctx.strokeStyle = BONE_EDGE; ctx.lineWidth = 1.4;   // pelvis
+  ctx.beginPath(); ctx.moveTo(-9, -44); ctx.quadraticCurveTo(0, -34, 9, -44); ctx.lineTo(6, -39); ctx.quadraticCurveTo(0, -35, -6, -39); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = BONE_EDGE; ctx.lineWidth = 4.6; ctx.beginPath(); ctx.moveTo(0, -42); ctx.lineTo(0, -72); ctx.stroke();   // spine
+  ctx.strokeStyle = BONE_COL; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(0, -42); ctx.lineTo(0, -72); ctx.stroke();
+  ctx.lineWidth = 2.2;
+  for (let k = 0; k < 4; k++) {   // ribs
+    const y = -67 + k * 5.2, r = 9.5 - k * .9;
+    ctx.beginPath(); ctx.ellipse(0, y, r, 3.4, 0, Math.PI * .08, Math.PI * .92); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(0, y, r, 3.4, 0, Math.PI * 1.08, Math.PI * 1.92); ctx.stroke();
+  }
+  ctx.save(); ctx.translate(0, -84); ctx.scale(ff, 1);   // skull
+  ctx.fillStyle = a.hitT > 0 ? '#ffb0a0' : BONE_COL; ctx.strokeStyle = BONE_EDGE; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(0, -1, 10.5, 0, 6.283); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.rect(-4, 6, 11, 6); ctx.fill(); ctx.stroke();
+  ctx.lineWidth = .9; for (let k = -1.5; k <= 6; k += 2.4) { ctx.beginPath(); ctx.moveTo(k, 7); ctx.lineTo(k, 11.5); ctx.stroke(); }
+  ctx.fillStyle = '#16131f'; ctx.beginPath(); ctx.ellipse(0, -2, 3.2, 3.6, 0, 0, 6.283); ctx.ellipse(6.5, -2, 2.8, 3.4, 0, 0, 6.283); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(4, 2); ctx.lineTo(2.6, 5); ctx.lineTo(5.4, 5); ctx.fill();
+  if (!a.dead) { ctx.shadowColor = '#9dff8a'; ctx.shadowBlur = 8; ctx.fillStyle = '#9dff8a'; ctx.beginPath(); ctx.arc(0, -2, 1.6, 0, 6.283); ctx.arc(6.5, -2, 1.4, 0, 6.283); ctx.fill(); ctx.shadowBlur = 0; }
+  ctx.restore();
+}
+// GRAVE GRASP: bony hands come out of the ground and hold an archer: no aiming or shooting for a while
+function graspA(a) {
+  if (!a || a.dead || a.flyer || a.ship || a.hydra || a.worm || a.walker) return;
+  const was = a.graspT > 0;
+  a.graspT = Math.max(a.graspT || 0, a.boss ? GRASP_T / 2 : GRASP_T);
+  if (!a.isP) { a.aiAim = null; a.pow = 0; }
+  const f = feet(a);
+  if (!was) text(f.x, f.y - 150, 'GRAVE GRASP!', BONE_COL, 15, 1.2);
+  for (let q = 0; q < 12; q++) P_(f.x + rand(-20, 20), f.y, rand(-40, 40), rand(-120, -40), .5, rand(2, 3.5), '#6b5a40', 'smoke');
+}
+// CURSE: double damage from arrows and no healing
+function curseA(a) {
+  if (!a || a.dead) return;
+  const was = a.curseT > 0, f = feet(a);
+  a.curseT = Math.max(a.curseT || 0, CURSE_T);
+  if (!was) text(f.x, f.y - 150, 'CURSED: ×2 DAMAGE', CURSE_COL, 14, 1.4);
+  ring(f.x, f.y - 50, 50, CURSE_COL, .5, 3);
+}
+function spawnPlague(x, y, by) {
+  (st.plagues = st.plagues || []).push({ x, y: Math.min(y, -4), life: PLAGUE_T, tick: .5, by });
+  text(x, y - 60, 'PLAGUE!', '#8fe060', 15, 1.2); sfx('void');
+}
+// BONE arrow: breaks into 3 sharp shards that fly on past whoever it hit
+function boneShards(ar, a) {
+  const sp = Math.hypot(ar.vx, ar.vy) * .55, base = Math.atan2(ar.vy, ar.vx);
+  for (const off of [-.32, 0, .32]) st.arrows.push({ x: ar.x, y: ar.y, sx: ar.x, sy: ar.y, vx: Math.cos(base + off) * sp, vy: Math.sin(base + off) * sp - 60,
+    owner: ar.owner, done: false, via: new Set(), pk: null, pk2: null, shard: true, split: true, dmgMul: .3, col: BONE_COL, hit: new Set([a]) });
+  for (let q = 0; q < 10; q++) P_(ar.x, ar.y, rand(-120, 120), rand(-150, 30), .4, 2.2, BONE_COL, 'spark');
+}
+// an undead arrow hits an archer
+function undeadHit(ar, a, dmg) {
+  const k = ar.pk;
+  if (!isUndeadK(k) || ar.shard || !uFoe(ar, a)) return;
+  if (k === 'curse') curseA(a);
+  else if (k === 'grave') graspA(a);
+  else if (k === 'bone') boneShards(ar, a);
+  else if (k === 'drain' && ar.owner && !ar.owner.dead && ar.owner.hp < ar.owner.max) {
+    const o = ar.owner, g = Math.max(1, Math.round(dmg * .6)), f = feet(a), of = feet(o);
+    o.hp = Math.min(o.max, o.hp + g);
+    text(of.x, of.y - 130, '+' + g + ' HP', '#7dff9a', 15, 1);
+    for (let q = 0; q < 14; q++) { const t = q / 13; P_(f.x + (of.x - f.x) * t, f.y - 60 + (of.y - f.y) * t - Math.sin(t * Math.PI) * 60, 0, -10, .7, 2.6, '#ff5a6e', 'spark'); }
+  }
+}
+// an undead arrow lands (on the ground, a tower or a body)
+function undeadLand(ar, x, y, onBody) {
+  const k = ar.pk;
+  if (k === 'bone') for (let q = 0; q < 8; q++) P_(x, y, rand(-90, 90), rand(-140, -20), .4, 2, BONE_COL, 'spark');
+  else if (k === 'soul') { ring(x, y, 26, '#9ffff0', .35, 2); for (let q = 0; q < 10; q++) P_(x, y, rand(-40, 40), rand(-90, -20), .7, 2.4, '#9ffff0', 'spark'); }
+  else if (k === 'plague' && shotOnce(ar, 'plague')) spawnPlague(x, y, ar.owner);
+  else if (k === 'grave' && !onBody) {   // the nearest archer close to where it landed gets grabbed
+    let best = null, bd = 150;
+    for (const E of uFoes(ar.owner)) { if (E.dead || E === ar.owner) continue; const f = feet(E), d = Math.hypot(f.x - x, f.y - y); if (d < bd) { bd = d; best = E; } }
+    for (let q = 0; q < 10; q++) P_(x + rand(-16, 16), y, rand(-30, 30), rand(-100, -30), .5, 2.4, '#6b5a40', 'smoke');
+    if (best) graspA(best);
+  }
+}
+// host: grasp and curse wear off, plague clouds hurt whoever is inside, tombstones appear while someone is undead
+function undeadStep(dt) {
+  for (const a of [...PEOPLE(), ...st.helpers, ...st.enemies]) {
+    if (a.graspT > 0) a.graspT -= dt;
+    if (a.curseT > 0) a.curseT -= dt;
+  }
+  if (st.plagues && st.plagues.length) {
+    for (const C of st.plagues) {
+      C.life -= dt;
+      if (Math.random() < .7) P_(C.x + rand(-PLAGUE_R, PLAGUE_R) * .8, C.y - rand(0, 70), rand(-15, 15), rand(-30, -5), rand(.6, 1.1), rand(9, 15), 'rgba(120,220,80,.28)', 'smoke');
+      if ((C.tick -= dt) > 0) continue;
+      C.tick = .5;
+      for (const E of uFoes(C.by)) {
+        if (E.dead || E === C.by || E.swallowed) continue;
+        const f = feet(E);
+        if (Math.hypot(f.x - C.x, f.y - 40 - C.y) > PLAGUE_R) continue;
+        E.hp -= 3; E.hitT = .08; E.lastBy = C.by;
+        text(f.x + rand(-10, 10), f.y - 110, '-3', '#8fe060', 12, .5);
+        if (E.hp <= 0) kill(E, { vx: 1, owner: C.by }, 'body');
+      }
+    }
+    st.plagues = st.plagues.filter(C => C.life > 0);
+  }
+  const ud = PEOPLE().some(p => p.undead && !p.dead), tombs = st.gadgets.filter(g => g.tomb && !g.gone);
+  if (ud && !st.horde && !st.practice && st.nextT <= 0) {
+    st.tombT = (st.tombT === undefined ? 2 : st.tombT) - dt;
+    if (st.tombT <= 0) {
+      st.tombT = rand(6, 9);
+      if (tombs.length < 2) {
+        const g = addGadget('crate');
+        Object.assign(g, { tomb: true, pk: UNDEAD_SPECIAL[Math.floor(Math.random() * UNDEAD_SPECIAL.length)], pk2: null, gc: null, forged: false, recruit: false, piece: null });
+        text(g.x, g.y - 46, 'TOMBSTONE!', BONE_COL, 14, 1.4); ring(g.x, g.y, 40, BONE_COL, .5, 3);
+      }
+    }
+  } else if (tombs.length) for (const g of tombs) { g.gone = true; ring(g.x, g.y, 30, BONE_COL, .4, 2); }
+}
+// a tombstone crate: only skeletons can take its undead arrow
+function drawTomb(g, x, y) {
+  const pw = POWERS[g.pk], by = y + Math.sin(st.t * 2 + (g.bob || 0)) * 6 * sc, w = 15 * sc, h = 21 * sc;
+  ctx.fillStyle = pw.col + '33'; ctx.beginPath(); ctx.arc(x, by, 30 * sc, 0, 6.283); ctx.fill();
+  ctx.fillStyle = '#8d8a96'; ctx.strokeStyle = '#4a4752'; ctx.lineWidth = 2 * sc;
+  ctx.beginPath(); ctx.moveTo(x - w, by + h); ctx.lineTo(x - w, by - h + w); ctx.arc(x, by - h + w, w, Math.PI, 0); ctx.lineTo(x + w, by + h); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = '#5d5a66'; ctx.lineWidth = 1.2 * sc; ctx.beginPath(); ctx.moveTo(x + 5 * sc, by - 14 * sc); ctx.lineTo(x + 1 * sc, by - 6 * sc); ctx.lineTo(x + 6 * sc, by + 2 * sc); ctx.stroke();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = '700 ' + Math.max(7, Math.round(8 * sc)) + 'px Silkscreen, monospace'; ctx.fillStyle = '#3a3742'; ctx.fillText('RIP', x, by - 6 * sc);
+  ctx.font = Math.max(9, Math.round(12 * sc)) + 'px sans-serif'; ctx.fillText(ICON['pw_' + g.pk] || '', x, by + 9 * sc);
+  ctx.font = '700 10px Silkscreen, monospace'; ctx.textBaseline = 'top';
+  ctx.fillStyle = pw.col; ctx.fillText(pw.short, x, by + h + 4);
+  ctx.fillStyle = BONE_COL; ctx.fillText('UNDEAD ONLY', x, by + h + 16);
+}
+// bony hands round a grasped archer, a purple rune under a cursed one
+function drawUndeadMarks() {
+  for (const a of [...PEOPLE(), ...st.helpers, ...st.enemies]) {
+    if (a.dead || a.swallowed || !(a.graspT > 0 || a.curseT > 0)) continue;
+    const f = feet(a), k = sc * sizeOf(a);
+    if (a.curseT > 0) {
+      ctx.save(); ctx.translate(SX(f.x), SY(f.y - 50 * sizeOf(a))); ctx.rotate(st.t * 1.5); ctx.globalAlpha = .7 * Math.min(1, a.curseT);
+      ctx.strokeStyle = CURSE_COL; ctx.lineWidth = 2 * sc; ctx.beginPath(); ctx.arc(0, 0, 42 * k, 0, 6.283); ctx.stroke();
+      for (let i = 0; i < 5; i++) { const p = i * 6.283 / 5, q = (i + 2) * 6.283 / 5; ctx.beginPath(); ctx.moveTo(Math.cos(p) * 30 * k, Math.sin(p) * 30 * k); ctx.lineTo(Math.cos(q) * 30 * k, Math.sin(q) * 30 * k); ctx.stroke(); }
+      ctx.restore();
+    }
+    if (a.graspT > 0) {
+      const up = Math.min(1, (GRASP_T - a.graspT) * 4 + .25) * Math.min(1, a.graspT * 2);
+      ctx.save(); ctx.translate(SX(f.x), SY(f.y)); ctx.scale(k, k);
+      for (const [dx, s, h] of [[-15, 1, 30], [13, -1, 34], [-3, 1, 24]]) {
+        ctx.save(); ctx.translate(dx, 2); ctx.scale(s, 1);
+        skelBone(0, 0, 3, -h * up, 2.6);
+        for (let fi = -1; fi <= 1; fi++) skelBone(3, -h * up, 3 + fi * 5, -(h + 9) * up, 1.5);
+        ctx.restore();
+      }
+      ctx.restore();
+    }
+  }
+}
 /* ---------- resurrection arrow (Craig 2026-11-18): a dead enemy it hits rises up and fights for you; in co-op a fallen teammate gets up (LAST STAND) ---------- */
 const RAISE_COL = '#9dff8a', RAISE_MAX = 3, RAISE_R = 120, RAISE_TOUCH = 52;
 const raisable = E => E && E.dead && !E.swallowed && !E.raised && !E.boss && !E.flyer && !E.walker && !E.ship && !E.hydra && !E.worm && !E.beast && !E.mini && !E.topple;
@@ -1846,7 +2050,7 @@ function raiseFX(x, y) {
 function raiseUp(a, by) {
   const f = feet(a);
   if (a.dummy && st.practice) {   // practice range: a straw archer rises for 10 s, then a new dummy pops up in its place
-    const h = mkArcher(a.x, a.h, -1, 60, true, a.pw); h.helper = true; h.risen = true; h.kind = 'archer'; h.name = 'RISEN DUMMY'; h.life = 10; h.aiT = .8;
+    const h = mkArcher(a.x, a.h, -1, 60, true, a.pw); h.helper = true; h.risen = true; h.undead = true; h.kind = 'archer'; h.name = 'RISEN DUMMY'; h.life = 10; h.aiT = .8;
     a.swallowed = true; a.raised = true; a.backT = 10; st.helpers.push(h); raiseFX(f.x, f.y);
     text(f.x, f.y - 160, 'RISEN!', RAISE_COL, 22, 1.8, 1); text(f.x, f.y - 136, 'FIGHTS FOR YOU (10 s HERE)', '#f6eedf', 12, 1.8); return;
   }
@@ -1855,17 +2059,17 @@ function raiseUp(a, by) {
   const t2 = feet(a);   // the body flies back up to its tower: a trail of light from where it lay
   if (Math.hypot(t2.x - f.x, t2.y - f.y) > 30) { raiseFX(t2.x, t2.y); for (let q = 0; q < 22; q++) { const k = q / 21; P_(f.x + (t2.x - f.x) * k, f.y - 40 + (t2.y - f.y) * k, rand(-20, 20), rand(-30, 10), .8, 2.6, q % 2 ? RAISE_COL : '#ffffff', 'spark'); } }
   if (a.isP && !a.helper) {   // a teammate: back up with half health
-    a.hp = Math.ceil(a.max * .5);
+    a.hp = Math.ceil(a.max * .5); makeUndead(a);
     text(t2.x, t2.y - 160, 'LAST STAND!', RAISE_COL, 24, 2, 1); text(t2.x, t2.y - 134, a.name + ' IS BACK UP', '#f6eedf', 13, 2);
     return;
   }
-  if (a.helper) { a.hp = Math.ceil(a.max * .6); text(t2.x, t2.y - 150, 'HELPER BACK UP!', RAISE_COL, 18, 1.6, 1); return; }
+  if (a.helper) { makeUndead(a); a.hp = Math.ceil(a.max * .6); text(t2.x, t2.y - 150, 'HELPER BACK UP!', RAISE_COL, 18, 1.6, 1); return; }
   // an enemy: it leaves their side and fights for you till the end of the level
   st.enemies = st.enemies.filter(e => e !== a);
   const h = a;
   h.helper = true; h.isP = true; h.risen = true; h.raised = true; h.bot = false; h.dummy = false; h.cover = null;
   if (h.kind === 'dummy' || h.kind === 'healer') h.kind = 'archer';
-  h.hp = Math.ceil(h.max * .6); h.name = 'RISEN ' + (h.name || 'ARCHER');
+  h.hp = Math.ceil(h.max * .6); h.name = 'RISEN ' + (h.name || 'ARCHER'); h.undead = true;
   st.helpers.push(h);
   text(t2.x, t2.y - 160, 'RISEN!', RAISE_COL, 22, 1.8, 1); text(t2.x, t2.y - 136, 'FIGHTS FOR YOU THIS LEVEL', '#f6eedf', 12, 1.8);
   const up = st.helpers.filter(o => o.risen && !o.dead);
@@ -2173,6 +2377,7 @@ function drawPlanets() {
   }
 }
 function updateMeteors(dt) {
+  undeadStep(dt);
   planetStep(dt); gcStep(dt); stormStep(dt);
   st.showers = st.showers || []; st.rocks = st.rocks || [];
   for (const S of st.showers) {
@@ -2721,6 +2926,7 @@ const GC = {
   doom:      { name: 'DOOMSDAY',    base: 'blackhole+meteor', add: 'grow',   icon: '☄️', col: '#ff5a4e', desc: 'The sky goes dark and meteors hit every part of the field at once' }
 };
 const GC_TEST = /[?&]gc\b/.test(location.search);
+const UNDEAD_TEST = /[?&]undead\b/.test(location.search);
 const qIcon = o => o.gc ? GC[o.gc].icon : (ICON['pw_' + o.k] || '') + (o.k2 ? ICON['pw_' + o.k2] || '' : '');
 const qCol = o => o.gc ? GC_GOLD : POWERS[o.k].col;
 const gcCost = id => { const G = GC[id], [p, q] = G.base.split('+'); return G.pair ? forgeCost(p, q) * 2 + 80 : forgeCost(p, q) + (FORGE_COST[G.add] || 15) + 40; };
@@ -5776,6 +5982,7 @@ function update(rdt) {
     }
     if (E.confT > 0 && E.aiAim && !E.aiAim.conf) confuseAim(E, E.aiAim);
     if (E.slowT > 0) { E.slowT -= dt; if (E.slowT <= 0) { E.slowM = 1; if (!E.dead) text(feet(E).x, feet(E).y - 130, 'SPEED BACK', '#7ad7ff', 12, .8); } }
+    if (E.graspT > 0) { E.aiAim = null; E.pow = 0; continue; }   // GRAVE GRASP
     if (webStep(E, dt)) continue;
     if (E.frozen > 0) { E.frozen -= dt; continue; }
     if (E.stun > 0) { E.stun -= dt; continue; }
@@ -5786,7 +5993,7 @@ function update(rdt) {
     if (E.flyer) { flyerStep(E, edt); continue; }
     if (E.boss && bossStep(E, edt)) continue;
     if (E.kind === 'healer' && !E.aiAim && E.aiT - edt <= 0) {
-      const hurt = st.enemies.filter(o => o !== E && !o.dead && !o.hydra && o.hp < o.max);
+      const hurt = st.enemies.filter(o => o !== E && !o.dead && !o.hydra && o.hp < o.max && !(o.curseT > 0));
       if (hurt.length && Math.random() < .7) {
         const f = feet(E);
         for (const o of hurt) {
@@ -5932,7 +6139,7 @@ function update(rdt) {
       if (ar.done) break;
       if (ar.owner.isP && !ar.owner.helper && hasPk(ar, 'raise')) { raiseStep(ar); if (ar.done) break; }
       if (ar.owner.isP) {
-        if (!ar.htGo && coverHit(ar)) break;
+        if (!ar.htGo && !hasPk(ar, 'soul') && coverHit(ar)) break;
         if (boulderHit(ar)) break;
         if (beastNetHit(ar)) break;
         for (const E of st.enemies) {
@@ -5987,7 +6194,7 @@ function update(rdt) {
       }
       if (ar.done) break;
       for (const a of [P, ...st.helpers, ...st.enemies]) {
-        if (!a.dead && !ar.htGo && inPillar(a, ar.x, ar.y)) {
+        if (!a.dead && !ar.htGo && !hasPk(ar, 'soul') && inPillar(a, ar.x, ar.y)) {
           if (bounceHit(ar, a, sdt)) break;
           ar.done = true;
           if (!a.ship) st.pinned.push({ x: ar.x, y: ar.y, ang: Math.atan2(ar.vy, ar.vx), col: ar.col });
@@ -6430,7 +6637,7 @@ function hatKind(a) {
   if (a.kind === 'crossbow') return 'xbow';
   if (a.kind === 'mage') return 'mage';
   if (a.kind === 'healer') return 'heal';
-  if (a.helper) return 'you';
+  if (a.helper && !a.risen) return 'you';
   return a.boss ? 'crown' : 'foe';
 }
 function hLine(pts, w, col) { ctx.strokeStyle = col; ctx.lineWidth = w; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.beginPath(); pts.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); ctx.stroke(); }
@@ -6612,7 +6819,7 @@ function drawArcher(a) {
     if (a.burn > 0) ctx.translate(Math.sin(st.t * 40) * 1.5, 0);   // on fire: panicking
     ctx.scale(1, 1 + Math.sin(st.t * 2.2 + a.x * .013) * .018);
   }
-  const ink = a.hitT > 0 ? '#5a1010' : a.walker ? '#66785e' : a.frozen > 0 && !a.dead ? '#3f6f99' : '#141414', ff = a.f;
+  const ink = a.undead ? (a.hitT > 0 ? '#ffb0a0' : '#e6dcc6') : a.hitT > 0 ? '#5a1010' : a.walker ? '#66785e' : a.frozen > 0 && !a.dead ? '#3f6f99' : '#141414', ff = a.f;
   if (!a.dead && isTagged(a)) { ctx.save(); ctx.strokeStyle = '#d58cff'; ctx.lineWidth = 2.5; ctx.setLineDash([7, 6]); ctx.lineDashOffset = -st.t * 40;
     ctx.beginPath(); ctx.arc(0, -50, 62, 0, 6.283); ctx.stroke(); ctx.restore(); }
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
@@ -6624,14 +6831,18 @@ function drawArcher(a) {
   // warm rim light from the sun (offset silhouette)
   ctx.strokeStyle = 'rgba(255,176,112,.55)'; ctx.lineWidth = 7;
   const lg = a.walker && !a.dead ? Math.sin(a.walkPh || 0) * 8 : 0;
+  if (!a.undead) {   // (no sunlit silhouette behind a skeleton)
   ctx.beginPath(); ctx.moveTo(1.6, -40); ctx.lineTo(-7.4 + lg, 0); ctx.moveTo(1.6, -40); ctx.lineTo(10.6 - lg, 0); ctx.stroke();
   ctx.lineWidth = 17; ctx.beginPath(); ctx.moveTo(1.6, -44); ctx.lineTo(1.6, -68); ctx.stroke();
   ctx.fillStyle = 'rgba(255,176,112,.55)'; ctx.beginPath(); ctx.arc(1.8, -84.5, 11, 0, 6.283); ctx.fill();
+  }
   ctx.save(); ctx.translate(-ff * 8, -58); ctx.rotate(ff * .35);
   ctx.fillStyle = '#6d6d6d'; ctx.fillRect(-4, -14, 8, 26);
   ctx.strokeStyle = '#f2f2f2'; ctx.lineWidth = 1.6;
   for (const k of [-2, 0, 2]) { ctx.beginPath(); ctx.moveTo(k, -14); ctx.lineTo(k * 1.6, -22); ctx.stroke(); }
   ctx.restore();
+  if (a.undead) { drawSkelBody(a, lg); drawHat(a, band); }
+  else {
   ctx.strokeStyle = ink; ctx.lineWidth = 6;
   ctx.beginPath(); ctx.moveTo(0, -40); ctx.lineTo(-9 + lg, 0); ctx.moveTo(0, -40); ctx.lineTo(9 - lg, 0); ctx.stroke();
   ctx.lineWidth = 15;
@@ -6639,6 +6850,7 @@ function drawArcher(a) {
   ctx.fillStyle = ink; ctx.beginPath(); ctx.arc(0, -84, 10, 0, 6.283); ctx.fill();
   if (a.headRed > 0) { ctx.fillStyle = '#c4141c'; ctx.beginPath(); ctx.arc(ff * 3, -86, 7.5, 0, 6.283); ctx.fill(); }
   drawFace(a); drawHat(a, band);
+  }
   }
   const ang = a.aim - a.rot, dx = Math.cos(ang), dy = Math.sin(ang);
   const sx = 0, sy = -64, gx = sx + dx * 24, gy = sy + dy * 24;
@@ -6812,6 +7024,7 @@ function drawGadget(g) {
     return;
   }
   if (g.type === 'crate') {
+    if (g.tomb) { drawTomb(g, x, y); return; }
     const pw = g.recruit ? { col: '#7dff9a', short: '+ARCHER' } : g.piece ? { col: '#ffb347', short: CAT_NAMES[g.piece] } : g.pk2 ? { col: forgedCol(g), short: forgedName(g) } : POWERS[g.pk], by = y + Math.sin(st.t * 2 + g.bob) * 6 * sc, r = 15 * sc;
     ctx.fillStyle = pw.col + '33'; ctx.beginPath(); ctx.arc(x, by, r * 1.9, 0, 6.283); ctx.fill();
     ctx.fillStyle = '#a8743f'; ctx.fillRect(x - r, by - r, r * 2, r * 2);
@@ -7209,6 +7422,7 @@ function draw() {
   for (const h of st.helpers) if (!h.wall) drawHPBar(h);
   if (running) drawReloadRing();
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  drawUndeadMarks();
   drawSays();
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   for (const t of st.texts) {
@@ -7372,7 +7586,7 @@ let shopOffers = [];
 // every item the armoury can ever sell (the ones not on sale this visit are shown greyed out)
 function shopCatalog() {
   const all = SHOP_POOL.map(o => o.helper ? Object.assign({}, o, { name: 'HELPER ARCHER', desc: 'Stands beside you and shoots at random enemies', col: '#3fd0c9' }) : o);
-  for (const k of Object.keys(POWERS)) if (k !== 'shield' && k !== 'blackhole' && k !== 'meteor')
+  for (const k of Object.keys(POWERS)) if (k !== 'shield' && k !== 'blackhole' && k !== 'meteor' && !POWERS[k].undead)
     all.push({ id: 'pw_' + k, name: POWERS[k].name, desc: (POWERS[k].shots + st.extraShots) + ' arrows to start the level', col: POWERS[k].col });
   return all;
 }
@@ -7384,7 +7598,7 @@ function shopWhyNot(o) {
 function openShop() {
   st.shop = true;
   const pool = SHOP_POOL.filter(o => !(o.max && (st.shopBuys[o.id] || 0) >= o.max) && !(o.helper && st.helpers.filter(h => !h.dead).length >= 2));
-  const keys = Object.keys(POWERS).filter(k => k !== 'shield' && k !== 'blackhole' && k !== 'meteor');
+  const keys = Object.keys(POWERS).filter(k => k !== 'shield' && k !== 'blackhole' && k !== 'meteor' && !POWERS[k].undead);
   for (const k of keys) pool.push({ id: 'pw_' + k, name: POWERS[k].name, desc: (POWERS[k].shots + st.extraShots) + ' arrows to start the level', base: 35, w: .45, once: true, col: POWERS[k].col,
     buy: () => { givePower(k, POWERS[k].shots + st.extraShots); } });
   // weighted pick of 6: not everything shows up every visit
@@ -7542,7 +7756,7 @@ function qButtons(Q, sel, L, LA) {
   let h = '';
   for (const i of qOrder(Q)) {
     if (i < 0) { const t = -i; h += `<button type="button" class="empty t${t}" disabled><i class="qi">·</i><span>EMPTY</span><small>—</small><em class="tier">${TIER_NAME[t]}</em></button>`; continue; }
-    const o = Q[i], cls = L ? (LA === i ? 'on' : o.k2 ? 'empty' : 'pickme') : sel === i ? 'on' : '';
+    const o = undeadView(Q[i], st.P), cls = L ? (LA === i ? 'on' : o.k2 ? 'empty' : 'pickme') : sel === i ? 'on' : '';
     const wb = o.webT > st.t;
     h += `<button type="button" data-i="${i}" class="${cls} t${tierOf(o)}${o.newT > st.t ? ' isnew' : ''}${wb ? ' webbed' : ''}"${L && o.k2 ? ' disabled' : ''}><i class="qi">${qIcon(o)}</i><span style="color:${qCol(o)}">${powShort(o)}</span><small>${wb ? '🕸 ' + Math.ceil(o.webT - st.t) + 's' : o.newT > st.t ? '<b class="qnew">NEW</b>' : megaTag(o)}</small><em class="tier">${o.saved ? '✓ SAVED' : TIER_NAME[tierOf(o)]}</em></button>`;
   }
@@ -7904,12 +8118,13 @@ function drawQuiver() {
   }
   const FG = st.forged || [];
   const sig = st.quiver.map(o => o.k + (o.k2 || '') + (o.gc || '') + (o.saved ? 's' : '') + (o.newT > st.t ? 'n' : '') + (o.webT > st.t ? 'w' + Math.ceil(o.webT - st.t) : '') + o.shots).join() + '|' + st.quiver.indexOf(st.power) + '|' + st.links + st.linking + st.linkA + '|' + FG.map(o => o.k + o.k2 + o.shots).join() + FG.indexOf(st.power);
-  if (sig === quiverSig) return;
-  quiverSig = sig;
+  const sigU = sig + (st.P.undead ? '|U' : '');
+  if (sigU === quiverSig) return;
+  quiverSig = sigU;
   const sel = st.quiver.indexOf(st.power);
   const L = st.linking;
   let h = L ? `<div class="qhint">LINKING: TAP 2 ARROW TYPES TO JOIN THEM</div>` : '';
-  h += `<button type="button" data-i="-1" class="${!st.power && !L ? 'on' : ''}"${L ? ' disabled' : ''}><i class="qi">➶</i><span>PLAIN</span><small>∞</small><em class="tier">BASIC</em></button>`;
+  h += `<button type="button" data-i="-1" class="${!st.power && !L ? 'on' : ''}"${L ? ' disabled' : ''}><i class="qi">${st.P.undead ? '🦴' : '➶'}</i><span${st.P.undead ? ' style="color:#efe6d2"' : ''}>${st.P.undead ? 'BONE' : 'PLAIN'}</span><small>∞</small><em class="tier">BASIC</em></button>`;
   box.classList.toggle('many', st.quiver.length > 6);
   h += qButtons(st.quiver, sel, L, st.linkA);
   FG.forEach((o, i) => { h += `<button type="button" data-f="${i}" class="forged${st.power === o && !L ? ' on' : ''}${o.shots <= 0 ? ' dry' : ''}"${L ? ' disabled' : ''}><i class="qi">${ICON['pw_' + o.k] || ''}${ICON['pw_' + o.k2] || ''}</i><span style="color:${POWERS[o.k].col}">${powShort(o)}</span><small>⚒ ${megaTag(o) || '×' + o.shots}</small></button>`; });
@@ -8133,12 +8348,13 @@ $('musicBtn').onclick = () => {
 
 /* ---------- practice range: straw dummies, any arrow from the rack, unlimited shots ---------- */
 const PRAC_X = [650, 1050, 1500, 1950], PRAC_H = [70, 135, 175, 110];
-const RACK = ['triple', 'fire', 'ice', 'boom', 'heavy', 'rapid', 'pierce', 'homing', 'storm', 'cluster', 'scope', 'slowmo', 'tornado', 'shrink', 'grow', 'tele', 'confuse', 'magnet', 'bounce', 'web', 'clone', 'portal', 'thunder', 'raise', 'meteor', 'blackhole'];
+const RACK = ['triple', 'fire', 'ice', 'boom', 'heavy', 'rapid', 'pierce', 'homing', 'storm', 'cluster', 'scope', 'slowmo', 'tornado', 'shrink', 'grow', 'tele', 'confuse', 'magnet', 'bounce', 'web', 'clone', 'portal', 'thunder', 'raise', 'bone', 'soul', 'grave', 'curse', 'plague', 'drain', 'meteor', 'blackhole'];
 const RACK_DESC = {
   plain: 'A normal arrow', triple: '3 arrows at once', fire: 'Sets them on fire', ice: 'Freezes them solid', boom: 'Explodes; 3 hits topple a tower',
   heavy: 'Hits much harder', rapid: 'Very fast reload', pierce: 'Goes through archers', homing: 'Steers into the nearest archer',
   storm: 'Lightning jumps between archers', cluster: 'Tap the screen to split it', scope: 'Shows where your arrow will go',
   slowmo: 'Slows down whoever it hits', tornado: 'A twister that turns arrows round', shrink: 'Each hit shrinks them', grow: 'Each hit makes them 25% bigger and 15% slower, and their shots overshoot. Hit a window or fan in the middle to make it bigger',
+  bone: 'Undead: breaks into 3 bone shards when it hits', soul: 'Undead: flies straight through towers, cover and barriers', grave: 'Undead: bony hands hold the archer it hits (or lands near): no shooting for 4 s', curse: 'Undead: the target takes double damage and cannot be healed for 6 s', plague: 'Undead: a green cloud that hurts anyone inside for 5 s', drain: 'Undead: 60% of the damage it does heals you',
   raise: 'Hit a dead enemy (or land next to one) and it rises up and fights for you till the end of the level. Bosses and bats stay dead', thunder: 'A storm cloud forms where it lands (tap to make it in the air) and zaps enemies under it. Clouds that touch join into a bigger storm', tele: 'You teleport to where it lands, onto a tower that high', portal: '1st shot opens the IN portal where it lands (tap to open it in the air), 2nd shot opens the OUT. Arrows that fly in come out the other one', confuse: 'They aim backwards for 6 s and can hit their own side', web: 'Webs what it hits: archers can\'t move or shoot for 5 s, objects stay put 20 s', bounce: 'Bounces off the ground, towers and cover up to 3 times. Bank it round cover', magnet: 'Sticks in where it lands for 6 s. Enemy arrows that fly near it bend in and get caught (holds 5)', clone: 'Copies what it hits. A cloned archer fights for you', meteor: 'Rocks rain down. They hit you too!', blackhole: 'Sucks everything in',
   shield: 'Puts a wall up in front of you'
 };
