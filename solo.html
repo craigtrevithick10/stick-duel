@@ -1846,12 +1846,14 @@ function raiseUp(a, by) {
   }
   Object.assign(a, { dead: false, rot: 0, vr: 0, dx: 0, dy: 0, vx: 0, vy: 0, headRed: 0, hitT: 0, burn: 0, frozen: 0, stun: 0, acidT: 0, confT: 0, webT: 0, aiAim: null, aiT: 1, pow: 0, deadT: 0 });
   raiseFX(f.x, f.y);
+  const t2 = feet(a);   // the body flies back up to its tower: a trail of light from where it lay
+  if (Math.hypot(t2.x - f.x, t2.y - f.y) > 30) { raiseFX(t2.x, t2.y); for (let q = 0; q < 22; q++) { const k = q / 21; P_(f.x + (t2.x - f.x) * k, f.y - 40 + (t2.y - f.y) * k, rand(-20, 20), rand(-30, 10), .8, 2.6, q % 2 ? RAISE_COL : '#ffffff', 'spark'); } }
   if (a.isP && !a.helper) {   // a teammate: back up with half health
     a.hp = Math.ceil(a.max * .5);
-    text(f.x, f.y - 160, 'LAST STAND!', RAISE_COL, 24, 2, 1); text(f.x, f.y - 134, a.name + ' IS BACK UP', '#f6eedf', 13, 2);
+    text(t2.x, t2.y - 160, 'LAST STAND!', RAISE_COL, 24, 2, 1); text(t2.x, t2.y - 134, a.name + ' IS BACK UP', '#f6eedf', 13, 2);
     return;
   }
-  if (a.helper) { a.hp = Math.ceil(a.max * .6); text(f.x, f.y - 150, 'HELPER BACK UP!', RAISE_COL, 18, 1.6, 1); return; }
+  if (a.helper) { a.hp = Math.ceil(a.max * .6); text(t2.x, t2.y - 150, 'HELPER BACK UP!', RAISE_COL, 18, 1.6, 1); return; }
   // an enemy: it leaves their side and fights for you till the end of the level
   st.enemies = st.enemies.filter(e => e !== a);
   const h = a;
@@ -1859,7 +1861,7 @@ function raiseUp(a, by) {
   if (h.kind === 'dummy' || h.kind === 'healer') h.kind = 'archer';
   h.hp = Math.ceil(h.max * .6); h.name = 'RISEN ' + (h.name || 'ARCHER');
   st.helpers.push(h);
-  text(f.x, f.y - 160, 'RISEN!', RAISE_COL, 22, 1.8, 1); text(f.x, f.y - 136, 'FIGHTS FOR YOU THIS LEVEL', '#f6eedf', 12, 1.8);
+  text(t2.x, t2.y - 160, 'RISEN!', RAISE_COL, 22, 1.8, 1); text(t2.x, t2.y - 136, 'FIGHTS FOR YOU THIS LEVEL', '#f6eedf', 12, 1.8);
   const up = st.helpers.filter(o => o.risen && !o.dead);
   while (up.length > RAISE_MAX) raiseGone(up.shift());
 }
