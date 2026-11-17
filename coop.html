@@ -323,6 +323,7 @@ const POWERS = {
   clone:  { name: 'CLONE ARROWS', short: 'CLONE', col: '#4fe3c1', shots: 2, rare: true },
   portal: { name: 'PORTAL ARROWS', short: 'PORTAL', col: '#8f7bff', shots: 2 },
   thunder: { name: 'STORM ARROWS', short: 'STORM', col: '#8fa8ff', shots: 3 },
+  raise: { name: 'RESURRECTION', short: 'RAISE', col: '#9dff8a', shots: 3, rare: true },
   meteor: { name: 'METEOR SHOWER', short: 'METEOR', col: '#ff7b3a', shots: 1, mega: true },
   blackhole:{ name: 'BLACK HOLE', short: 'VOID',   col: '#b07cff', shots: 1, ultra: true }
 };
@@ -418,7 +419,7 @@ const ICON = {
   armour: '🛡️', leech: '🧛', revive: '💨', glass: '🪟', helper: '🤝',
   pw_triple: '🔱', pw_fire: '🔥', pw_ice: '❄️', pw_boom: '💥', pw_heavy: '🪨', pw_rapid: '⏩', pw_pierce: '📌',
   pw_homing: '🎯', pw_storm: '⚡', pw_cluster: '🎆', pw_scope: '🔭', pw_slowmo: '🐢', pw_tornado: '🌪️',
-  pw_shrink: '🤏', pw_grow: '🍄', pw_tele: '🌀', pw_blackhole: '🕳️', pw_meteor: '☄️', pw_clone: '👥', pw_confuse: '😵', pw_magnet: '🧲', pw_bounce: '🏀', pw_web: '🕸️', pw_portal: '🚪', pw_thunder: '⛈️', pw_shield: '🧱'
+  pw_shrink: '🤏', pw_grow: '🍄', pw_tele: '🌀', pw_blackhole: '🕳️', pw_meteor: '☄️', pw_clone: '👥', pw_confuse: '😵', pw_magnet: '🧲', pw_bounce: '🏀', pw_web: '🕸️', pw_portal: '🚪', pw_thunder: '⛈️', pw_raise: '🧟', pw_shield: '🧱'
 };
 
 let W = 0, H = 0, DPR = 1, sc = 1, camX = 0, camY = 0, scBase = 1, zoom = 1, forcePortrait = false;
@@ -1329,6 +1330,7 @@ function impactFX(ar, x, y, onBody) {
     for (let i = 0; i < 16; i++) P_(x, y, rand(-140, 140), rand(-220, -30), rand(.35, .7), rand(1.8, 3.4), i % 2 ? '#8cff5a' : '#5fd13a', 'spark');
   }
   if (ar.gc && !ar.rider && ar.owner && ar.owner.isP && shotOnce(ar, 'gc')) gcImpact(ar, x, y);
+  if (ar.owner && ar.owner.isP && !ar.owner.helper && hasPk(ar, 'raise') && !ar.raiseDone) { ar.raiseDone = true; const a = raiseFind(x, y, RAISE_R, ar.owner); if (a) raiseUp(a, ar.owner); else { text(x, y - 40, 'NOTHING TO RAISE HERE', RAISE_COL, 12, 1); ring(x, y, 30, RAISE_COL, .35, 2); } }
   if (!pk) return;
   if (pk === 'fire') {
     glow(x, y, 60, 'rgba(255,150,60,', .35); ring(x, y, 46, '#ffb347', .4, 3);
@@ -1496,7 +1498,7 @@ function teleportSelf(P, x, y) {
 }
 // portal arrow: your first shot opens a blue IN portal where it lands (or where you tap), the next one opens the orange OUT portal.
 // Every arrow (theirs too) that flies into IN comes out of OUT. The pair lasts PORT_T s; a new IN closes your old pair.
-const PORT_T = 25, PORT_R = 30, PORT_COL = '#8f7bff', NOLINK = ['clone', 'portal', 'thunder'];
+const PORT_T = 25, PORT_R = 30, PORT_COL = '#8f7bff', NOLINK = ['clone', 'portal', 'thunder', 'raise'];
 const portFlying = P => st.arrows.filter(a => !a.done && a.owner === P && hasPk(a, 'portal'));
 function plantPortal(ar) {
   if (ar.done) return;
@@ -1675,6 +1677,7 @@ function kill(a, ar, z) {
 
 function clearLevel() {
   for (const c of st.clones || []) if (c.type === 'a') removeClone(c);
+  for (const h of st.helpers.filter(h => h.risen)) raiseGone(h);
   st.clones = [];
   st.nextT = 2.6;
   for (const p of st.players) {
@@ -2235,6 +2238,65 @@ function miniGadget(g) {
   if (!(g.miniT > 0)) g.size0 = g.size || 1;
   g.miniT = MINI_T; g.size = (g.size0 || 1) * .4; g.flash = .3;
   text(g.x, g.y - 40, 'MINIATURIZED!', MINI_COL, 16, 1.2, 1); ring(g.x, g.y, 60, MINI_COL, .5, 3); sfx('heal');
+}
+/* ---------- resurrection arrow (Craig 2026-11-18): a dead enemy it hits rises up and fights for you; in co-op a fallen teammate gets up (LAST STAND) ---------- */
+const RAISE_COL = '#9dff8a', RAISE_MAX = 3, RAISE_R = 120, RAISE_TOUCH = 52;
+const raisable = E => E && E.dead && !E.swallowed && !E.raised && !E.boss && !E.flyer && !E.walker && !E.ship && !E.hydra && !E.worm && !E.beast && !E.mini && !E.topple;
+// the middle of a body lying where it fell (rot tips it over around the feet)
+const bodyMid = a => { const f = feet(a), r = a.rot || 0, k = sizeOf(a); return { x: f.x + Math.sin(r) * 45 * k, y: f.y - Math.cos(r) * 45 * k }; };
+function raiseFind(x, y, r, by) {
+  const L = st.enemies.filter(raisable).concat(st.helpers.filter(h => h.dead && !h.swallowed && !h.mini));
+  if (!st.vs) for (const p of st.players) if (p.dead && p !== by && p.inLevel !== false && !p.swallowed) L.push(p);   // a fallen teammate
+  let best = null, bd = r;
+  for (const a of L) { const m = bodyMid(a), d = Math.hypot(m.x - x, m.y - y); if (d < bd) { bd = d; best = a; } }
+  return best;
+}
+function raiseStep(ar) {
+  if (ar.raiseDone) return;
+  const a = raiseFind(ar.x, ar.y, RAISE_TOUCH, ar.owner);
+  if (a) { ar.raiseDone = true; ar.done = true; raiseUp(a, ar.owner); }
+}
+function raiseFX(x, y) {
+  glow(x, y - 50, 110, 'rgba(157,255,138,', .45); ring(x, y - 50, 70, RAISE_COL, .6, 4); ring(x, y - 50, 40, '#ffffff', .4, 2);
+  for (let q = 0; q < 30; q++) P_(x + rand(-26, 26), y - rand(0, 30), rand(-30, 30), rand(-260, -90), rand(.6, 1.2), rand(2, 3.6), q % 3 ? RAISE_COL : '#ffffff', 'spark');
+  sfx('heal');
+}
+function raiseUp(a, by) {
+  const f = feet(a);
+  Object.assign(a, { dead: false, rot: 0, vr: 0, dx: 0, dy: 0, vx: 0, vy: 0, headRed: 0, hitT: 0, burn: 0, frozen: 0, stun: 0, acidT: 0, confT: 0, webT: 0, aiAim: null, aiT: 1, pow: 0, deadT: 0 });
+  raiseFX(f.x, f.y);
+  if (a.isP && !a.helper) {   // a teammate: back up with half health
+    a.hp = Math.ceil(a.max * .5);
+    text(f.x, f.y - 160, 'LAST STAND!', RAISE_COL, 24, 2, 1); text(f.x, f.y - 134, a.name + ' IS BACK UP', '#f6eedf', 13, 2);
+    ev({ k: 'up', id: a.id }); return;
+  }
+  if (a.helper) { a.hp = Math.ceil(a.max * .6); text(f.x, f.y - 150, 'HELPER BACK UP!', RAISE_COL, 18, 1.6, 1); return; }
+  // an enemy: it leaves their side and fights for you till the end of the level
+  st.enemies = st.enemies.filter(e => e !== a);
+  const h = a;
+  h.helper = true; h.isP = true; h.risen = true; h.raised = true; h.owner = by; h.bot = false; h.dummy = false; h.cover = null;
+  if (h.kind === 'dummy' || h.kind === 'healer') h.kind = 'archer';
+  h.hp = Math.ceil(h.max * .6); h.name = 'RISEN ' + (h.name || 'ARCHER');
+  st.helpers.push(h);
+  text(f.x, f.y - 160, 'RISEN!', RAISE_COL, 22, 1.8, 1); text(f.x, f.y - 136, 'FIGHTS FOR YOU THIS LEVEL', '#f6eedf', 12, 1.8);
+  const up = st.helpers.filter(o => o.risen && !o.dead);
+  while (up.length > RAISE_MAX) raiseGone(up.shift());
+}
+// a risen archer crumbles to dust (too many, or the level is over)
+function raiseGone(h) {
+  if (!st.helpers.includes(h)) return;
+  const f = feet(h);
+  st.helpers = st.helpers.filter(o => o !== h);
+  for (let q = 0; q < 22; q++) P_(f.x + rand(-14, 14), f.y - rand(0, 90), rand(-60, 60), rand(-120, 10), rand(.5, .9), rand(2.5, 4), q % 2 ? 'rgba(170,200,150,.8)' : 'rgba(120,130,110,.8)', 'smoke');
+  if (!h.dead) text(f.x, f.y - 120, 'BACK TO DUST', RAISE_COL, 12, 1.2);
+}
+// green glow and wisps on a risen archer
+function raiseAura(h) {
+  const f = feet(h), x = SX(f.x), y = SY(f.y - 50), r = 60 * sc, al = .2 + .1 * Math.sin(st.t * 4 + h.id);
+  const g = ctx.createRadialGradient(x, y, 4, x, y, r);
+  g.addColorStop(0, `rgba(157,255,138,${al.toFixed(3)})`); g.addColorStop(1, 'rgba(157,255,138,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, 6.283); ctx.fill();
+  if (Math.random() < .3) P_(f.x + rand(-16, 16), f.y - rand(0, 90), 0, rand(-50, -15), .7, 1.8, RAISE_COL, 'spark');
 }
 /* ---------- clone arrow: whatever it hits gets a copy (objects pop up somewhere else; archers come over to your side;
    a teammate gets a clone next to them that copies every shot they take) ---------- */
@@ -6112,6 +6174,7 @@ function update(rdt) {
       if (ar.pay) payStep(ar, sdt);
       gadgetStep(ar, sdt);
       if (ar.done) break;
+      if (ar.owner.isP && !ar.owner.helper && hasPk(ar, 'raise')) { raiseStep(ar); if (ar.done) break; }
       if (ar.owner.isP) {
         if (st.vs && vsBlock(ar, sdt)) break;
         if (!ar.htGo && coverHit(ar)) break;
@@ -6223,6 +6286,7 @@ function update(rdt) {
     if (a.swallow) { swallowStep(a, dt); continue; }
     a.vy += G * dt; a.dy += a.vy * dt; a.dx += a.vx * dt;
     if (a.flyer && a.dy - a.h > 42) { a.dy = a.h + 42; a.vy = 0; a.vx *= .8; a.vr = 0; }   // a dead bat lands on the ground
+    else if (!a.walker && !a.flyer && a.dy > a.h) { a.dy = a.h; a.vy = 0; a.vx *= .8; a.vr *= .5; }   // bodies lie on the ground (a RESURRECTION arrow can raise them)
     if (a.walker && a.dy > (a.h || 0)) { a.dy = a.h || 0; a.vy = 0; a.vx *= .85; }   // the ogre and hydra fall flat on the ground (the spider falls from her thread)
     a.rot = clamp(a.rot + a.vr * dt, -1.7, 1.7);
     // a fallen player lies on the ground below their castle until the level is cleared
@@ -7363,7 +7427,7 @@ function draw() {
     ctx.save(); ctx.translate(SX(p.x), SY(p.y)); ctx.scale(sc, sc); ctx.rotate(p.ang); drawArrowShape(26, p.col); ctx.restore();
   }
   drawMags();
-  for (const h of st.helpers) { if (h.clone && !h.dead) cloneAura(h); drawArcher(h); }
+  for (const h of st.helpers) { if (h.clone && !h.dead) cloneAura(h); if (h.risen && !h.dead) raiseAura(h); drawArcher(h); }
   for (const p of st.players) if (p.inLevel) drawArcher(p);
   for (const e of st.enemies) drawArcher(e);
   drawBossFX(); drawBeastFX();
