@@ -7966,11 +7966,19 @@ function qGiveGC(H, A, id) {
 const FORGE_TODAY = 7;
 let forgeGCSel = null;
 const carriedKeys = H => (H.quiver || []).filter(q => q.k2 && !q.gc).map(q => comboKey(q.k, q.k2));
+// how many arrows of each POWERFUL pair you carry (shots, added up over slots)
+const carriedShots = H => { const o = {}; for (const q of H.quiver || []) if (q.k2 && !q.gc) { const c = comboKey(q.k, q.k2); o[c] = (o[c] || 0) + Math.max(0, q.shots | 0); } return o; };
+// use up n arrows from the quiver slots that match: a slot only goes when its shots reach 0
+function takeShots(H, fit, n) {
+  for (const q of (H.quiver || []).filter(fit)) { if (n <= 0) break; const t = Math.min(n, q.shots); q.shots -= t; n -= t;
+    if (q.shots <= 0) { H.quiver = H.quiver.filter(o => o !== q); if (H.power === q) H.power = null; } }
+  return n <= 0;
+}
 const carriedPows = H => [...new Set((H.quiver || []).filter(q => !q.k2 && !q.gc && FORGE_COST[q.k]).map(q => q.k))];
 // a power that is only in your quiver (not in today's forge) is free to use, and that quiver arrow is used up
 const fromQ = (v, k) => !!k && !v.today.includes(k) && (v.have || []).includes(k);
 const pickCost = (v, a, b) => (fromQ(v, a) ? 0 : FORGE_COST[a] || 0) + (fromQ(v, b) ? 0 : FORGE_COST[b] || 0);
-function useQ(H, k) { const q = (H.quiver || []).find(o => !o.k2 && !o.gc && o.k === k); if (q) { H.quiver = H.quiver.filter(o => o !== q); if (H.power === q) H.power = null; } }
+function useQ(H, k) { takeShots(H, o => !o.k2 && !o.gc && o.k === k, 1); }   // one arrow of that power
 function forgeRoll(carried) {
   const all = Object.keys(FORGE_COST), ids = Object.keys(GC), pick = new Set(), R = a => a[Math.floor(Math.random() * a.length)];
   if (Math.random() < .45) {   // often one GAME CHANGER recipe can be made with today's powers (not every time)
@@ -7985,11 +7993,12 @@ function forgeRoll(carried) {
 const newForgeVisit = H => ({ today: forgeRoll(carriedKeys(H)), uses: 2, made: null, gcDone: false });
 function gcState(v, id) {
   const G = GC[id], base = G.base, fromMade = v.made === base, carry = v.carried.includes(base);
+  const have = (fromMade ? 1 : 0) + ((v.cShots || {})[base] || (carry ? 1 : 0));   // ★arrows you have for it: forged today + quiver shots
   const known = fromMade || carry || v.list.some(u => u.gc === id || (!u.gc && comboKey(u.k, u.k2) === base));
   let ok = false, why;
   if (v.uses <= 0) why = 'NO FORGES LEFT';
   else if (v.gcDone) why = 'ONE PER VISIT';
-  else if (G.pair && !(fromMade && carry)) why = 'NEEDS ★' + COMBOS[base][0] + ' FORGED TODAY + ★' + COMBOS[base][0] + ' IN YOUR QUIVER';
+  else if (G.pair && have < 2) why = 'NEEDS 2 ★' + COMBOS[base][0] + ' ARROWS (YOU HAVE ' + have + ')';
   else if (!fromMade && !carry) why = 'NEEDS ★' + COMBOS[base][0] + ' FORGED TODAY OR IN YOUR QUIVER';
   else if (!G.pair && !v.today.includes(G.add) && !(v.have || []).includes(G.add)) why = 'NEEDS ' + POWERS[G.add].short + " (NOT IN TODAY'S FORGE OR YOUR QUIVER)";
   else ok = true;
@@ -8030,7 +8039,7 @@ function forgeRender(v) {
   if (v.done) hint = 'Done. Waiting for the team…';
   else if (v.msg && !a && !G) hint = v.msg + (v.uses <= 0 ? '  ·  No forges left. On to the shop!' : '');
   else if (v.uses <= 0) hint = 'No forges left this visit. On to the shop!';
-  else if (G) hint = GC[G].icon + ' ' + GC[G].name + ' (GAME CHANGER, 1 shot): ' + GC[G].desc + (gcState(v, G).fromMade && !GC[G].pair ? '' : '  ·  uses up your ★' + COMBOS[GC[G].base][0] + ' from your quiver') + (!GC[G].pair && fromQ(v, GC[G].add) ? '  ·  and your ' + POWERS[GC[G].add].short + ' arrows' : '');
+  else if (G) hint = GC[G].icon + ' ' + GC[G].name + ' (GAME CHANGER, 1 shot): ' + GC[G].desc + (GC[G].pair ? '  ·  uses 2 ★' + COMBOS[GC[G].base][0] + ' arrows' + (gcState(v, G).fromMade ? " (today's + 1 from your quiver)" : ' from your quiver') : gcState(v, G).fromMade ? '' : '  ·  uses 1 ★' + COMBOS[GC[G].base][0] + ' arrow from your quiver') + (!GC[G].pair && fromQ(v, GC[G].add) ? '  ·  and 1 ' + POWERS[GC[G].add].short + ' arrow' : '');
   else if (!a && ready.length) { hint = ready.map(id => GC[id].icon + ' ' + GC[id].name).join(' / ') + (ready.length > 1 ? ' are' : ' is') + ' ready: tap it below (or tap two powers for a POWERFUL arrow)'; gold = true; }
   else if (v.msg && !a) hint = v.msg;
   else if (!a) { const gcOk = Object.keys(GC).some(id => gcState(v, id).ok); hint = (v.uses === 2 ? 'Forge 1 of 2: tap two powers to make a POWERFUL arrow' : 'Forge 2 of 2: another POWERFUL arrow') + (gcOk ? ', or forge the GAME CHANGER ' + gcReady(v).map(id => GC[id].icon + ' ' + GC[id].name).join(' / ') + ' (gold button)' : ''); }
@@ -8066,11 +8075,10 @@ function forgeDo(H, v, pick, gcId, bank, by) {
   if (gcId) {
     const s = GC[gcId] && gcState(v, gcId);
     if (!s || !s.ok || bank < s.cost) return null;
-    if (!s.fromMade || GC[gcId].pair) {   // a SAVED Powerful arrow carried in is used up
-      const q = (H.quiver || []).find(o => o.k2 && !o.gc && comboKey(o.k, o.k2) === GC[gcId].base);
-      if (!q) return null;
-      H.quiver = H.quiver.filter(o => o !== q); if (H.power === q) H.power = null;
-    }
+    // arrows used up: the one forged today first, then shots from the quiver (THE END needs 2; a slot only goes when it is empty)
+    const need = (GC[gcId].pair ? 2 : 1) - (s.fromMade ? 1 : 0), fit = o => o.k2 && !o.gc && comboKey(o.k, o.k2) === GC[gcId].base;
+    if (need > 0 && (carriedShots(H)[GC[gcId].base] || 0) < need) return null;
+    if (need > 0) takeShots(H, fit, need);
     if (!GC[gcId].pair && fromQ(v, GC[gcId].add)) useQ(H, GC[gcId].add);
     (st.unlocks = st.unlocks || []).push(gcUnlock(gcId, by));
     fv.uses--; fv.gcDone = true;
@@ -8173,7 +8181,7 @@ function startForge() {
 function forgeView(P) {
   const fv = P.fv || { today: [], uses: 0, made: null, gcDone: true };
   return { bank: P.bank || 0, list: (st.unlocks || []).map(q => ({ k: q.k, k2: q.k2, gc: q.gc || null })), today: fv.today, uses: fv.uses, made: fv.made, gcDone: fv.gcDone, msg: fv.msg || null,
-    carried: carriedKeys(P), have: carriedPows(P), done: !!P.forgeDone, wait: st.players.filter(p => !p.forgeDone).map(p => p.name), team: true };
+    carried: carriedKeys(P), cShots: carriedShots(P), have: carriedPows(P), done: !!P.forgeDone, wait: st.players.filter(p => !p.forgeDone).map(p => p.name), team: true };
 }
 function pushForge() {
   if (!isHost() || !st || !st.forge) return;
