@@ -34,11 +34,13 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 #musicBtn.off{opacity:.35;text-decoration:line-through}
 #homeBtn{position:absolute;left:max(14px,env(safe-area-inset-left,0px));bottom:14px;padding:10px 16px;border:0;cursor:pointer;font:700 14px var(--pixel);letter-spacing:.06em;color:#24150a;background:var(--ember);box-shadow:0 3px 0 rgba(0,0,0,.35)}
 #homeBtn:focus-visible{outline:3px solid var(--blood);outline-offset:3px}
-#castleBtn{position:absolute;right:max(14px,env(safe-area-inset-right,0px));bottom:70px;padding:10px 14px;border:0;cursor:pointer;font:700 13px var(--pixel);letter-spacing:.05em;color:#10240f;background:#7dff9a;box-shadow:0 3px 0 rgba(0,0,0,.35)}
+#castleBtn{position:absolute;right:max(14px,env(safe-area-inset-right,0px));bottom:166px;padding:10px 14px;border:0;cursor:pointer;font:700 13px var(--pixel);letter-spacing:.05em;color:#10240f;background:#7dff9a;box-shadow:0 3px 0 rgba(0,0,0,.35)}
 #castleBtn:focus-visible{outline:3px solid var(--blood);outline-offset:3px}
 #catBtn{position:absolute;right:max(14px,env(safe-area-inset-right,0px));bottom:70px;padding:10px 14px;border:0;cursor:pointer;font:700 13px var(--pixel);letter-spacing:.05em;color:#2a1608;background:#ffb347;box-shadow:0 3px 0 rgba(0,0,0,.35)}
 #htBtn{position:absolute;right:max(14px,env(safe-area-inset-right,0px));bottom:118px;padding:10px 14px;border:0;cursor:pointer;font:700 13px var(--pixel);letter-spacing:.05em;color:#2a0a20;background:#ff8ad8;box-shadow:0 3px 0 rgba(0,0,0,.35)}
 #htBtn:focus-visible{outline:3px solid var(--blood);outline-offset:3px}
+#oilBtn{position:absolute;right:max(14px,env(safe-area-inset-right,0px));bottom:118px;padding:10px 14px;border:0;cursor:pointer;font:700 13px var(--pixel);letter-spacing:.05em;color:#2a1608;background:#ff9a45;box-shadow:0 3px 0 rgba(0,0,0,.35)}
+#oilBtn.wait{opacity:.6}
 #catBtn.on{background:#fff36b;outline:3px solid #ff9a45}
 #catBtn.ready{animation:catPulse 1s ease-in-out infinite}
 @keyframes catPulse{50%{transform:scale(1.08);box-shadow:0 0 0 4px rgba(255,179,71,.45),0 3px 0 rgba(0,0,0,.35)}}
@@ -150,6 +152,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
   <button id="homeBtn" type="button" hidden>◀ ARCHER</button>
   <button id="castleBtn" type="button" hidden>⇄ OUTER CASTLE</button>
   <button id="catBtn" type="button" hidden>🪨 CATAPULT</button>
+  <button id="oilBtn" type="button" hidden>🔥 OIL</button>
   <button id="htBtn" type="button" hidden>🎯 TARGET</button>
   <div id="quiver" hidden></div>
 
@@ -193,7 +196,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 
   <div class="overlay" id="shopScreen" hidden>
     <div class="panel" style="width:min(760px,100%)">
-      <h2 class="title" style="font-size:clamp(28px,6vw,40px)">ARMOURY</h2>
+      <h2 class="title" id="shopTitle" style="font-size:clamp(28px,6vw,40px)">ARMOURY</h2>
       <p class="newbest" id="shopGP">GP 0</p>
       <div class="shopgrid" id="shopGrid"></div>
       <button class="btn" id="shopNext" type="button">NEXT LEVEL ▶</button>
@@ -417,7 +420,7 @@ const ICON = {
   armour: '🛡️', leech: '🧛', revive: '💨', glass: '🪟', helper: '🤝',
   pw_triple: '🔱', pw_fire: '🔥', pw_ice: '❄️', pw_boom: '💥', pw_heavy: '🪨', pw_rapid: '⏩', pw_pierce: '📌',
   pw_homing: '🎯', pw_storm: '⚡', pw_cluster: '🎆', pw_scope: '🔭', pw_slowmo: '🐢', pw_tornado: '🌪️',
-  pw_shrink: '🤏', pw_grow: '🍄', pw_tele: '🌀', pw_blackhole: '🕳️', pw_meteor: '☄️', pw_clone: '👥', pw_confuse: '😵', pw_magnet: '🧲', pw_bounce: '🏀', pw_web: '🕸️', pw_portal: '🚪', pw_thunder: '⛈️', pw_raise: '🧟', pw_bone: '🦴', pw_soul: '👻', pw_grave: '🪦', pw_curse: '🔮', pw_plague: '🦠', pw_drain: '🩸', pw_shield: '🧱'
+  pw_shrink: '🤏', pw_grow: '🍄', pw_tele: '🌀', pw_blackhole: '🕳️', pw_meteor: '☄️', pw_clone: '👥', pw_confuse: '😵', pw_magnet: '🧲', pw_bounce: '🏀', pw_web: '🕸️', pw_portal: '🚪', pw_thunder: '⛈️', pw_raise: '🧟', pw_bone: '🦴', pw_soul: '👻', pw_grave: '🪦', pw_curse: '🔮', pw_plague: '🦠', pw_drain: '🩸', ws_archer: '🏹', ws_oil: '🔥', ws_fire: '☄️', ws_iron: '⚙️', ws_part: '🛞', ws_win: '🪟', ws_luck: '🍀', ws_gate: '🚪', ws_fort: '🏰', pw_shield: '🧱'
 };
 
 let W = 0, H = 0, DPR = 1, sc = 1, camX = 0, camY = 0, scBase = 1, zoom = 1, forcePortrait = false;
@@ -614,6 +617,7 @@ function spawnGadgets() {
   const far = farX(), cap = gadgetCap();
   addGadget('win', FIRST_WIN());   // always one window to start
   for (let i = 0; i < 1 + st.extraCrates + EXTRA_PICKUPS(); i++) addGadget('crate');
+  if (!st.practice && !st.vs) for (let i = 0; i < MAT_CRATES(); i++) matCrate(addGadget('crate'));   // bricks, wood, iron, oil for the workshop
   if ((st.unlocks || []).length && Math.random() < FORGED_LEVEL) forgeCrate(addGadget('crate'));
   for (let i = 0; i < (Math.random() < .5 ? 1 : 0) + st.extraHp + EXTRA_PICKUPS(); i++) addGadget('hp');
   if (st.level >= 3 && Math.random() < .3) addGadget('link');
@@ -941,6 +945,7 @@ function gadgetStep(ar, sdt) {
           for (let i = 0; i < 24; i++) st.parts.push({ x: g.x, y: g.y, vx: rand(-200, 200), vy: rand(-240, 60), life: .7, max: .7, r: 2.8, col: i % 2 ? '#ffd27a' : col });
           sfx('heal'); return;
         }
+        if (g.mat) { matGet(g, st.P); return; }
         if (g.tomb && !ar.owner.undead) { g.gone = false; text(g.x, g.y - 30, 'ONLY FOR THE UNDEAD', BONE_COL, 13, 1); return; }
         const pw = POWERS[g.pk];
         if (g.pk === 'shield') st.barrier = { hp: 120, max: 120, hitT: 0 };
@@ -1845,6 +1850,180 @@ function miniGadget(g) {
   if (!(g.miniT > 0)) g.size0 = g.size || 1;
   g.miniT = MINI_T; g.size = (g.size0 || 1) * .4; g.flash = .3;
   text(g.x, g.y - 40, 'MINIATURIZED!', MINI_COL, 16, 1.2, 1); ring(g.x, g.y, 60, MINI_COL, .5, 3); sfx('heal');
+}
+/* ---------- materials, the workshop and burning oil (Craig 2026-11-18) ----------
+   Material crates in normal levels give bricks, wood, iron and oil. After the boss level, before the horde, the WORKSHOP
+   replaces the shop: GP + materials buy things for the horde (st.kit, used up in hordeKit). Boiling oil is poured on the gate. */
+const MATS = {
+  brick: { ico: '🧱', name: 'BRICKS', col: '#e07a4f', w: .35, n: [2, 3] },
+  wood: { ico: '🪵', name: 'WOOD', col: '#c8955a', w: .3, n: [1, 2] },
+  iron: { ico: '🔩', name: 'IRON', col: '#b8c4d0', w: .2, n: [1, 1] },
+  oil: { ico: '🛢️', name: 'OIL', col: '#ffb347', w: .15, n: [1, 1] },
+};
+const matsOf = () => st.mats || (st.mats = { brick: 0, wood: 0, iron: 0, oil: 0 });
+const kitOf = () => st.kit || (st.kit = {});
+const matTxt = c => Object.keys(c).map(k => MATS[k].ico + c[k]).join(' ');
+const matsLine = () => Object.keys(MATS).map(k => MATS[k].ico + ' ' + ((st.mats && st.mats[k]) || 0)).join('   ');
+const MAT_CRATES = () => 1 + (Math.random() < .5 ? 1 : 0);
+// turn a crate into a material crate
+function matCrate(g) {
+  let r = Math.random() * Object.values(MATS).reduce((a, m) => a + m.w, 0), k = 'brick';
+  for (const key of Object.keys(MATS)) { r -= MATS[key].w; if (r <= 0) { k = key; break; } }
+  const M = MATS[k];
+  Object.assign(g, { mat: k, matN: M.n[0] + Math.floor(Math.random() * (M.n[1] - M.n[0] + 1)), pk: null, pk2: null, gc: null, forged: false, recruit: false, piece: null, tomb: false });
+  return g;
+}
+function matGet(g, P) {
+  const M = MATS[g.mat], S = matsOf();
+  S[g.mat] = (S[g.mat] || 0) + g.matN;
+  text(g.x, g.y - 26, '+' + g.matN + ' ' + M.name, M.col, 18, 1.4);
+  if (P) { const f = feet(P); text(f.x, f.y - 140, M.ico + ' ' + S[g.mat] + ' ' + M.name + ' FOR THE WORKSHOP', M.col, 12, 1.8); }
+  for (let i = 0; i < 18; i++) P_(g.x, g.y, rand(-180, 180), rand(-220, 60), .6, 2.6, i % 2 ? M.col : '#f6eedf', 'spark');
+  sfx('heal');
+}
+function drawMatCrate(g, x, y) {
+  const M = MATS[g.mat], by = y + Math.sin(st.t * 2 + (g.bob || 0)) * 6 * sc, s = 16 * sc;
+  ctx.fillStyle = M.col + '33'; ctx.beginPath(); ctx.arc(x, by, 30 * sc, 0, 6.283); ctx.fill();
+  ctx.fillStyle = '#9a6a3e'; ctx.strokeStyle = '#3a2418'; ctx.lineWidth = 2 * sc;
+  ctx.fillRect(x - s, by - s, s * 2, s * 2); ctx.strokeRect(x - s, by - s, s * 2, s * 2);
+  ctx.strokeStyle = '#6e4626'; ctx.lineWidth = 1.5 * sc;
+  for (const yy of [-s * .33, s * .33]) { ctx.beginPath(); ctx.moveTo(x - s, by + yy); ctx.lineTo(x + s, by + yy); ctx.stroke(); }
+  ctx.fillStyle = M.col; ctx.fillRect(x - s, by - s, s * 2, 4 * sc);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = Math.max(12, Math.round(19 * sc)) + 'px sans-serif'; ctx.fillText(M.ico, x, by + 2 * sc);
+  ctx.font = '700 10px Silkscreen, monospace'; ctx.textBaseline = 'top';
+  ctx.lineJoin = 'round'; ctx.strokeStyle = 'rgba(20,14,10,.7)'; ctx.lineWidth = 3;
+  const t = '+' + g.matN + ' ' + M.name; ctx.strokeText(t, x, by + s + 4); ctx.fillStyle = M.col; ctx.fillText(t, x, by + s + 4);
+}
+// small materials line next to GP
+function drawMatsHUD(x, y) {
+  const S = st.mats; if (!S || !Object.values(S).some(v => v > 0)) return;
+  ctx.save(); ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.font = '700 11px Silkscreen, monospace';
+  let px = x;
+  for (const k of Object.keys(MATS)) {
+    const t = MATS[k].ico + (S[k] || 0);
+    ctx.fillStyle = (S[k] || 0) > 0 ? MATS[k].col : 'rgba(246,238,223,.4)'; ctx.fillText(t, px, y);
+    px += ctx.measureText(t).width + 8;
+  }
+  ctx.restore();
+}
+const WS = [
+  { id: 'ws_archer', name: 'WALL ARCHER', desc: 'One more archer on the castle wall for the horde', base: 60, mat: { wood: 2 }, max: 3, col: '#7dff9a' },
+  { id: 'ws_oil', name: 'BURNING OIL', desc: 'One more pot of boiling oil to pour on the gate (you get 1 pot free)', base: 30, mat: { oil: 1 }, max: 4, col: '#ff9a45' },
+  { id: 'ws_fire', name: 'FIRE BOULDERS', desc: '3 catapult shots that set the crowd alight (you still have to build the catapult)', base: 40, mat: { oil: 1, iron: 1 }, max: 3, col: '#ff7b3a' },
+  { id: 'ws_iron', name: 'IRON SHOT', desc: '3 catapult shots with a bigger smash that flattens giants', base: 40, mat: { iron: 2 }, max: 3, col: '#b8c4d0' },
+  { id: 'ws_part', name: 'CATAPULT PART', desc: 'Start the horde with one catapult piece already found', base: 50, mat: { wood: 2 }, max: 2, col: '#ffb347' },
+  { id: 'ws_win', name: 'EXTRA WINDOW', desc: 'One more ×2 window out in the horde field', base: 40, mat: { wood: 1 }, max: 3, col: '#7ad7ff' },
+  { id: 'ws_luck', name: 'LUCKY DROPS', desc: 'Crates, medkits and archer crates turn up twice as often in the horde', base: 60, mat: { iron: 1 }, max: 1, col: '#ffd27a' },
+  { id: 'ws_gate', name: 'STRONGER GATE', desc: 'The gate holds 10 more soldiers before it breaks', base: 50, mat: { brick: 3 }, max: 3, col: '#e07a4f' },
+  { id: 'ws_fort', name: 'FORWARD CASTLE', desc: 'An outer castle out in the field: the horde has to knock it down before it reaches your gate', base: 120, mat: { brick: 8 }, max: 1, col: '#dcc29a' },
+];
+const wsHave = o => kitOf()[o.id] || 0;
+const wsOk = (o, gp) => wsHave(o) < o.max && gp >= o.base && Object.keys(o.mat).every(k => (matsOf()[k] || 0) >= o.mat[k]);
+// what the workshop shows (the same view for solo and every co-op screen)
+function wsItems(gp) {
+  return WS.map(o => {
+    const n = wsHave(o), full = n >= o.max;
+    return { id: o.id, name: o.name + (n ? ' ×' + n : ''), desc: o.desc + (o.id === 'ws_fort' && !st.players ? '. Tap ⇄ to jump to it' : ''), col: o.col, cost: o.base,
+      sold: full, ok: wsOk(o, gp), costTxt: full ? 'MAXED' : o.base + ' GP + ' + matTxt(o.mat) };
+  });
+}
+// G pays the GP (st in solo, the player in co-op); the materials are the team's
+function wsBuy(G, id, P) {
+  const o = WS.find(q => q.id === id);
+  if (!o || !wsOk(o, G.gp)) return false;
+  G.gp -= o.base;
+  const S = matsOf(); for (const k in o.mat) S[k] -= o.mat[k];
+  const K = kitOf(); K[o.id] = (K[o.id] || 0) + 1;
+  if (o.id === 'ws_archer') (K.archerBy = K.archerBy || []).push(P || null);
+  return true;
+}
+// the horde starts: everything built in the workshop turns up
+function hordeKit() {
+  const H = st.horde, K = kitOf();
+  H.oil = 1 + (K.ws_oil || 0); H.gate = 10 * (K.ws_gate || 0); H.luck = K.ws_luck ? 1 : 0;
+  H.ammo = [];
+  for (let i = 0; i < 3 * (K.ws_fire || 0); i++) H.ammo.push('fire');
+  for (let i = 0; i < 3 * (K.ws_iron || 0); i++) H.ammo.push('iron');
+  for (let i = 0; i < (K.ws_win || 0); i++) hordeItem('win', [H.keep.x + 350, H.keep.x + 1400]);
+  for (let i = 0; i < (K.ws_part || 0); i++) { const want = CAT_PARTS.filter(k => !H.pieces[k]); if (want.length) H.pieces[want[0]] = 1; }
+  if (!H.cat && CAT_PARTS.every(k => H.pieces[k])) buildCatapult();
+  if (K.ws_fort) { const O = H.outer; O.max = Math.round(900 * 1); Object.assign(O, { gone: false, down: false, hp: O.max, hitT: 0 }); }
+  for (const by of K.archerBy || []) wsArcher(by);
+  st.kit = {};
+}
+function wsArcher(by) {
+  const n = st.helpers.filter(h => h.wall && !h.dead).length;
+  if (n >= WALL_MAX) return;
+  const h = mkArcher(0, WALL_H, 1, 60, true, 20);
+  h.helper = true; h.kind = 'archer'; h.recruit = 1; h.name = HELPER_NAMES[Math.floor(Math.random() * HELPER_NAMES.length)];
+  if (st.players && by) h.owner = by;
+  toWall(h, n); st.helpers.push(h);
+}
+// the outer castle falls: everyone who was hacking at it marches on to the gate
+function outerFree() {
+  for (const m of st.marchers) if (!m.dead) { m.at = 0; m.tx = null; m.ty = 0; }
+  for (const R of st.horde.rams) R.at = false;
+}
+// BOILING OIL: a cauldron on the wall tips over the crowd at the gate; it burns them and sets the ground alight
+const OIL_LEN = 240, OIL_DMG = 30;
+const oilTop = () => { const H = st.horde; return H.outer.down ? { x: H.keep.x + H.keep.pw / 2 + 30, y: -64 } : { x: H.outer.x + H.outer.pw / 2 + 22, y: -52 }; };
+function pourOil(P) {
+  const H = st.horde;
+  if (!H || H.over || !(H.oil > 0) || H.pour) return;
+  H.oil--;
+  const c = oilTop();
+  H.pour = { t: 0, x: c.x, y: c.y, done: false };
+  H.pourBy = P || null;
+  text(c.x, c.y - 70, 'BOILING OIL!', '#ff9a45', 20, 1.4, 1); sfx('whoosh');
+}
+function oilStep(dt) {
+  const H = st.horde, O = H && H.pour;
+  if (H && H.slick && (H.slick.t -= dt) <= 0) H.slick = null;
+  if (!O) return;
+  O.t += dt;
+  if (O.t > .45 && !O.done) {
+    O.done = true;
+    const by = H.pourBy || (st.players ? null : st.P), x0 = O.x - 6, x1 = hordeFront() + (H.pileW || 0) * .5 + OIL_LEN;
+    H.slick = { x0, x1, t: 6 };
+    for (let x = x0 + 16; x < x1; x += 34) burnPatch(x, -2, by, 6);
+    let n = 0;
+    for (const m of st.marchers) {
+      if (m.dead || m.x < x0 - 20 || m.x > x1) continue;
+      hurtMarcher(m, OIL_DMG, by ? { owner: by } : undefined);
+      if (m.dead) n++; else m.burn = Math.max(m.burn || 0, 5);
+    }
+    text((x0 + x1) / 2, -100, n ? 'SCORCHED ×' + n : 'SCORCHED!', '#ff9a45', 20, 1.4, 1); shake(7); sfx('boom');
+    for (let q = 0; q < 36; q++) P_(rand(x0, x1), -4, rand(-40, 40), rand(-220, -60), rand(.5, .9), rand(3, 6), q % 2 ? '#ff9a45' : '#ffd27a', 'flame');
+  }
+  if (O.t > 1.3) H.pour = null;
+}
+function drawOil() {
+  const H = st.horde, O = H.pour, c = O ? { x: O.x, y: O.y } : oilTop();
+  if (H.slick) {   // a dark, shiny puddle of oil along the ground
+    const a = Math.min(1, H.slick.t / 1.5) * .55, x0 = SX(H.slick.x0), x1 = SX(H.slick.x1), gy = SY(0);
+    ctx.fillStyle = 'rgba(40,24,10,' + a.toFixed(3) + ')'; ctx.beginPath(); ctx.ellipse((x0 + x1) / 2, gy + 2 * sc, (x1 - x0) / 2, 7 * sc, 0, 0, 6.283); ctx.fill();
+    ctx.fillStyle = 'rgba(255,200,120,' + (a * .35).toFixed(3) + ')'; ctx.fillRect(x0 + 20 * sc, gy - 1 * sc, (x1 - x0) * .5, 1.5 * sc);
+  }
+  if (!(H.oil > 0) && !O) return;
+  const x = SX(c.x), y = SY(c.y), k = sc;
+  if (x < -80 || x > W + 80) return;
+  const tip = O ? Math.min(1, O.t * 5) * Math.min(1, Math.max(0, (1.3 - O.t) * 3)) : 0;
+  if (O && O.t > .08 && O.t < 1.1) {   // the stream of oil falling to the ground
+    const lx = x + 13 * k * tip, gy = SY(0), wob = Math.sin(st.t * 30) * 1.5 * k;
+    const gr = ctx.createLinearGradient(0, y, 0, gy); gr.addColorStop(0, '#ffb347'); gr.addColorStop(1, '#5a3412');
+    ctx.strokeStyle = gr; ctx.lineWidth = 6 * k; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(lx, y - 2 * k); ctx.quadraticCurveTo(lx + 8 * k + wob, (y + gy) / 2, lx + 6 * k, gy); ctx.stroke();
+    if (Math.random() < .6) P_(c.x + 19, -rand(0, -c.y), rand(-15, 15), rand(-20, 20), .4, rand(2, 3.5), 'rgba(255,240,220,.5)', 'smoke');
+  }
+  ctx.save(); ctx.translate(x, y); ctx.scale(k, k); ctx.rotate(tip * .9);
+  ctx.fillStyle = '#2b2622'; ctx.strokeStyle = '#0f0c0a'; ctx.lineWidth = 1.5;   // the cauldron
+  ctx.beginPath(); ctx.moveTo(-12, -10); ctx.lineTo(12, -10); ctx.quadraticCurveTo(13, 6, 0, 7); ctx.quadraticCurveTo(-13, 6, -12, -10); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#ff9a45'; ctx.fillRect(-11, -12, 22, 3);
+  ctx.strokeStyle = '#4a4440'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, -12, 13, Math.PI * 1.1, Math.PI * 1.9); ctx.stroke();
+  ctx.restore();
+  if (!O && Math.random() < .25) P_(c.x + rand(-6, 6), c.y - 14, rand(-6, 6), rand(-40, -15), .6, rand(2, 3), 'rgba(255,240,220,.4)', 'smoke');   // it steams
+  if (!O) { ctx.fillStyle = 'rgba(255,150,60,' + (.5 + .3 * Math.sin(st.t * 14)).toFixed(3) + ')'; ctx.beginPath(); ctx.arc(x, y + 9 * k, 4 * k, 0, 6.283); ctx.fill(); }
 }
 /* ---------- the undead (Craig 2026-11-18): anyone who comes back from the dead (Resurrection arrow, Second Wind) is a skeleton
    till the level ends and shoots undead arrows: BONE instead of plain, and the special arrows in the quiver turn undead ---------- */
@@ -3818,6 +3997,7 @@ function startHorde() {
   st.helpers = st.helpers.slice(0, WALL_MAX); st.helpers.forEach((h, i) => { h.dead = false; h.hp = h.max; toWall(h, i); });   // archers you already have go on the walls
   hordeRecruitCrate();
   hordePieceCrate();
+  hordeKit();   // what was built in the workshop
   st.banner = { t: 'BONUS: HORDE ATTACK', sub: 'HOLD THE CASTLE · EVERY KILL SCORES', life: 3.4 };
   resize(); st.camHold = 0; st.camFocus = null; camX = homeCam();
   sfx('wave');
@@ -3867,6 +4047,7 @@ function ramStep(dt) {
       if ((R.bangT = (R.bangT || 0) - dt) <= 0) {
         R.bangT = 1.3; shake(4); sfx('thud');
         text(R.x - 10, -125, 'BOOM!', '#ffd27a', 14, .7); ring(R.x - 16, -45, 26, '#dcc29a', .3, 3);
+        if (!H.outer.down) { H.outer.hp -= 40; H.outer.hitT = .1; if (H.outer.hp <= 0) hordeOuterFalls(); }
       }
     }
   }
@@ -3936,16 +4117,17 @@ function hordeMarch(m, dt) {
 // the soldiers waiting at the wall pack in shoulder to shoulder, a few rows deep, the crowd growing back from the wall
 const PILE_DX = 9, PILE_LANES = 3, PILE_LIFT = 6, HORDE_MAX = 260;
 // overrun = how many are at the gate, not damage: a small soldier counts 1, a giant 3
+const hOver = () => OVERRUN + ((st.horde && st.horde.gate) || 0);   // the workshop's STRONGER GATE adds to it
 const OVERRUN = 30, HORDE_BATS = false, gateW = m => m.type === 'giant' ? 3 : 1;
 function drawGateMeter() {
-  const H = st.horde, n = H.press || 0, p = clamp(n / OVERRUN, 0, 1), w = Math.min(170, W * .24), x = W / 2 - w / 2, y = 76;
+  const H = st.horde, n = H.press || 0, p = clamp(n / hOver(), 0, 1), w = Math.min(170, W * .24), x = W / 2 - w / 2, y = 76;
   ctx.save();
   ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(x, y, w, 9);
   ctx.fillStyle = p > .75 ? ((st.t * 6) % 2 < 1 ? '#ff5a4e' : '#ffb0a8') : p > .5 ? '#ff9a45' : '#7dff9a'; ctx.fillRect(x, y, w * p, 9);
   ctx.strokeStyle = 'rgba(246,238,223,.6)'; ctx.lineWidth = 1; ctx.strokeRect(x, y, w, 9);
   ctx.font = '700 10px Silkscreen, monospace'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(24,30,20,.6)';
   ctx.textAlign = 'right'; ctx.strokeText('GATE', x - 6, y + 5); ctx.fillStyle = '#f6eedf'; ctx.fillText('GATE', x - 6, y + 5);
-  ctx.textAlign = 'left'; ctx.strokeText(n + '/' + OVERRUN, x + w + 6, y + 5); ctx.fillText(n + '/' + OVERRUN, x + w + 6, y + 5);
+  ctx.textAlign = 'left'; ctx.strokeText(n + '/' + hOver(), x + w + 6, y + 5); ctx.fillText(n + '/' + hOver(), x + w + 6, y + 5);
   ctx.restore();
 }
 
@@ -3989,7 +4171,8 @@ function hordeOuterFalls() {
   const H = st.horde, O = H.outer;
   O.down = true; O.hp = 0; shake(14); sfx('crack');
   for (let q = 0; q < 50; q++) P_(O.x + rand(-40, 40), -rand(0, O.h), rand(-220, 220), rand(-260, 0), rand(.6, 1.1), rand(3, 7), q % 2 ? '#dcc29a' : '#a88c6a', 'shard');
-  text(O.x, -O.h - 80, 'THE OUTER CASTLE FELL', '#ff5a4e', 20, 2, 1);
+  text(O.x, -O.h - 80, 'THE FORWARD CASTLE FELL', '#ff5a4e', 20, 2, 1);
+  outerFree();
   if (H.on === 'outer') {
     hordeMove('keep', true);
     st.P.hp -= 20; text(feet(st.P).x, feet(st.P).y - 150, 'RETREAT! -20', '#ff5a4e', 18, 1.4);
@@ -4027,12 +4210,14 @@ function hordeStep(dt, rdt) {
   const t = H.t;
   hordePile();
   ramStep(dt);
+  oilStep(dt);
   if (t > 30 && (H.ramT -= dt) <= 0) { hordeRam(); H.ramT = rand(24, 34) * Math.max(.6, 1 - t / 600); }
   H.press = 0; for (const m of st.marchers) if (m.at && !m.dead && !m.ram) H.press += gateW(m);
   for (const R of H.rams) if (R.at && !R.drop) H.press += RAM_W;
-  if (H.press >= OVERRUN * .75 && !H.warned) { H.warned = true; text(feet(st.P).x, feet(st.P).y - 170, 'THE GATE IS BUCKLING!', '#ff5a4e', 18, 1.6, 1); shake(6); }
-  if (H.press < OVERRUN * .5) H.warned = false;
-  if (H.press >= OVERRUN) { hordeOver(); return; }
+  if (!H.outer.down) H.press = 0;   // they are hacking at the forward castle, not the gate
+  if (H.press >= hOver() * .75 && !H.warned) { H.warned = true; text(feet(st.P).x, feet(st.P).y - 170, 'THE GATE IS BUCKLING!', '#ff5a4e', 18, 1.6, 1); shake(6); }
+  if (H.press < hOver() * .5) H.warned = false;
+  if (H.press >= hOver()) { hordeOver(); return; }
   if (H.cat && H.cat.reload > 0) H.cat.reload -= dt;
   if ((H.spawnT -= dt) <= 0 && st.marchers.length < HORDE_MAX) {
     const n = Math.min(10, 1 + Math.floor(t / 40) + (Math.random() < .3 ? 1 : 0));
@@ -4049,7 +4234,7 @@ function hordeStep(dt, rdt) {
   if ((H.growT -= dt) <= 0) { H.growT = 30; st.banner = { t: 'THE HORDE GROWS', sub: Math.floor(t) + ' SECONDS · SCORE ' + H.score, life: 1.8 }; sfx('wave'); }
   // new help turns up in the field now and then
   if ((H.itemT -= dt) <= 0) {
-    H.itemT = rand(13, 19);
+    H.itemT = rand(13, 19) * (H.luck ? .5 : 1);
     const live = st.gadgets.filter(g => !g.gone);
     if (!H.cat && !live.some(g => g.piece) && Math.random() < .6) hordePieceCrate();
     else if (st.helpers.filter(h => h.wall).length < WALL_MAX && !live.some(g => g.recruit) && Math.random() < .55) hordeRecruitCrate();
@@ -4130,6 +4315,7 @@ function drawHordeCastles() {
       for (let i = 0; i < 7; i++) { const rx = x + (i - 3) * 16 * sc, rh = (10 + ((i * 37) % 17)) * sc; ctx.fillRect(rx - 9 * sc, gy - rh, 18 * sc, rh); }
     }
   }
+  drawOil();
   // powder kegs
   for (const K of H.kegs) {
     const x = SX(K.x), y = SY(0);
@@ -4413,7 +4599,9 @@ function catToggle() {
 // your next shot flies from the catapult as a boulder (it keeps your arrow power, so windows and upgrades still work)
 function catLaunch(n0) {
   const C = st.horde.cat, p = catPt();
-  for (let q = n0; q < st.arrows.length; q++) { const ar = st.arrows[q]; ar.rock = true; ar.x = ar.sx = p.x; ar.y = ar.sy = p.y; }
+  const am = st.horde.ammo && st.horde.ammo.length ? st.horde.ammo.shift() : null;   // workshop ammo goes first
+  for (let q = n0; q < st.arrows.length; q++) { const ar = st.arrows[q]; ar.rock = true; ar.x = ar.sx = p.x; ar.y = ar.sy = p.y; if (am) { ar.ammo = am; ar.col = am === 'fire' ? '#ff7b3a' : '#b8c4d0'; } }
+  if (am) text(p.x, p.y - 60, am === 'fire' ? 'FIRE BOULDER!' : 'IRON SHOT!', am === 'fire' ? '#ff7b3a' : '#b8c4d0', 15, 1.1);
   C.armed = false; C.reload = CAT_RELOAD; shake(5); sfx('whoosh');
 }
 // the boulder lands: everything in the strike zone goes down. Powers change the blast.
@@ -4421,8 +4609,8 @@ function catBoom(ar) {
   const H = st.horde;
   if (!H) return;
   const x = ar.x, y = Math.min(ar.y, -2);
-  const fire = hasPk(ar, 'fire'), ice = hasPk(ar, 'ice'), boom = hasPk(ar, 'boom'), zap = hasPk(ar, 'storm');
-  const R = CAT_R * (hasPk(ar, 'heavy') ? 1.4 : 1) * (boom ? 1.35 : 1);
+  const iron = ar.ammo === 'iron', fire = hasPk(ar, 'fire') || ar.ammo === 'fire', ice = hasPk(ar, 'ice'), boom = hasPk(ar, 'boom'), zap = hasPk(ar, 'storm');
+  const R = CAT_R * (hasPk(ar, 'heavy') ? 1.4 : 1) * (boom ? 1.35 : 1) * (iron ? 1.5 : 1);
   ring(x, y, R, fire ? '#ff9a45' : ice ? '#bfe9ff' : '#ffd27a', .5, 6); ring(x, y, R * .6, '#f6eedf', .35, 4);
   shake(boom ? 14 : 9); sfx('boom');
   for (let q = 0; q < 34; q++) P_(x + rand(-20, 20), y, rand(-280, 280), rand(-400, -60), rand(.5, 1), rand(3, 6), q % 3 ? '#8a7f74' : '#5a4636', 'shard');
@@ -4432,7 +4620,7 @@ function catBoom(ar) {
   for (const m of st.marchers) {
     if (m.dead) continue;
     const d = Math.hypot(m.x - x, -(m.y || 0) - 40 * m.s - y);
-    if (d < R) { hurtMarcher(m, m.type === 'giant' ? 60 : 99); if (m.dead) n++; }
+    if (d < R) { hurtMarcher(m, m.type === 'giant' ? (iron ? 170 : 60) : 99); if (m.dead) n++; }
     if (!m.dead && fire && d < R * 1.6) m.burn = Math.max(m.burn, 4);
     if (!m.dead && ice && d < R * 1.7) m.frozen = Math.max(m.frozen, 4);
   }
@@ -7025,6 +7213,7 @@ function drawGadget(g) {
   }
   if (g.type === 'crate') {
     if (g.tomb) { drawTomb(g, x, y); return; }
+    if (g.mat) { drawMatCrate(g, x, y); return; }
     const pw = g.recruit ? { col: '#7dff9a', short: '+ARCHER' } : g.piece ? { col: '#ffb347', short: CAT_NAMES[g.piece] } : g.pk2 ? { col: forgedCol(g), short: forgedName(g) } : POWERS[g.pk], by = y + Math.sin(st.t * 2 + g.bob) * 6 * sc, r = 15 * sc;
     ctx.fillStyle = pw.col + '33'; ctx.beginPath(); ctx.arc(x, by, r * 1.9, 0, 6.283); ctx.fill();
     ctx.fillStyle = '#a8743f'; ctx.fillRect(x - r, by - r, r * 2, r * 2);
@@ -7229,6 +7418,7 @@ function drawHUD() {
   ctx.textAlign = 'left'; ctx.textBaseline = 'top';
   ctx.font = '700 18px Silkscreen, monospace'; ctx.fillStyle = '#ffd27a';
   ctx.fillText(st.practice ? 'PRACTICE' : 'GP: ' + st.gp, lx, 12);
+  if (!st.practice) { drawMatsHUD(lx + ctx.measureText('GP: ' + st.gp).width + 14, 16); ctx.font = '700 18px Silkscreen, monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'top'; }
   const fr = clamp(st.P.hp / st.P.max, 0, 1);
   ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(lx, 38, 130, 8);
   ctx.fillStyle = fr > .35 ? '#f6eedf' : '#ff5a4e'; ctx.fillRect(lx, 38, 130 * fr, 8);
@@ -7597,6 +7787,8 @@ function shopWhyNot(o) {
 }
 function openShop() {
   st.shop = true;
+  if (!st.practice && st.level % 5 === 0 && st.hordeLv !== st.level) { st.workshop = true; renderShop(); show('shopScreen', true); return; }   // before the horde: the WORKSHOP
+  st.workshop = false; $('shopTitle').textContent = 'ARMOURY'; $('shopNext').textContent = 'NEXT LEVEL ▶';
   const pool = SHOP_POOL.filter(o => !(o.max && (st.shopBuys[o.id] || 0) >= o.max) && !(o.helper && st.helpers.filter(h => !h.dead).length >= 2));
   const keys = Object.keys(POWERS).filter(k => k !== 'shield' && k !== 'blackhole' && k !== 'meteor' && !POWERS[k].undead);
   for (const k of keys) pool.push({ id: 'pw_' + k, name: POWERS[k].name, desc: (POWERS[k].shots + st.extraShots) + ' arrows to start the level', base: 35, w: .45, once: true, col: POWERS[k].col,
@@ -7620,7 +7812,20 @@ function openShop() {
   renderShop(); show('shopScreen', true); $('shopNext').focus && $('shopNext').focus();
 }
 const priceOf = o => Math.round(o.base * Math.pow(1.6, o.once ? 0 : (st.shopBuys[o.id] || 0)));
+function renderWorkshop() {
+  $('shopTitle').textContent = 'WORKSHOP'; $('shopNext').textContent = 'TO THE HORDE ▶';
+  $('shopGP').textContent = 'GP ' + st.gp + '   ' + matsLine();
+  const g = $('shopGrid'); g.innerHTML = '';
+  const h = document.createElement('p'); h.className = 'shophead'; h.textContent = 'BUILD FOR THE HORDE · MATERIALS COME FROM CRATES IN LEVELS'; g.appendChild(h);
+  for (const o of wsItems(st.gp)) {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'item'; b.id = 'shop_' + o.id; b.disabled = !o.ok;
+    b.innerHTML = `<i class="ico">${ICON[o.id] || ''}</i><div class="txt"><b style="color:${o.col}">${o.name}</b><span>${o.desc}</span><span class="cost">${o.costTxt}</span></div>`;
+    b.onclick = () => { if (wsBuy(st, o.id, st.P)) { sfx('heal'); renderWorkshop(); } };
+    g.appendChild(b);
+  }
+}
 function renderShop() {
+  if (st.workshop) { renderWorkshop(); return; }
   $('shopGP').textContent = 'GP ' + st.gp;
   const g = $('shopGrid'); g.innerHTML = '';
   for (const o of shopOffers) {
@@ -7679,7 +7884,7 @@ $('clockGo').onclick = () => {
   if (Music.on) Music.start();
 };
 $('shopNext').onclick = () => {
-  show('shopScreen', false); st.shop = false;
+  show('shopScreen', false); st.shop = false; st.workshop = false;
   st.helpers = st.helpers.filter(h => !h.dead && !h.clone);
   st.helpers.forEach((h, i) => { h.x = st.P.x - 72 - i * 52; h.h = st.P.h - 22 - i * 16; h.dx = 0; h.dy = 0; h.rot = 0; h.hp = h.max; h.stuck = []; });
   if (st.level % 5 === 0 && st.hordeLv !== st.level) { startHorde(); return; }
@@ -7695,6 +7900,7 @@ $('gcList').addEventListener('click', e => { const b = e.target.closest('button[
 $('forgeMake').onclick = () => forgeMake();
 $('forgeDone').onclick = () => closeForge();
 $('catBtn').onclick = () => { if (st && st.horde) catToggle(); };
+$('oilBtn').onclick = () => { if (st && st.horde) pourOil(st.P); };
 function htCycle() {
   const P = st && st.P; if (!running || paused || !htOn(P)) return;
   const o = htNext(P, P.ht); if (!o) return;
@@ -7714,8 +7920,10 @@ function frame(ts) {
   if (st) { const H = st.horde, on = !!(H && running && !paused && !H.over && !H.outer.down); if ($('castleBtn').hidden === on) $('castleBtn').hidden = !on;
     if (on) { const lb = H.on === 'keep' ? '⇄ OUTER CASTLE' : '⇄ BACK TO KEEP'; if ($('castleBtn').textContent !== lb) $('castleBtn').textContent = lb; }
     const C = H && H.cat, cOn = !!(C && running && !paused && !H.over); if ($('catBtn').hidden === cOn) $('catBtn').hidden = !cOn;
-    if (cOn) { const lb = C.armed ? '🪨 AIM & SHOOT' : C.reload > 0 ? '🪨 RELOAD ' + Math.ceil(C.reload) : '🪨 CATAPULT'; if ($('catBtn').textContent !== lb) $('catBtn').textContent = lb;
+    if (cOn) { const lb = (C.armed ? '🪨 AIM & SHOOT' : C.reload > 0 ? '🪨 RELOAD ' + Math.ceil(C.reload) : '🪨 CATAPULT') + (H.ammo && H.ammo.length ? ' · ' + (H.ammo[0] === 'fire' ? '🔥' : '⚙️') + H.ammo.length : ''); if ($('catBtn').textContent !== lb) $('catBtn').textContent = lb;
       $('catBtn').classList.toggle('on', C.armed); $('catBtn').classList.toggle('wait', C.reload > 0); $('catBtn').classList.toggle('ready', !C.armed && C.reload <= 0); } }
+  if (st) { const Hz = st.horde, oOn = !!(Hz && running && !paused && !Hz.over && (Hz.oil > 0 || Hz.pour)); if ($('oilBtn').hidden === oOn) $('oilBtn').hidden = !oOn;
+    if (oOn) { const lb = '🔥 OIL ×' + (Hz.oil || 0); if ($('oilBtn').textContent !== lb) $('oilBtn').textContent = lb; $('oilBtn').classList.toggle('wait', !!Hz.pour); } }
   if (st) { keepFix(st); keepRender(st); }
   if (running && !paused && !portrait && !(st && (st.shop || st.clockOpen || st.linking || st.rack || st.placing || st.hordeShow || st.forging || (st.keepQ && st.keepQ.length)))) update(dt);
   camY += (camYTarget() - camY) * Math.min(1, dt * 6);
@@ -8137,7 +8345,7 @@ $('quiver').addEventListener('click', e => {
   if (e.target.closest('button[data-reset]')) { resetDummies(); return; }
   if (e.target.closest('button[data-fb]')) { st.dummyFire = !st.dummyFire; for (const d of st.enemies) if (d.dummy) { d.aiT = st.dummyFire ? rand(1.5, 3.5) : 1e9; d.aiAim = null; } quiverSig = ''; sfx('click'); return; }
   if (e.target.closest('button[data-link]')) { toggleLink(); return; } const fb = e.target.closest('button[data-f]'); if (fb) { pickForged(+fb.dataset.f); return; } const b = e.target.closest('button[data-i]'); if (b) pickSlot(+b.dataset.i); });
-addEventListener('keydown', e => { if (running && (e.key === 't' || e.key === 'T')) { htCycle(); return; } if (running && st.horde && (e.key === 'b' || e.key === 'B')) { catToggle(); return; } if (running && st.horde && (e.key === 'c' || e.key === 'C')) { hordeMove(st.horde.on === 'keep' ? 'outer' : 'keep'); return; } if (running && st.practice && (e.key === 'a' || e.key === 'A')) { if (st.rack) closeRack(); else openRack(); return; } const n = +e.key; if (running && n >= 1 && n <= 7) { const q = keySlot(st.quiver, n); if (q !== null) pickSlot(q); } else if (running && (e.key === 'l' || e.key === 'L')) toggleLink(); });
+addEventListener('keydown', e => { if (running && (e.key === 't' || e.key === 'T')) { htCycle(); return; } if (running && st.horde && (e.key === 'b' || e.key === 'B')) { catToggle(); return; } if (running && st.horde && (e.key === 'o' || e.key === 'O')) { pourOil(st.P); return; } if (running && st.horde && (e.key === 'c' || e.key === 'C')) { hordeMove(st.horde.on === 'keep' ? 'outer' : 'keep'); return; } if (running && st.practice && (e.key === 'a' || e.key === 'A')) { if (st.rack) closeRack(); else openRack(); return; } const n = +e.key; if (running && n >= 1 && n <= 7) { const q = keySlot(st.quiver, n); if (q !== null) pickSlot(q); } else if (running && (e.key === 'l' || e.key === 'L')) toggleLink(); });
 
 /* ---------- input ---------- */
 /* ---------- pinch with two fingers (or the mouse wheel) to zoom in and out ---------- */
@@ -8493,6 +8701,7 @@ function start(practice) {
   if (practice === true) setupPractice();
   Music.start();
   show('startScreen', false); show('overScreen', false); show('pauseScreen', false); show('shopScreen', false); show('clockScreen', false); show('rackScreen', false); show('hordeScreen', false); show('forgeScreen', false);
+  if (practice !== true && /[?&]workshop\b/.test(location.search)) { st.level = 5; st.mats = { brick: 12, wood: 8, iron: 6, oil: 5 }; st.gp += 600; openShop(); }   // test link: the workshop straight away
   if (practice !== true && /[?&]horde\b/.test(location.search)) {   // test links: ?horde, ?horde&cat (catapult built)
     startHorde();
     if (/[?&]cat\b/.test(location.search)) { st.horde.pieces = { wheel: 1, arm: 1, rope: 1 }; buildCatapult(); }
