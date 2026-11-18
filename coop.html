@@ -362,7 +362,7 @@ const RIDE = {   // [glow rgb, main colour, light colour, particle kind]
 const rideOf = k => RIDE[k] || [hexRgb(POWERS[k].col), POWERS[k].col, '#ffffff', 'spark'];
 const RIDE_NAME = { fire: 'FIRE', ice: 'ICE', boom: 'BOMB', heavy: 'GIANT', storm: 'THUNDER', slowmo: 'SLOW', shrink: 'SHRINK', grow: 'HUGE', tele: 'WARP', homing: 'HUNTER',
   blackhole: 'VOID', tornado: 'WINDY', meteor: 'BURNING', triple: 'TRIPLE', rapid: 'QUICK', pierce: 'SHARP', scope: 'SCOPED', cluster: 'CONFETTI', confuse: 'DIZZY', magnet: 'MAGNETIC', bounce: 'BOUNCY', web: 'STICKY' };
-const RIDE_ON = { fire: 1, ice: 1, slowmo: 1, shrink: 1, grow: 1, boom: 1, storm: 1, heavy: 1 };   // a twister hands these to the arrows it turns round
+const RIDE_ON = { fire: 1, ice: 1, slowmo: 1, shrink: 1, grow: 1, boom: 1, storm: 1, heavy: 1, confuse: 1 };   // a twister hands these to the arrows it turns round
 // combo arrows: some linked pairs make a special effect of their own (key = both powers, sorted)
 const COMBOS = {
   'fire+ice': ['STEAM', '#e8f0ff', 'STEAM'], 'boom+fire': ['NAPALM', '#ff7a2e', 'NAPALM'], 'fire+meteor': ['FIRE RAIN', '#ff9a45', 'FIRE RAIN'],
@@ -378,7 +378,10 @@ const COMBOS = {
   'boom+bounce': ['BOUNCING BOMB', '#ff5a4e', 'BOUNCE BOMB'], 'bounce+fire': ['FIRE SKIPPER', '#ff9a45', 'SKIPPER'], 'bounce+storm': ['PINBALL', '#fff36b', 'PINBALL'],
   'bounce+pierce': ['RICOCHET', '#e0e0ff', 'RICOCHET'], 'bounce+heavy': ['WRECKING BALL', '#ffd27a', 'WRECKER'], 'bounce+grow': ['BOUNCE CASTLE', '#ffb02e', 'BOUNCY'],
   'fire+web': ['BURNING WEB', '#ff9a45', 'BURN WEB'], 'ice+web': ['FROZEN WEB', '#bfe9ff', 'ICE WEB'], 'boom+web': ['STICKY BOMB', '#ff5a4e', 'STICKY'],
-  'storm+web': ['ELECTRIC WEB', '#fff36b', 'ZAP WEB']
+  'storm+web': ['ELECTRIC WEB', '#fff36b', 'ZAP WEB'],
+  'boom+ice': ['FROST BOMB', '#bfe9ff', 'FROST BOMB'], 'ice+pierce': ['ICICLE LANCE', '#bfe9ff', 'ICICLE'], 'heavy+scope': ['SNIPER', '#ffd27a', 'SNIPER'],
+  'boom+slowmo': ['TIME BOMB', '#7ad7ff', 'TIME BOMB'], 'blackhole+slowmo': ['TIME STOP', '#cfe6ff', 'TIME STOP'], 'confuse+tornado': ['DIZZY', '#ff3df2', 'DIZZY'],
+  'blackhole+confuse': ['WHITE HOLE', '#ffffff', 'WHITE HOLE'], 'homing+triple': ['SWARM', '#ff8ad8', 'SWARM']
 };
 const comboKey = (a, b) => a && b ? [a, b].sort().join('+') : null;
 const comboOf = ar => !ar ? null : comboKey(ar.pk, ar.pk2);
@@ -410,7 +413,13 @@ const COMBO_DESC = {
   'bounce+heavy': 'Every bounce off an enemy tower cracks it',
   'bounce+grow': 'Whatever it hits (an archer or their tower) bounces up and down for 6 s: really hard for them to aim',
   'fire+web': 'The web burns them the whole time they are stuck', 'ice+web': 'A frozen web that holds twice as long',
-  'boom+web': 'The blast webs everyone it hits', 'storm+web': 'The web zaps whoever is stuck in it'
+  'boom+web': 'The blast webs everyone it hits', 'storm+web': 'The web zaps whoever is stuck in it',
+  'boom+ice': 'A bigger blast that freezes everyone in it for 5 s and leaves an ice crystal', 'ice+pierce': 'Freezes every archer it goes through; ice spikes burst up where it lands',
+  'heavy+scope': 'A body or leg hit counts as a headshot', 'boom+slowmo': 'Sticks in and ticks for 3 s, then a huge blast that slows everyone near it',
+  'blackhole+slowmo': 'Everything near the hole stops dead: archers freeze and enemy arrows hang in the air, then drop',
+  'confuse+tornado': 'A wobbly twister: everyone it touches goes dizzy and shoots anywhere for 7 s',
+  'blackhole+confuse': 'Pushes everything away: blows back enemy arrows and objects, and hurts and confuses enemies near it',
+  'homing+triple': 'Each of the three arrows hunts a different enemy'
 };
 // linking two arrows that make a combo: show its name and what it does
 function comboAnnounce(P, a, b) {
@@ -1444,6 +1453,7 @@ function splitFor(P) {
 function blast(x, y, owner, rider) {
   if (st.weather === 'fog') st.fogT = (st.fogT || 0) + 1.5;   // explosions blow the fog away a little
   if (rider === 'heavy' && owner && owner.isP) return megaBomb(x, y, owner);
+  if (rider === 'slowmo' && owner && owner.isP) return timeBomb(x, y, owner);
   const bz = rider === 'grow' ? 2 : 1;
   if (bz > 1) { if (owner && owner.isP) comboText(x, y - 90, 'boom+grow'); ring(x, y, 180, '#ff9a45', .6, 6); ring(x, y, 120, '#ffd27a', .45, 4); shake(14); }
   const RB = rider ? rideOf(rider) : null;
@@ -1451,6 +1461,7 @@ function blast(x, y, owner, rider) {
     comboText(x, y - 90, 'boom+fire');
     napalmFloor(x, y, ownerOf(owner));
   }
+  if (rider === 'ice' && owner && owner.isP) frostBomb(x, y, owner);
   for (let i = 0; i < 26; i++) st.parts.push({ x, y, vx: rand(-260, 260), vy: rand(-300, 80), life: rand(.3, .6), max: .6, r: rand(2, 4), col: RB ? (i % 2 ? RB[1] : RB[2]) : i % 3 ? '#ff9a45' : '#ffd27a' });
   shake(9); sfx('boom');
   if (RB) {
@@ -1593,6 +1604,7 @@ function headshotFX(ar, a) {
   const f = feet(a); text(f.x, f.y - 128, 'HEADSHOT!', '#ffd27a', 28, 1.4, 1);
 }
 function onHit(ar, a, z) {
+  if (comboOf(ar) === 'heavy+scope' && z !== 'head' && ar.owner && ar.owner.isP && cbFoe(a, cbBy(ar.owner))) { z = 'head'; sniperFX(ar, a); }
   const base = z === 'head' ? 48 : z === 'body' ? 26 : 15;
   const sp = ownerOf(ar.owner), vsP = !!sp && vsFoe(a, sp);   // versus: an enemy player takes every effect
   if (hasPk(ar, 'clone') && sp && a.isP && !a.helper && a !== sp && !vsP && shotOnce(ar, 'clone')) { ar.done = true; cloneMate(a); return; }   // no friendly fire: it clones them
@@ -1647,6 +1659,7 @@ function onHit(ar, a, z) {
   if (hasPk(ar, 'web') && (!a.isP || vsP)) webA(a, ar, ar.owner && ar.owner.isP ? ar.owner : null);
   if (hasPk(ar, 'scope') && hasPk(ar, 'shrink') && (!a.isP || vsP) && ar.owner && ar.owner.isP) miniA(a);   // MINIATURIZE
   if (hasPk(ar, 'ice') && (!a.isP || vsP)) { a.frozen = 3.5; a.aiAim = null; a.pow = 0; text(f.x, f.y - 132, 'FROZEN', '#bfe9ff', 14, .9); }
+  comboHit(ar, a, z);
   if (hasPk(ar, 'fire')) for (let i = 0; i < 8; i++) st.parts.push({ x: ar.x, y: ar.y, vx: rand(-80, 80), vy: rand(-160, 0), life: .5, max: .5, r: 2.4, col: '#ff9a45' });
   if (hasPk(ar, 'storm') && (!a.isP || vsP) && shotOnce(ar, 'storm')) {
     const zr = riderOf(ar, 'storm'), zc = zr ? rideOf(zr)[1] : undefined;
@@ -1706,6 +1719,7 @@ function kill(a, ar, z) {
 }
 
 function clearLevel() {
+  st.cfx = [];
   for (const c of st.clones || []) if (c.type === 'a') removeClone(c);
   for (const h of st.helpers.filter(h => h.risen)) raiseGone(h);
   for (const p of PEOPLE().concat(st.helpers)) {   // skeletons are flesh again; their undead arrows go
@@ -1945,6 +1959,7 @@ function confuse(a, t) {
 function confuseAim(E, A) {
   A.ang = Math.PI - A.ang + rand(-.12, .12);
   A.v = clamp(2000 - A.v, 450, 1600);
+  if (E.dizzyT > 0) { A.ang = rand(-2.9, -.25); A.v = rand(500, 1500); }
   A.from = E.aim + Math.round((A.ang - E.aim) / 6.283) * 6.283;
   A.conf = 1; E.f = Math.cos(A.ang) < 0 ? -1 : 1;
 }
@@ -2081,6 +2096,7 @@ function spawnSteam(x, y) { (st.steams = st.steams || []).push({ x, y, life: 4.2
 // a burning patch from napalm / fire rain: burns enemies that stand in it
 function burnPatch(x, y, by, life) { st.fires.push({ x, y, life, burnE: 1, by }); }
 function comboStep(dt) {
+  combo2Step(dt);
   for (const S of st.steams || []) {
     S.life -= dt;
     for (let q = 0; q < 2; q++) { const a = rand(0, 6.283), r = Math.sqrt(Math.random()) * S.r; P_(S.x + Math.cos(a) * r, S.y + Math.sin(a) * r * .6, rand(-20, 20), rand(-30, 5), rand(.7, 1.2), rand(10, 18), 'rgba(235,242,255,.32)', 'smoke'); }
@@ -2106,6 +2122,7 @@ function comboImpact(ar, x, y) {
   if (!key || !COMBOS[key] || !ar.owner || !ar.owner.isP) return;
   if (key === 'fire+ice' && shotOnce(ar, 'steam')) spawnSteam(x, Math.min(y, -40));
   if (key === 'pierce+storm' && shotOnce(ar, 'rail')) railZap(ar, x, y);
+  if (key === 'ice+pierce' && ar.done && shotOnce(ar, 'icicle')) icicleLand(ar, x, y);
   if (!key.includes('blackhole')) return;
   const B = st.holes[st.holes.length - 1], fresh = B && B.max - B.life < .05;
   if (!fresh || !shotOnce(ar, 'hole' + key)) return;
@@ -2114,6 +2131,8 @@ function comboImpact(ar, x, y) {
   if (key === 'blackhole+tele') B.worm = 1;
   if (key === 'blackhole+shrink') B.slayer = 1;
   if (key === 'blackhole+meteor') { B.well = 1; B.fed = 0; B.life = B.max = 5; }
+  if (key === 'blackhole+slowmo') { B.stop = 1; B.life = B.max = 4.5; }
+  if (key === 'blackhole+confuse') { B.white = 1; B.life = B.max = 3.2; }
 }
 // RAIL LIGHTNING (pierce + zap): lightning runs down the arrow's whole path and hits everyone near it
 function railZap(ar, x, y) {
@@ -2132,6 +2151,7 @@ function railZap(ar, x, y) {
 }
 // STORM CELL (zap + twister): the twister throws lightning at enemies near it
 function comboTwister(T, dt) {
+  if (T.k === 'confuse') dizzyTwister(T, dt);
   if (T.k !== 'storm' || (T.zapT = (T.zapT || .4) - dt) > 0) return;
   T.zapT = .7;
   const by = T.by;
@@ -2451,6 +2471,320 @@ function drawOil() {
   ctx.restore();
   if (!O && Math.random() < .25) P_(c.x + rand(-6, 6), c.y - 14, rand(-6, 6), rand(-40, -15), .6, rand(2, 3), 'rgba(255,240,220,.4)', 'smoke');   // it steams
   if (!O) { ctx.fillStyle = 'rgba(255,150,60,' + (.5 + .3 * Math.sin(st.t * 14)).toFixed(3) + ')'; ctx.beginPath(); ctx.arc(x, y + 9 * k, 4 * k, 0, 6.283); ctx.fill(); }
+}
+// combo helpers (co-op): who owns an effect, who it can hurt, every archer
+const cbBy = o => (o && ownerOf(o)) || null;
+const cbFoes = by => FOES(by);
+const cbFoe = (a, by) => !!a && ((!a.isP && !a.helper) || vsFoe(a, by));
+const cbAll = () => [...st.players, ...st.helpers, ...st.enemies];
+/* ---------- combo arrows, batch 1 (2026-11-18): FROST BOMB, ICICLE LANCE, SNIPER, TIME BOMB, TIME STOP, DIZZY, WHITE HOLE, SWARM ---------- */
+const TS_R = 420, TS_COL = '#cfe6ff', WH_R = 320, TB_T = 3, SW_COL = '#ff8ad8';
+// st.cfx: plain combo effects (crosshairs, ice crystals, time bombs); co-op guests draw them from the snapshot (m.cx)
+function cfx(o) { (st.cfx = st.cfx || []).push(Object.assign({ t: 0 }, o)); return st.cfx[st.cfx.length - 1]; }
+function cbHurt(E, dmg, by, col, vx) {
+  if (!E || E.dead) return;
+  dmg = Math.round(dmg); E.hp -= dmg; E.hitT = .12; if (by && (!E.isP || st.vs)) E.lastBy = by;
+  const f = feet(E); text(f.x + rand(-10, 10), f.y - 104, '-' + dmg, col || '#f6eedf', 16, .9);
+  if (E.hp <= 0) kill(E, { vx: vx || 1, owner: by }, 'body');
+}
+// every frame (host): count down, tick the time bombs
+function combo2Step(dt) {
+  for (const a of cbAll()) { if (!a) continue; if (a.tstop > 0) a.tstop -= dt; if (a.dizzyT > 0) a.dizzyT -= dt; }
+  if (!st.cfx || !st.cfx.length) return;
+  for (const F of st.cfx) { F.t += dt; F.life -= dt; if (F.ty === 'tbomb') tbStep(F, dt); }
+  st.cfx = st.cfx.filter(F => F.life > 0);
+}
+// a linked arrow in flight: its trail
+function comboFly(ar, sdt) {
+  const key = comboOf(ar);
+  if (key === 'ice+pierce') {
+    if (Math.random() < .35) P_(ar.x, ar.y, rand(-30, 30), rand(-30, 30), rand(.5, .9), rand(3, 6), Math.random() < .5 ? '#e8f8ff' : '#9fd8ff', 'shard');
+    if (Math.random() < .08) P_(ar.x, ar.y, rand(-10, 10), rand(-10, 10), 1.2, rand(6, 10), 'rgba(225,245,255,.35)', 'smoke');
+  } else if (key === 'heavy+scope') { if (Math.random() < .5) P_(ar.x, ar.y, 0, 0, .35, 1.6, '#fff8e0', 'spark'); }
+  else if (key === 'boom+slowmo') { if (Math.random() < .3) P_(ar.x, ar.y, rand(-40, 40), rand(-60, 0), .3, 2, Math.random() < .5 ? '#7ad7ff' : '#ffd27a', 'spark'); }
+}
+/* FROST BOMB (explosive + ice): a bigger freezing blast that leaves an ice crystal */
+function frostBomb(x, y, owner) {
+  const by = cbBy(owner);
+  comboText(x, y - 110, 'boom+ice');
+  glow(x, y, 200, 'rgba(190,235,255,', .6); ring(x, y, 170, '#e8f8ff', .7, 6); ring(x, y, 120, '#9fd8ff', .55, 4); ring(x, y, 70, '#ffffff', .4, 3);
+  st.flashA = .35; st.flashC = '200,235,255'; shake(10); sfx('glass');
+  for (let i = 0; i < 36; i++) { const a = rand(0, 6.283), v = rand(180, 480); P_(x, y, Math.cos(a) * v, Math.sin(a) * v - 60, rand(.4, .9), rand(4, 9), i % 3 ? '#e8f8ff' : '#9fd8ff', 'shard'); }
+  for (let i = 0; i < 16; i++) P_(x + rand(-60, 60), y + rand(-40, 40), rand(-30, 30), rand(-50, 10), rand(.8, 1.4), rand(8, 14), 'rgba(225,245,255,.4)', 'smoke');
+  cfx({ ty: 'frost', x, y, life: 2.4, max: 2.4, seed: Math.round(rand(1, 900)) });
+  for (const E of cbFoes(by)) {
+    if (E.dead) continue;
+    const f = feet(E);
+    if (Math.hypot(f.x - x, f.y - 55 - y) > 160) continue;
+    E.frozen = Math.max(E.frozen || 0, 5); E.aiAim = null; E.pow = 0;
+    text(f.x, f.y - 150, 'DEEP FROZEN', '#bfe9ff', 15, 1.1);
+    for (let q = 0; q < 10; q++) P_(f.x + rand(-18, 18), f.y - rand(10, 95), rand(-50, 50), rand(-80, 10), .6, rand(3, 5), '#e8f8ff', 'shard');
+  }
+}
+/* ICICLE LANCE (ice + piercing): freezes everyone it goes through, ice spikes burst up where it lands */
+function comboHit(ar, a, z) {
+  const key = comboOf(ar);
+  if (!key || !ar.owner || !ar.owner.isP || !cbFoe(a, cbBy(ar.owner))) return;
+  const f = feet(a);
+  if (key === 'ice+pierce') {
+    a.frozen = Math.max(a.frozen || 0, 5.5); a.aiAim = null; a.pow = 0;
+    text(f.x, f.y - 152, 'SKEWERED ON ICE!', '#bfe9ff', 15, 1.2);
+    ring(f.x, f.y - 55, 52, '#e8f8ff', .45, 3); glow(f.x, f.y - 55, 70, 'rgba(190,235,255,', .35);
+    for (let q = 0; q < 16; q++) { const an = rand(0, 6.283), v = rand(90, 260); P_(f.x, f.y - 55, Math.cos(an) * v, Math.sin(an) * v, rand(.4, .7), rand(4, 7), q % 2 ? '#e8f8ff' : '#9fd8ff', 'shard'); }
+    sfx('glass');
+  }
+}
+function icicleLand(ar, x, y) {
+  const by = cbBy(ar.owner), gy = Math.min(y, -2);
+  comboText(x, gy - 120, 'ice+pierce');
+  cfx({ ty: 'spikes', x, y: gy, life: 1.9, max: 1.9, seed: Math.round(rand(1, 900)) });
+  ring(x, gy, 90, '#e8f8ff', .5, 4); glow(x, gy, 110, 'rgba(190,235,255,', .4); shake(6); sfx('glass');
+  for (let i = 0; i < 20; i++) P_(x + rand(-30, 30), gy, rand(-160, 160), rand(-320, -80), rand(.4, .8), rand(3, 7), i % 2 ? '#e8f8ff' : '#9fd8ff', 'shard');
+  for (const E of cbFoes(by)) {
+    if (E.dead) continue;
+    const f = feet(E);
+    if (Math.hypot(f.x - x, f.y - 30 - gy) > 100) continue;
+    E.frozen = Math.max(E.frozen || 0, 4); E.aiAim = null; E.pow = 0;
+    cbHurt(E, 12, by, '#bfe9ff');
+  }
+}
+/* SNIPER (heavy + scope): a body or leg hit counts as a headshot */
+function sniperFX(ar, a) {
+  const f = feet(a), s = sizeOf(a);
+  cfx({ ty: 'cross', x: f.x, y: f.y - 84 * s, life: 1.1, max: 1.1 });
+  text(f.x, f.y - 180 * s, 'SNIPED!', '#ffd27a', 19, 1.3, 1);
+  st.flashA = Math.max(st.flashA || 0, .2); st.flashC = '255,255,255';
+}
+/* TIME BOMB (explosive + slow-mo): sticks in, ticks for 3 s, then a huge blast that slows everyone near it */
+function timeBomb(x, y, owner) {
+  const by = cbBy(owner);
+  if ((st.cfx || []).filter(F => F.ty === 'tbomb').length >= 6) return blast(x, y, owner, null);
+  let eid = 0, ox = 0, oy = 0, bd = 60;
+  for (const E of st.enemies) { if (E.dead) continue; const f = feet(E), d = Math.hypot(f.x - x, f.y - 55 - y); if (d < bd) { bd = d; eid = E.id; ox = x - f.x; oy = y - f.y; } }
+  cfx({ ty: 'tbomb', x, y, life: TB_T, max: TB_T, eid, ox, oy, by });
+  comboText(x, y - 70, 'boom+slowmo');
+  ring(x, y, 40, '#7ad7ff', .5, 3); sfx('click');
+}
+function tbStep(F, dt) {
+  if (F.eid) {
+    const E = st.enemies.find(e => e.id === F.eid);
+    if (E && !E.dead && !E.swallowed) { const f = feet(E); F.x = f.x + F.ox; F.y = f.y + F.oy; } else F.eid = 0;
+  }
+  if (Math.ceil(F.life) !== Math.ceil(F.life + dt) && F.life > 0) { sfx('click'); ring(F.x, F.y, 34, '#7ad7ff', .4, 2.5); }
+  if (F.life <= 0) {
+    const by = F.by || null;
+    text(F.x, F.y - 120, '★ TIME BOMB!', '#7ad7ff', 22, 1.5, 1);
+    megaBlast(F.x, F.y, by, 1.5);
+    for (let k = 0; k < 3; k++) ring(F.x, F.y, 90 + k * 60, '#7ad7ff', .7 + k * .2, 3);
+    for (const E of cbFoes(by)) { if (E.dead) continue; const f = feet(E); if (Math.hypot(f.x - F.x, f.y - 55 - F.y) < 210) infuse(E, 'slowmo', by); }
+  }
+}
+/* TIME STOP (black hole + slow-mo): everything near the hole stops dead; enemy arrows hang in the air, then drop */
+function timeStop(B, dt) {
+  const by = cbBy(B.by), end = B.life <= dt;
+  for (const E of cbFoes(by)) {
+    if (E.dead) continue;
+    const f = feet(E);
+    if (Math.hypot(f.x - B.x, f.y - 55 - B.y) > TS_R) continue;
+    if (!(E.tstop > 0)) text(f.x, f.y - 150, 'TIME STOPPED', TS_COL, 14, 1.1);
+    E.tstop = .3; E.stun = Math.max(E.stun || 0, .3); E.aiAim = null; E.pow = 0;
+  }
+  for (const ar of st.arrows) {
+    if (ar.done || (ar.owner && ar.owner.isP && !(st.vs && ownerOf(ar.owner) !== by))) continue;
+    if (!ar.tsV && Math.hypot(ar.x - B.x, ar.y - B.y) > TS_R) continue;
+    if (!ar.tsV) { ar.tsV = [ar.vx, ar.vy]; for (let q = 0; q < 5; q++) P_(ar.x, ar.y, rand(-30, 30), rand(-30, 30), .4, 2, TS_COL, 'spark'); }
+    if (end) { ar.vx = ar.tsV[0] * .12; ar.vy = 0; ar.tsHold = 0; ar.tsV = null; continue; }
+    ar.vx = ar.tsV[0]; ar.vy = ar.tsV[1]; ar.tsHold = .1;
+  }
+  if (Math.random() < .5) { const a = rand(0, 6.283), r = TS_R * rand(.5, 1); P_(B.x + Math.cos(a) * r, B.y + Math.sin(a) * r, 0, 0, .8, 2, TS_COL, 'spark'); }
+  if (end) { ring(B.x, B.y, TS_R, TS_COL, .6, 4); text(B.x, B.y - 130, 'TIME RUNS AGAIN', TS_COL, 15, 1.2); }
+}
+/* WHITE HOLE (black hole + confusion): pushes everything away; pulses hurt and confuse enemies near it */
+function whiteHole(B, dt) {
+  B.life -= dt; B.r = Math.min(40, B.r + 90 * dt); if (B.life < .4) B.r *= .9;
+  const by = cbBy(B.by);
+  if ((B.pulse = (B.pulse == null ? 0 : B.pulse) - dt) <= 0) {
+    B.pulse = .55;
+    ring(B.x, B.y, WH_R, '#ffffff', .55, 4); ring(B.x, B.y, WH_R * .6, '#ffd0fb', .45, 3); sfx('whoosh');
+    for (const E of cbFoes(by)) {
+      if (E.dead) continue;
+      const f = feet(E), d = Math.hypot(f.x - B.x, f.y - 55 - B.y);
+      if (d > WH_R) continue;
+      if (!(E.confT > 0)) text(f.x, f.y - 175, 'BLOWN AWAY!', '#ffffff', 14, 1);
+      confuse(E, 4);
+      const sx = Math.sign(f.x - B.x) || 1;
+      for (let q = 0; q < 8; q++) P_(f.x, f.y - rand(0, 90), sx * rand(120, 300), rand(-80, 40), .45, rand(2, 3.5), q % 2 ? '#ffffff' : '#ffd0fb', 'spark');
+      cbHurt(E, 9, by, '#ffd0fb', sx);
+    }
+  }
+  for (const ar of st.arrows) {
+    if (ar.done || (ar.owner && ar.owner.isP)) continue;
+    const dx = ar.x - B.x, dy = ar.y - B.y, d = Math.hypot(dx, dy) || 1;
+    if (d < 70 && !ar.whRev) { ar.whRev = 1; ar.vx = dx / d * Math.hypot(ar.vx, ar.vy); ar.vy = dy / d * Math.hypot(ar.vx, ar.vy); }
+    else if (d < 520) { const f = 5200 * (1 - d / 520); ar.vx += dx / d * f * dt; ar.vy += dy / d * f * dt; }
+  }
+  for (const g of st.gadgets) {
+    if (g.gone || g.falling || g.type === 'portal' || g.hold > 0) continue;
+    const dx = g.x - B.x, dy = g.y - B.y, d = Math.hypot(dx, dy) || 1;
+    if (d < 260) { const k = 240 * (1 - d / 260) * dt; g.x += dx / d * k; g.y = Math.max(topY() + 40, g.y + dy / d * k); g.tx = g.x; g.ty = g.y; }
+  }
+  if (st.rocks) for (const R of st.rocks) { const dx = R.x - B.x, dy = R.y - B.y, d = Math.hypot(dx, dy) || 1; if (d < 420) { const f = 6000 * (1 - d / 420); R.vx += dx / d * f * dt; R.vy += dy / d * f * dt; } }
+  for (let q = 0; q < 4; q++) { const a = rand(0, 6.283), v = rand(220, 480); P_(B.x + Math.cos(a) * B.r, B.y + Math.sin(a) * B.r, Math.cos(a) * v, Math.sin(a) * v, .55, rand(1.6, 3), Math.random() < .5 ? '#ffffff' : '#ffd0fb', 'spark'); }
+  if (B.life <= 0) { ring(B.x, B.y, WH_R * 1.2, '#ffffff', .7, 6); st.flashA = .35; st.flashC = '255,240,255'; }
+}
+/* DIZZY (confusion + tornado): a wobbly twister that leaves everyone it touches dizzy, shooting anywhere */
+function dizzyTwister(T, dt) {
+  if ((T.wob = (T.wob == null ? .7 : T.wob) - dt) <= 0) { T.wob = rand(.5, 1); if (Math.random() < .35) T.dir = -T.dir; }
+  const by = cbBy(T.by);
+  T.dz = T.dz || new Set();
+  for (const E of cbFoes(by)) {
+    if (E.dead || T.dz.has(E)) continue;
+    const f = feet(E);
+    if (Math.abs(f.x - T.x) > 46 * (T.w || 1)) continue;
+    T.dz.add(E); confuse(E, 7); E.dizzyT = 7;
+    text(f.x, f.y - 175, 'DIZZY!', CONF_COL, 17, 1.2, 1);
+    for (let q = 0; q < 14; q++) { const a = q / 14 * 6.283; P_(f.x, f.y - 90, Math.cos(a) * 140, Math.sin(a) * 140, .5, 2.4, q % 2 ? CONF_COL : '#fff36b', 'spark'); }
+  }
+}
+/* SWARM (triple + homing): each of the three arrows hunts a different enemy */
+function swarmPick(ar) {
+  const by = cbBy(ar.owner), L = cbFoes(by).filter(E => !E.dead && !E.swallowed);
+  let E = ar.swE ? L.find(e => e.id === ar.swE) : null;
+  if (!E) {
+    const S = shotOf(ar); S.claim = S.claim || new Set();
+    if (ar.swE) S.claim.delete(ar.swE);
+    let bd = 2600;
+    for (const e of L) { const f = feet(e), d = Math.hypot(f.x - ar.x, f.y - 60 - ar.y) * (S.claim.has(e.id) ? 3 : 1); if (d < bd) { bd = d; E = e; } }
+    ar.swE = E ? E.id : 0;
+    if (E) { S.claim.add(E.id); const f = feet(E); ring(f.x, f.y - 60, 36, SW_COL, .45, 2.5); }
+  }
+  if (!E) return null;
+  if (Math.random() < .35) P_(ar.x, ar.y, rand(-40, 40), rand(-40, 40), .3, 2, Math.random() < .5 ? SW_COL : '#9fe8ff', 'spark');
+  ar.htGo = E.id;   // flies past other archers and towers to its own target
+  const f = feet(E);
+  return { x: f.x, y: f.y };
+}
+/* drawing (host and guests) */
+function crystal(x, y, ang, len, w, a) {
+  const c = Math.cos(ang), s = Math.sin(ang), px = -s * w, py = c * w;
+  ctx.globalAlpha = a; ctx.fillStyle = 'rgba(205,238,255,.82)'; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.moveTo(x + px, y + py); ctx.lineTo(x + c * len * .82 + px * .6, y + s * len * .82 + py * .6); ctx.lineTo(x + c * len, y + s * len);
+  ctx.lineTo(x + c * len * .82 - px * .6, y + s * len * .82 - py * .6); ctx.lineTo(x - px, y - py); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = 'rgba(159,216,255,.9)'; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + c * len * .9, y + s * len * .9); ctx.stroke();
+}
+function drawCombo2() {
+  const t = st.t, k = Math.max(.6, sc);
+  for (const B of st.holes) {
+    const x = SX(B.x), y = SY(B.y);
+    if (B.stop) {
+      const R = TS_R * sc, a = clamp(Math.min(B.max - B.life, B.life) / .4, 0, 1);
+      ctx.save(); ctx.globalAlpha = a;
+      const g = ctx.createRadialGradient(x, y, R * .15, x, y, R);
+      g.addColorStop(0, 'rgba(207,230,255,0)'); g.addColorStop(.8, 'rgba(190,210,240,.16)'); g.addColorStop(1, 'rgba(220,235,255,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, R, 0, 6.283); ctx.fill();
+      ctx.strokeStyle = 'rgba(207,230,255,.8)'; ctx.lineWidth = 2.5 * k; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.arc(x, y, R * .92, 0, 6.283); ctx.stroke();
+      for (let i = 0; i < 12; i++) { const an = i / 12 * 6.283, r1 = R * (i % 3 ? .87 : .8); ctx.beginPath(); ctx.moveTo(x + Math.cos(an) * r1, y + Math.sin(an) * r1); ctx.lineTo(x + Math.cos(an) * R * .92, y + Math.sin(an) * R * .92); ctx.stroke(); }
+      const hA = -t * .9 - 1.57, mA = -t * 5 - 1.57;
+      ctx.lineWidth = 6 * k; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + Math.cos(hA) * R * .42, y + Math.sin(hA) * R * .42); ctx.stroke();
+      ctx.lineWidth = 3.5 * k; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + Math.cos(mA) * R * .7, y + Math.sin(mA) * R * .7); ctx.stroke();
+      ctx.setLineDash([10 * k, 14 * k]); ctx.lineDashOffset = t * 30; ctx.lineWidth = 2 * k; ctx.beginPath(); ctx.arc(x, y, R, 0, 6.283); ctx.stroke(); ctx.setLineDash([]);
+      ctx.restore();
+    }
+    if (B.white) {
+      const r = Math.max(4, B.r) * sc;
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r * 7);
+      g.addColorStop(0, 'rgba(255,255,255,.95)'); g.addColorStop(.25, 'rgba(255,200,250,.45)'); g.addColorStop(1, 'rgba(255,160,240,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r * 7, 0, 6.283); ctx.fill();
+      ctx.lineCap = 'round';
+      for (let i = 0; i < 14; i++) {
+        const an = i / 14 * 6.283 + t * .6, l2 = r * (4 + 1.6 * Math.sin(t * 5 + i));
+        ctx.strokeStyle = i % 2 ? 'rgba(255,255,255,.55)' : 'rgba(255,170,245,.45)'; ctx.lineWidth = 3 * k;
+        ctx.beginPath(); ctx.moveTo(x + Math.cos(an) * r * 1.4, y + Math.sin(an) * r * 1.4); ctx.lineTo(x + Math.cos(an) * l2, y + Math.sin(an) * l2); ctx.stroke();
+      }
+      for (let q = 0; q < 3; q++) { const u = (t * .9 + q / 3) % 1; ctx.strokeStyle = 'rgba(255,230,255,' + ((1 - u) * .6).toFixed(3) + ')'; ctx.lineWidth = 3 * k * (1 - u) + 1; ctx.beginPath(); ctx.arc(x, y, r + u * WH_R * sc, 0, 6.283); ctx.stroke(); }
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(x, y, r, 0, 6.283); ctx.fill();
+      ctx.restore();
+    }
+  }
+  for (const T of st.tornados) {
+    if (T.k !== 'confuse') continue;
+    const x = SX(T.x);
+    ctx.font = '700 ' + Math.round(16 * k) + 'px Silkscreen, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (let i = 0; i < 10; i++) {
+      const u = i / 10, h = 30 + u * 240, an = t * (4 + u * 2) + i * 1.3, rw = (14 + u * u * 66) * (T.w || 1);
+      ctx.globalAlpha = .55 + .45 * Math.sin(an); ctx.fillStyle = i % 3 === 0 ? '#fff36b' : i % 3 === 1 ? CONF_COL : '#ffffff';
+      ctx.fillText(i % 2 ? '?' : '★', x + Math.cos(an) * rw * sc, SY(-h) + Math.sin(an) * rw * .22 * sc);
+    }
+    ctx.globalAlpha = 1;
+  }
+  for (const a of cbAll()) {
+    if (!a || a.dead || a.swallowed) continue;
+    const f = feet(a), s = sizeOf(a);
+    if (a.tstop > 0) {
+      const x = SX(f.x), y = SY(f.y - 55 * s);
+      ctx.fillStyle = 'rgba(207,230,255,.2)'; ctx.strokeStyle = 'rgba(207,230,255,.6)'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.ellipse(x, y, 26 * s * sc, 62 * s * sc, 0, 0, 6.283); ctx.fill(); ctx.stroke();
+      const cx = x, cy = SY(f.y - 128 * s), r = 9 * k;
+      ctx.fillStyle = 'rgba(20,24,40,.7)'; ctx.beginPath(); ctx.arc(cx, cy, r, 0, 6.283); ctx.fill();
+      ctx.strokeStyle = TS_COL; ctx.lineWidth = 1.8; ctx.beginPath(); ctx.arc(cx, cy, r, 0, 6.283); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx, cy - r * .7); ctx.moveTo(cx, cy); ctx.lineTo(cx + r * .5, cy); ctx.stroke();
+    }
+    if (a.dizzyT > 0) {
+      const cx = SX(f.x), cy = SY(f.y - 118 * s);
+      ctx.strokeStyle = CONF_COL; ctx.lineWidth = 2; ctx.beginPath();
+      for (let th = 0; th < 12.6; th += .3) { const r = th * 1.1 * k, an = th - t * 7; const px = cx + Math.cos(an) * r, py = cy + Math.sin(an) * r * .45; th ? ctx.lineTo(px, py) : ctx.moveTo(px, py); }
+      ctx.stroke();
+    }
+  }
+  for (const ar of st.arrows) {
+    if (ar.done) continue;
+    if (ar.tsHold > 0 || ar.ts) { ctx.strokeStyle = 'rgba(207,230,255,.7)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(SX(ar.x), SY(ar.y), 14 * k, 0, 6.283); ctx.stroke(); }
+    const id = ar.swE || ar.sw;
+    if (id) {
+      const E = st.enemies.find(e => e.id === id);
+      if (!E || E.dead) continue;
+      const f = feet(E), x = SX(f.x), y = SY(f.y - 60 * sizeOf(E)), r = 22 * k;
+      ctx.save(); ctx.translate(x, y); ctx.rotate(t * 3); ctx.strokeStyle = SW_COL; ctx.lineWidth = 2.2;
+      for (let i = 0; i < 3; i++) { ctx.rotate(2.094); ctx.beginPath(); ctx.arc(0, 0, r, -.4, .4); ctx.stroke(); }
+      ctx.restore();
+    }
+  }
+  for (const F of st.cfx || []) {
+    const a = clamp(F.life / .5, 0, 1), gr = Math.min(1, F.t / .15);
+    if (F.ty === 'frost') {
+      const x = SX(F.x), y = SY(F.y);
+      for (let i = 0; i < 11; i++) crystal(x, y, i / 11 * 6.283 + hash(F.seed + i) * .4, (45 + hash(F.seed + i * 7) * 75) * gr * sc, 7 * k, a);
+      ctx.globalAlpha = 1;
+    } else if (F.ty === 'spikes') {
+      const x = SX(F.x), y = SY(F.y);
+      for (let i = 0; i < 7; i++) crystal(x + (i - 3) * 6 * sc, y, -1.571 + (i / 6 - .5) * 1.7, (50 + hash(F.seed + i * 3) * 60) * gr * sc, 8 * k, a);
+      ctx.globalAlpha = 1;
+    } else if (F.ty === 'cross') {
+      const x = SX(F.x), y = SY(F.y), s = 1 + Math.max(0, .2 - F.t) * 5, R = 26 * sc * s;
+      ctx.save(); ctx.globalAlpha = clamp(F.life / F.max * 1.5, 0, 1); ctx.strokeStyle = '#ff5a4e'; ctx.lineWidth = 2.5 * k;
+      ctx.beginPath(); ctx.arc(x, y, R, 0, 6.283); ctx.stroke();
+      for (let i = 0; i < 4; i++) { const an = i * 1.571; ctx.beginPath(); ctx.moveTo(x + Math.cos(an) * R * .45, y + Math.sin(an) * R * .45); ctx.lineTo(x + Math.cos(an) * R * 1.45, y + Math.sin(an) * R * 1.45); ctx.stroke(); }
+      ctx.fillStyle = '#ff5a4e'; ctx.beginPath(); ctx.arc(x, y, 2.5 * k, 0, 6.283); ctx.fill();
+      ctx.restore();
+    } else if (F.ty === 'tbomb') {
+      const x = SX(F.x), y = SY(F.y), r = 11 * k, hurry = 3 + (F.max - F.life) * 4;
+      ctx.save();
+      ctx.strokeStyle = '#7ad7ff'; ctx.lineWidth = 3 * k; ctx.globalAlpha = .8;
+      ctx.beginPath(); ctx.arc(x, y, r * 2.4, -1.571, -1.571 + 6.283 * clamp(F.life / F.max, 0, 1)); ctx.stroke(); ctx.globalAlpha = 1;
+      ctx.strokeStyle = '#c8b27a'; ctx.lineWidth = 2 * k; ctx.beginPath(); ctx.moveTo(x + r * .5, y - r * .8); ctx.quadraticCurveTo(x + r * 1.2, y - r * 1.8, x + r * 1.5, y - r * 1.5); ctx.stroke();
+      if (Math.random() < .7) P_(F.x + 16, F.y - 17, rand(-40, 40), rand(-60, 10), .25, 2, Math.random() < .5 ? '#ffd27a' : '#ff9a45', 'spark');
+      ctx.fillStyle = '#1b1822'; ctx.beginPath(); ctx.arc(x, y, r, 0, 6.283); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,.35)'; ctx.beginPath(); ctx.arc(x - r * .35, y - r * .35, r * .3, 0, 6.283); ctx.fill();
+      ctx.fillStyle = Math.sin(t * hurry * 3.14) > 0 ? '#ff3b3b' : '#5a1a1a'; ctx.beginPath(); ctx.arc(x, y + r * .15, r * .28, 0, 6.283); ctx.fill();
+      ctx.font = '700 ' + Math.round(17 * k) + 'px Silkscreen, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+      ctx.fillStyle = '#7ad7ff'; ctx.fillText(String(Math.max(1, Math.ceil(F.life))), x, y - r * 2.7);
+      ctx.restore();
+    }
+  }
+  ctx.globalAlpha = 1;
 }
 /* ---------- the undead (Craig 2026-11-18): anyone who comes back from the dead (Resurrection arrow, Second Wind) is a skeleton
    till the level ends and shoots undead arrows: BONE instead of plain, and the special arrows in the quiver turn undead ---------- */
@@ -2869,7 +3203,7 @@ function spawnTornado(x, dir, by, k = null) {
 function spawnHole(x, y, by, k = null) {
   st.holes.push({ x, y, life: 3.6, max: 3.6, r: 0, by, k, hitE: new Set() });
   st.flashA = .4; st.flashC = k ? rideOf(k)[0] : '60,20,90';
-  text(x, y - 50, (k ? RIDE_NAME[k] + ' ' : '') + 'BLACK HOLE', k ? rideOf(k)[1] : '#b07cff', 20, 1.4); sfx('void'); shake(8);
+  if (k !== 'confuse' && k !== 'slowmo') text(x, y - 50, (k ? RIDE_NAME[k] + ' ' : '') + 'BLACK HOLE', k ? rideOf(k)[1] : '#b07cff', 20, 1.4); sfx('void'); shake(8);
 }
 /* ---------- magnet arrow ---------- */
 // a magnet arrow sticks in where it lands; for a few seconds enemy arrows that fly near it bend in and get caught.
@@ -4027,6 +4361,8 @@ function updateVortices(dt) {
   st.tornados = st.tornados.filter(T => T.life > 0);
   for (const B of st.holes) {
     comboHole(B, dt);
+    if (B.stop) timeStop(B, dt);
+    if (B.white) { whiteHole(B, dt); continue; }
     B.life -= dt; B.r = Math.min(B.k === 'heavy' ? 48 : B.k === 'grow' ? 62 : 34, B.r + 80 * dt);
     if (B.life < .4) B.r *= .9;
     for (const E of FOES(B.by)) {
@@ -6669,13 +7005,16 @@ function update(rdt) {
     if (ar.tm && Math.random() < .25) P_(ar.x, ar.y, 0, 0, .5, 2, '#7ad7ff', 'spark');
     for (let i = 0; i < steps && !ar.done; i++) {
       if (ar.ret) { returnStep(ar, sdt); continue; }
+      if (ar.tsHold > 0) { ar.tsHold -= sdt; continue; }
       ar.vx += st.wind * sdt; ar.vy += G * sdt; ar.x += ar.vx * sdt; ar.y += ar.vy * sdt;
       if (ar.pk2 && isRail(ar)) railTrack(ar);
       if (ar.portT > 0) ar.portT -= sdt;
       if (ar.bounceT > 0) ar.bounceT -= sdt;
+      if (ar.pk2 && ar.owner && ar.owner.isP) comboFly(ar, sdt);
       if (hasPk(ar, 'homing') && ar.owner.isP && !ar.owner.helper) {
         let tg = htSteer(ar, sdt), bd = 520;
-        const hd = Math.sign(ar.vx) || 1, turn = tg ? 6 : 3;
+        if (!tg && comboOf(ar) === 'homing+triple') tg = swarmPick(ar);
+        const hd = Math.sign(ar.vx) || 1, turn = tg ? (ar.swE ? 10 : 6) : 3;
         if (!tg) for (const E of FOES(ar.owner)) { if (E.dead) continue; const f = feet(E), d = Math.hypot(f.x - ar.x, f.y - 60 - ar.y); if (d < bd && (f.x - ar.x) * hd > -40) { bd = d; tg = f; } }
         if (tg) {
           const cur = Math.atan2(ar.vy, ar.vx), want = Math.atan2(tg.y - 60 - ar.y, tg.x - ar.x), sp = Math.hypot(ar.vx, ar.vy);
@@ -7993,6 +8332,7 @@ function draw() {
   drawConfused(); drawGrowSlow();
   drawVortices();
   drawMeteors();
+  drawCombo2();
   drawBoulders();
   for (const g of st.gadgets) if (g.type === 'cloud') drawCloud(g);
   const ps = Math.max(.8, sc);
@@ -8097,6 +8437,7 @@ function drawVortices() {
     ctx.globalAlpha = 1;
   }
   for (const B of st.holes) {
+    if (B.white) continue;
     const x = SX(B.x), y = SY(B.y), r = B.r * sc, t = st.t;
     const lg = ctx.createRadialGradient(x, y, r, x, y, r * 4);
     const hc = B.k ? rideOf(B.k)[0] : '176,124,255';
@@ -9377,7 +9718,7 @@ function applySnap(m) {
   if (drag && !drag.spec && inPlay(st.P)) { st.P.aim = NET.myAim; st.P.pow = NET.myPow; st.P.f = Math.cos(st.P.aim) < 0 ? -1 : 1; }
   st.pinned = (m.pin || []).map(p => Object.assign(p, { g: p.gid ? NET.gads.get(p.gid) || null : null }));
   st.arrows = (m.ar || []).map(a => Object.assign(a, { owner: NET.objs.get(a.o) || { isP: false }, bx: a.x, by: a.y, bvx: a.vx, bvy: a.vy }));
-  st.tornados = m.tn || []; st.holes = m.bh || []; st.mags = m.mg || []; st.fires = m.fi || []; st.rocks = m.rk || []; st.planets = m.pq || []; st.storms = m.sk || []; st.gcfx = m.gx || []; st.fogT = m.fg || 0; if (m.cy) st.cy = m.cy; st.steams = m.sm || [];
+  st.tornados = m.tn || []; st.holes = m.bh || []; st.mags = m.mg || []; st.fires = m.fi || []; st.rocks = m.rk || []; st.planets = m.pq || []; st.storms = m.sk || []; st.gcfx = m.gx || []; st.fogT = m.fg || 0; if (m.cy) st.cy = m.cy; st.steams = m.sm || []; st.cfx = m.cx || [];
   st.boulders = (m.bo || []).map(R => Object.assign(R, { bx: R.x, by: R.y, bvx: R.vx, bvy: R.vy }));
   applyHorde(m);
   for (const e of st.enemies) if (e.flyer) { e.gx = e.x; e.gh = e.h; }
@@ -9424,6 +9765,7 @@ function guestTick(rdt) {
 // host: send a picture of the game about 15 times a second
 const SKIP_A = new Set(['home', 'swallow', 'tgt', 'lastBy', 'owner', 'offers', 'aiShots', 'aiT', 'vol', 'hit', 'via', 'shopBuys', 'shopSold', 'pingT', 'vr', 'vx', 'vy']);
 const SKIP_G = new Set(['cutBy', 'rainBy']);
+const CFX_SKIP = new Set(['by']);
 const isRef = v => v && typeof v === 'object' && !Array.isArray(v) && (v.stuck || v.type || v.pid || v instanceof Set);
 function pack(o, skip) {
   const r = {};
@@ -9452,7 +9794,7 @@ function netTick(rdt) {
   m.pl = st.players.map(packA); m.en = st.enemies.map(packA); m.hp = st.helpers.map(packA);
   m.gd = st.gadgets.map(g => pack(g, SKIP_G));
   m.pin = st.pinned.map(p => ({ x: p.x, y: p.y, ang: p.ang, col: p.col, gid: p.g ? p.g.id : 0 }));
-  m.ar = st.arrows.filter(a => !a.done).map(a => ({ tid: a.tid || (a.owner && a.owner.isP && !a.owner.helper ? (a.tid = ++uid) : 0), x: a.x, y: a.y, vx: a.vx, vy: a.vy, o: a.owner ? a.owner.id : 0, col: a.col, pk: a.pk, pk2: a.pk2, split: a.split, magic: a.magic, tm: a.tm, el: a.el, bz: a.bz || undefined, rock: a.rock || undefined, gc: a.gc || undefined }));
+  m.ar = st.arrows.filter(a => !a.done).map(a => ({ tid: a.tid || (a.owner && a.owner.isP && !a.owner.helper ? (a.tid = ++uid) : 0), x: a.x, y: a.y, vx: a.vx, vy: a.vy, o: a.owner ? a.owner.id : 0, col: a.col, pk: a.pk, pk2: a.pk2, split: a.split, magic: a.magic, tm: a.tsHold > 0 ? .01 : a.tm, el: a.el, bz: a.bz || undefined, rock: a.rock || undefined, gc: a.gc || undefined, sw: a.swE || undefined, ts: a.tsHold > 0 ? 1 : undefined }));
   m.hz = packHorde(); if (m.hz) m.mz = packMarchers();
   m.bo = (st.boulders || []).map(R => ({ x: R.x, y: R.y, vx: R.vx, vy: R.vy, r: R.r, spin: R.spin }));
   m.gx = (st.gcfx || []).map(F => ({ ty: F.ty, x: F.x, y: F.y, t: F.t, life: F.life, r: F.r, dir: F.dir, spin: F.spin, n: F.n, z: F.z, b: F.b ? F.b.filter(q => !q.out).map(q => [Math.round(q.x), Math.round(q.y), q.r, +q.spin.toFixed(2)]) : undefined, bid: F.by ? F.by.id : null }));
@@ -9466,6 +9808,7 @@ function netTick(rdt) {
   m.mg = (st.mags || []).map(M => pack(M, new Set(['owner', 'oids'])));
   m.fi = st.fires.map(f => ({ x: f.x, y: f.y, life: f.life }));
   m.sm = (st.steams || []).map(S => ({ x: S.x, y: S.y, life: S.life, r: S.r }));
+  m.cx = (st.cfx || []).map(F => pack(F, CFX_SKIP));
   const fresh = list => { const out = []; for (const o of list) if (!o._s) { o._s = 1; const c = Object.assign({}, o); delete c._s; out.push(c); } return out; };
   const fp = [];
   for (const p of st.parts) if (!p._s) { p._s = 1; fp.push([p.x, p.y, p.vx, p.vy, p.life, p.max, p.r, p.col || 0, p.kind || 0]); }
