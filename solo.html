@@ -1125,7 +1125,7 @@ function solve(from, tx, ty, flat) {
 function fire(a, ang, v, pk, pk2) {
   if (a.undead && !a.dead && !pk2) {   // a skeleton: plain = BONE, specials turn undead; risen helpers fire a random undead special every 3rd shot
     pk = undeadK(pk);
-    if (a.helper && pk === 'bone' && (a.uN = (a.uN || 0) + 1) % 3 === 0) pk = UNDEAD_SPECIAL[Math.floor(Math.random() * UNDEAD_SPECIAL.length)];
+    if ((a.helper || a.necro) && pk === 'bone' && (a.uN = (a.uN || 0) + 1) % 3 === 0) pk = UNDEAD_SPECIAL[Math.floor(Math.random() * UNDEAD_SPECIAL.length)];
   }
   const s = shoulder(a), has = k => pk === k || pk2 === k;
   const angs = has('triple') ? [ang - .06, ang, ang + .06] : [ang];
@@ -1456,6 +1456,7 @@ function kill(a, ar, z) {
     return;
   }
   a.hp = 0; a.dead = true; a.aiAim = null;
+  if (a.necro) necroFall(a, ar);
   if (a.helper) {
     a.vr = Math.sign(ar.vx) * rand(2.5, 4); a.vx = ar.vx * .12; a.vy = -120;
     text(feet(a).x, feet(a).y - 130, 'HELPER DOWN', '#3fd0c9', 16, 1.2); sfx('kill'); return;
@@ -2034,8 +2035,8 @@ const isUndeadK = k => !!k && !!POWERS[k] && !!POWERS[k].undead;
 const undeadK = k => k ? (UNDEAD_MAP[k] || k) : 'bone';   // plain arrows are BONE arrows
 // a quiver button shows the undead version of its arrow while you are a skeleton
 const undeadView = (o, A) => A && A.undead && o && !o.k2 && !o.gc && UNDEAD_MAP[o.k] ? Object.assign({}, o, { k: UNDEAD_MAP[o.k] }) : o;
-const uFoes = by => typeof FOES === 'function' ? FOES(by) : st.enemies;
-const uFoe = (ar, a) => !!a && a !== ar.owner && !a.dead && (!a.isP || !!(st.vs && vsFoe(a, ar.owner)));
+const uFoes = by => by && !by.isP ? [...PEOPLE(), ...st.helpers].filter(a => !a.dead && a.inLevel !== false) : typeof FOES === 'function' ? FOES(by) : st.enemies;
+const uFoe = (ar, a) => !!a && !!ar.owner && a !== ar.owner && !a.dead && (!!a.isP !== !!ar.owner.isP || !!(st.vs && a.isP && vsFoe(a, ar.owner)));
 function makeUndead(a) {
   if (!a || a.undead) return;
   a.undead = true;
@@ -2081,6 +2082,7 @@ function graspA(a) {
   const was = a.graspT > 0;
   a.graspT = Math.max(a.graspT || 0, a.boss ? GRASP_T / 2 : GRASP_T);
   if (!a.isP) { a.aiAim = null; a.pow = 0; }
+  else if (!a.helper) { if (st.players) a.reload = Math.max(a.reload || 0, a.graspT); else st.reload = Math.max(st.reload, a.graspT); }
   const f = feet(a);
   if (!was) text(f.x, f.y - 150, 'GRAVE GRASP!', BONE_COL, 15, 1.2);
   for (let q = 0; q < 12; q++) P_(f.x + rand(-20, 20), f.y, rand(-40, 40), rand(-120, -40), .5, rand(2, 3.5), '#6b5a40', 'smoke');
@@ -4742,14 +4744,15 @@ function crashShip(E) {
 
 /* ---------- bosses: SKY CAPTAIN (airship), OGRE (walks, throws boulders, clubs you), WIZARD KING (jumps tower to tower), HYDRA (heads grow back) ---------- */
 // each boss has a special move it charges up (hit it to stop it) and gets angry at half health (faster, calls 2 guards)
-const BOSSES = ['ship', 'spider', 'giant', 'worm', 'wizard', 'hydra'];
+const BOSSES = ['ship', 'spider', 'giant', 'worm', 'necro', 'wizard', 'hydra'];
 const BOSS_INFO = {
   ship: { name: 'SKY CAPTAIN', hp: 1.8, move: 'ARROW RAIN', col: '#ff5a4e' },
   giant: { name: 'OGRE', hp: 3, move: 'BOULDER STORM', col: '#ffd27a' },
   wizard: { name: 'WIZARD KING', hp: 1.6, move: 'FIREBALL BURST', col: '#ff9a45' },
   hydra: { name: 'HYDRA', hp: 1.8, move: 'ALL HEADS ATTACK', col: '#7dff9a' },
   spider: { name: 'SPIDER QUEEN', hp: 1.7, move: 'POUNCE', col: '#ff3b3b' },
-  worm: { name: 'SAND WORM', hp: 1.8, move: 'TOWER SMASH', col: '#e8c27a' }
+  worm: { name: 'SAND WORM', hp: 1.8, move: 'TOWER SMASH', col: '#e8c27a' },
+  necro: { name: 'NECROMANCER', hp: 1.7, move: 'RAISE THE DEAD', col: '#9dff8a' }
 };
 const bossTypeFor = lv => BOSSES[(Math.floor(lv / 5) - 1) % BOSSES.length];
 function makeBoss(e, bt, lv) {
@@ -4761,6 +4764,7 @@ function makeBoss(e, bt, lv) {
   else if (bt === 'hydra') hydraInit(e, round);
   else if (bt === 'spider') spiderInit(e);
   else if (bt === 'worm') wormInit(e);
+  else if (bt === 'necro') { e.kind = 'archer'; e.necro = true; e.undead = true; e.h = rand(130, 210); }
   else { e.kind = 'mage'; e.h = rand(90, 200); e.tpT = rand(6, 9); }
 }
 const bossFoes = () => [st.P, ...st.helpers].filter(a => !a.dead);
@@ -4770,6 +4774,7 @@ function bossStep(E, dt) {
   if (E.hydra) hydraStep(E, dt, !!E.bc);
   if (E.spider) spiderStep(E, dt, !!E.bc);
   if (E.worm) wormStep(E, dt, !!E.bc);
+  if (E.necro) necroStep(E, dt);
   if (E.dead) return true;
   if (!E.rage && E.hp <= E.max / 2) enrage(E);
   const C = E.bc;
@@ -4825,6 +4830,7 @@ function bossAttack(E, C) {
     shake(6);
   } else if (E.spider) spiderPounce(E, T);
   else if (E.worm) wormSmash(E, T);
+  else if (E.necro) necroRaise(E, E.rage ? 3 : 2);
   else if (E.hydra) {
     const live = E.heads.filter(h => h.t <= 0 && h.g >= 1);
     live.forEach((h, i) => hydraBreath(E, h, (i - (live.length - 1) / 2) * 1.6, T));
@@ -4837,8 +4843,88 @@ function bossAttack(E, C) {
     for (let q = n0; q < st.arrows.length; q++) { st.arrows[q].magic = true; st.arrows[q].dmgMul = 1.3; if (E.slowT > 0) st.arrows[q].tm = E.slowM; }
   }
 }
+/* ---------- NECROMANCER (Craig 2026-11-18): a hooded skeleton on a tower. He shoots undead arrows; RAISE THE DEAD brings fallen enemies back
+   as his skeletons and calls more out of graves; while they stand they feed him health; when he falls they all crumble ---------- */
+const NECRO_MAX = 5, NECRO_HEAL = 1.5, NECRO_COL = '#9dff8a';
+const necroMinions = E => st.enemies.filter(o => o.minion === E.id && !o.dead);
+function necroBeam(E, D, n) {
+  const a = feet(E), b = feet(D), m = n || 16;
+  for (let q = 0; q < m; q++) { const t = q / (m - 1); P_(b.x + (a.x - b.x) * t, b.y - 50 + (a.y - b.y) * t - Math.sin(t * Math.PI) * 80, 0, -10, .7, 2.6, q % 2 ? NECRO_COL : '#d8ffd0', 'spark'); }
+}
+// a skeleton climbs out of a grave
+function necroGrave(E, i) {
+  spawnGuard(E, i);
+  const g = st.enemies[st.enemies.length - 1];
+  Object.assign(g, { name: 'SKELETON', kind: 'archer', undead: true, minion: E.id, guard: false });
+  for (let q = 0; q < 16; q++) P_(g.x + rand(-20, 20), -4, rand(-60, 60), rand(-200, -60), rand(.5, .9), rand(3, 5), q % 2 ? '#6b5a40' : '#8a7a5a', 'smoke');
+  return g;
+}
+// his special move: every fallen archer on the field rises as his skeleton, then more climb out of graves (5 at most)
+function necroRaise(E, graves) {
+  const f = feet(E);
+  let n = 0;
+  for (const D of st.enemies.slice()) {
+    if (necroMinions(E).length >= NECRO_MAX) break;
+    if (D === E || !raisable(D)) continue;
+    Object.assign(D, { dead: false, rot: 0, vr: 0, dx: 0, dy: 0, vx: 0, vy: 0, headRed: 0, hitT: 0, burn: 0, frozen: 0, stun: 0, acidT: 0, confT: 0, webT: 0, aiAim: null, aiT: 1.5, pow: 0, deadT: 0, topple: 0 });
+    D.hp = Math.ceil(D.max * .5); D.undead = true; D.minion = E.id;
+    const d = feet(D); text(d.x, d.y - 150, 'RISEN!', NECRO_COL, 16, 1.4); raiseFX(d.x, d.y); necroBeam(E, D);
+    n++;
+  }
+  const k = Math.min(NECRO_MAX - necroMinions(E).length, graves);
+  for (let i = 0; i < k; i++) { necroBeam(E, necroGrave(E, i)); n++; }
+  text(f.x, bossTop(E) - 30, n ? 'RISE, MY ARMY!' : 'NO ONE ANSWERS…', NECRO_COL, 20, 1.6, 1);
+  st.flashA = .18; st.flashC = '120,255,120'; sfx('void');
+}
+function necroEnrage(E) {
+  const f = feet(E);
+  text(f.x, bossTop(E) - 40, 'THE DEAD WILL NOT REST!', NECRO_COL, 22, 1.8, 1); shake(10); sfx('boom');
+  ring(f.x, f.y - 55 * sizeOf(E), 120, NECRO_COL, .7, 5);
+  necroRaise(E, 3);
+}
+// his skeletons feed him: 1.5 health a second each
+function necroStep(E, dt) {
+  const M = necroMinions(E);
+  if (!M.length || E.hp >= E.max) return;
+  E.hp = Math.min(E.max, E.hp + NECRO_HEAL * M.length * dt);
+  if (!E.feedSaid) { E.feedSaid = 1; text(feet(E).x, bossTop(E) - 50, 'HIS SKELETONS HEAL HIM: KNOCK THEM DOWN!', NECRO_COL, 14, 2.4); }
+}
+// he falls: his skeletons crumble to dust
+function necroFall(E, ar) {
+  for (const D of necroMinions(E)) {
+    const f = feet(D);
+    for (let q = 0; q < 18; q++) P_(f.x + rand(-14, 14), f.y - rand(0, 90), rand(-60, 60), rand(-120, 10), rand(.5, .9), rand(2.5, 4), q % 2 ? 'rgba(239,230,210,.85)' : 'rgba(150,140,120,.8)', 'smoke');
+    text(f.x, f.y - 120, 'CRUMBLES!', BONE_COL, 13, 1.2);
+    D.hp = 0; kill(D, ar || { vx: 1 }, 'body');
+  }
+}
+// green glow round him, and soul trails from his skeletons while they heal him
+function necroFX(E) {
+  const f = feet(E), k = sizeOf(E), x = SX(f.x), y = SY(f.y - 55 * k), r = 70 * k * sc, al = .22 + .08 * Math.sin(st.t * 3);
+  const g = ctx.createRadialGradient(x, y, 4, x, y, r);
+  g.addColorStop(0, `rgba(157,255,138,${al.toFixed(3)})`); g.addColorStop(1, 'rgba(157,255,138,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, 6.283); ctx.fill();
+  if (E.hp >= E.max) return;
+  ctx.save(); ctx.strokeStyle = 'rgba(157,255,138,.5)'; ctx.lineWidth = 2 * sc; ctx.setLineDash([6 * sc, 7 * sc]); ctx.lineDashOffset = -st.t * 40 * sc;
+  for (const D of necroMinions(E)) {
+    const d = feet(D), dx = SX(d.x), dy = SY(d.y - 50 * sizeOf(D));
+    ctx.beginPath(); ctx.moveTo(dx, dy); ctx.quadraticCurveTo((dx + x) / 2, Math.min(dy, y) - 90 * sc, x, y); ctx.stroke();
+  }
+  ctx.restore();
+}
+// his ragged robe (archer frame: feet at 0,0)
+function drawNecroRobe(a) {
+  const sw = Math.sin(st.t * 2.4 + a.id) * 2;
+  ctx.fillStyle = '#2a1840'; ctx.strokeStyle = '#120a1c'; ctx.lineWidth = 1.4; ctx.lineJoin = 'round';
+  ctx.beginPath(); ctx.moveTo(-6, -72); ctx.lineTo(6, -72); ctx.lineTo(14 + sw, -8);
+  for (let i = 1; i <= 6; i++) ctx.lineTo(14 + sw - i * 28 / 6, i % 2 ? -1 : -9);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = 'rgba(157,255,138,.55)'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(0, -70); ctx.lineTo(sw * .5, -8); ctx.stroke();
+  ctx.fillStyle = '#5a3a7a'; ctx.fillRect(-8, -46, 16, 3);
+}
 function enrage(E) {
   E.rage = true;
+  if (E.necro) { necroEnrage(E); return; }
   const f = feet(E);
   text(f.x, bossTop(E) - 40, 'ENRAGED!', '#ff5a4e', 24, 1.8); shake(10); sfx('boom');
   ring(f.x, f.y - 55 * sizeOf(E), 120, '#ff5a4e', .7, 5);
@@ -5024,7 +5110,8 @@ function drawBossFX() {
       g.addColorStop(0, '#ff3a2a'); g.addColorStop(1, 'rgba(255,58,42,0)');
       ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, 6.283); ctx.fill(); ctx.restore();
     }
-    if (E.btype !== 'wizard' && !E.hydra && !E.beast && !E.rot) {
+    if (E.necro) necroFX(E);
+    if (E.btype !== 'wizard' && !E.necro && !E.hydra && !E.beast && !E.rot) {
       const s = sc * k, cx = x, cy = SY(f.y - 93 * k);
       ctx.fillStyle = '#ffd27a'; ctx.strokeStyle = '#8a6a1a'; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(cx - 9 * s, cy); ctx.lineTo(cx + 9 * s, cy); ctx.lineTo(cx + 9 * s, cy - 9 * s); ctx.lineTo(cx + 4.5 * s, cy - 4 * s);
@@ -6821,6 +6908,7 @@ function drawArrowShape(len, col) {
 }
 /* ---------- characters: a hat for each type, a face, and little speech bubbles ---------- */
 function hatKind(a) {
+  if (a.necro) return 'hood';
   if (a.isP && !a.helper) return 'you';
   if (a.kind === 'crossbow') return 'xbow';
   if (a.kind === 'mage') return 'mage';
@@ -6850,6 +6938,11 @@ function drawHat(a, band) {
     const kx = -9 * s, ky = -3 * s;
     hLine([[kx, ky], [kx - 7 * s, ky + 2 * s + w], [kx - 13 * s, ky + 1 * s + w * 1.6]], 2.6 * s, '#d4322c');
     hLine([[kx, ky + 1 * s], [kx - 6 * s, ky + 6 * s - w], [kx - 10 * s, ky + 9 * s - w * 1.4]], 2.4 * s, '#a8261f');
+  } else if (k === 'hood') {   // the Necromancer's deep, ragged hood (the skull's face stays in the opening)
+    ctx.fillStyle = '#2a1840'; ctx.strokeStyle = '#120a1c'; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(12, -8); ctx.quadraticCurveTo(6, -19, -6, -16); ctx.quadraticCurveTo(-14, -13, -21, -4 + w);
+    ctx.lineTo(-14, -2); ctx.quadraticCurveTo(-15, 8, -10, 15); ctx.lineTo(-6, 14); ctx.quadraticCurveTo(-9, 2, -6, -8); ctx.quadraticCurveTo(2, -13, 10, -8); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = 'rgba(157,255,138,.6)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(-6, 13); ctx.quadraticCurveTo(-9, 2, -6, -8); ctx.quadraticCurveTo(2, -13, 10, -8); ctx.stroke();
   } else if (k === 'crown') {   // gold crown with red jewels
     ctx.fillStyle = '#ffd27a'; ctx.beginPath(); ctx.moveTo(-9 * s, -3 * s); ctx.lineTo(-10 * s, -15 * s); ctx.lineTo(-5 * s, -9 * s); ctx.lineTo(0, -17 * s); ctx.lineTo(5 * s, -9 * s); ctx.lineTo(10 * s, -15 * s); ctx.lineTo(9 * s, -3 * s); ctx.fill();
     ctx.fillStyle = '#c99a2e'; ctx.fillRect(-9 * s, -5 * s, 18 * s, 2.4 * s);
@@ -7029,7 +7122,7 @@ function drawArcher(a) {
   ctx.strokeStyle = '#f2f2f2'; ctx.lineWidth = 1.6;
   for (const k of [-2, 0, 2]) { ctx.beginPath(); ctx.moveTo(k, -14); ctx.lineTo(k * 1.6, -22); ctx.stroke(); }
   ctx.restore();
-  if (a.undead) { drawSkelBody(a, lg); drawHat(a, band); }
+  if (a.undead) { drawSkelBody(a, lg); if (a.necro) drawNecroRobe(a); drawHat(a, band); }
   else {
   ctx.strokeStyle = ink; ctx.lineWidth = 6;
   ctx.beginPath(); ctx.moveTo(0, -40); ctx.lineTo(-9 + lg, 0); ctx.moveTo(0, -40); ctx.lineTo(9 - lg, 0); ctx.stroke();
@@ -8581,7 +8674,7 @@ function setupPractice() {
   camX = homeCam();
 }
 // fight any boss in the practice range (you can't die here)
-const PRAC_BOSS = ['ship', 'spider', 'giant', 'worm', 'wizard', 'hydra'], PRAC_BOSS_ICO = { ship: '🎈', giant: '👹', wizard: '🧙', hydra: '🐉', spider: '🕷️', worm: '🪱' };
+const PRAC_BOSS = ['ship', 'spider', 'giant', 'worm', 'necro', 'wizard', 'hydra'], PRAC_BOSS_ICO = { ship: '🎈', giant: '👹', wizard: '🧙', hydra: '🐉', spider: '🕷️', worm: '🪱', necro: '💀' };
 const PRAC_BOSS_DESC = { ship: 'Flies about. Pop the balloon 6 times to crash it', giant: 'Walks at you, throws boulders, swings a club. Shoot the boulders!',
   spider: 'Hangs on silk, spits web, pounces, webs your quiver and spins nets. Lob onto her red hourglass. Fire burns webs',
   worm: 'Burrows, smashes your tower, spits acid, whips its tail, sprays sand. Shoot inside its open mouth (explosive = boom inside)',
@@ -8592,7 +8685,7 @@ function practiceBoss(bt) {
   for (const ar of st.arrows) if (ar.owner !== st.P) ar.done = true;
   if (st.P.home) { st.P.x = st.P.home.x; st.P.h = st.P.home.h; st.P.home = null; }
   st.P.stickT = 0; st.P.sandT = 0;
-  const e = mkArcher({ ship: 1300, giant: 1650, wizard: 1300, hydra: 1450, spider: 1250, worm: 1350 }[bt], rand(90, 160), -1, Math.round((50 + st.level * 8) * BOSS_INFO[bt].hp), false, 54);
+  const e = mkArcher({ ship: 1300, giant: 1650, wizard: 1300, hydra: 1450, spider: 1250, worm: 1350, necro: 1300 }[bt], rand(90, 160), -1, Math.round((50 + st.level * 8) * BOSS_INFO[bt].hp), false, 54);
   e.name = 'BOSS'; e.boss = true; e.chops = []; e.kind = 'archer'; e.aiT = 2.5;
   makeBoss(e, bt, (PRAC_BOSS.indexOf(bt) + 1) * 5);
   st.enemies.push(e);
